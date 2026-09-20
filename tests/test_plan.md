@@ -1,0 +1,295 @@
+# Real-World Test Plan — steady-py
+
+Goal: determine whether the tool actually works on real notebooks in real environments, not just whether it runs without crashing. Ordered by cost vs. value. Do each phase fully (or as far as time allows) before moving to the next; don't spread thin across all phases at once.
+
+Log findings as you go:
+
+- Anything that looks like a bug → new entry in `development.md` under "Known bugs," same format as existing entries (what's wrong, where, real-notebook evidence).
+- Any import that gets flagged "missing" but obviously shouldn't be → note the import name and correct PyPI name; these get folded into `IMPORT_TO_PYPI_MAP`.
+- Any environment/path combination you _didn't_ get to → note it explicitly so it's not silently assumed covered later.
+
+Known open issue, unrelated to this plan: `test_atomic_last_wins_replaces_all_fields_indivisibly` currently fails (fires 2 conflict warnings instead of 1). This is the index-url conflict detection gap already tracked in `development.md`, not something to chase during environment testing.
+
+**Coverage snapshot**: ~92% before the Docker-based e2e suite (Phases 5f/5g/5k/7) runs, ~95% overall including it. Approximate, from `pytest --cov`; not independently re-verified line-by-line, worth a fresh check periodically rather than treated as a fixed number.
+
+---
+
+## Phase 0 — Interactive-session mechanics (done)
+
+These don't depend on any cloud environment and are now covered by regression tests, added after the Kaggle paste-run session surfaced two bugs that Phases 1–4 below would never have caught (they test analysis correctness, not kernel-session mechanics):
+
+- [x] `sys.argv` contamination from `ipykernel_launcher.py -f <connection.json>` incorrectly populating `args.notebook` and hijacking Path A instead of Path B — `test_argv_contamination_from_ipykernel_launcher_clears_notebook_arg`
+- [x] Duplicate stderr log handlers from re-running the module in the same live kernel — `test_logger_handler_configuration_prevents_duplicate_logging`
+- [x] `__main__.In` history extraction correctly filters out steady-py's own source/invocation cells — `test_live_kernel_history_self_introspection_filter`
+
+Keep this class of test in mind going forward: any bug discovered via manual paste-and-run in Phase 1 that turns out to be a kernel/session mechanic (not a package or hardware correctness issue) belongs here, as a cheap local regression test, before it belongs in Phase 1's environment matrix.
+
+---
+
+## Phase 1 — Environment smoke tests (cheap, do first)
+
+Goal: confirm the tool runs correctly and reports honestly in each environment, before investing time in deeper testing. "Looks right" bar, not exhaustive. For each row, both A (CLI on a saved file) and B (live paste-run, `ne.main()` in a cell) should be checked — B is what actually caught the Phase 0 bugs, don't skip it in favor of A alone.
+
+| Environment                            | Path(s)                                          | What to specifically check                                                                                                                                                                                                                   | Priority                                           |
+| -------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Kaggle (GPU notebook)                  | A + B                                            | `torch.cuda.is_available()` reports correctly against real CUDA; hardware-tag warning fires if the notebook has a `+cu121`-style pin                                                                                                         | High                                               |
+| Kaggle (CPU-only notebook)             | A + B                                            | GPU section correctly _absent_ from output (honest omission, not silently wrong); confirm no repeat of the argv/logger issues on a second paste-run in the same kernel                                                                       | High                                               |
+| Colab                                  | A + B                                            | `google.colab` tagged as a platform pseudo-module, not reported as missing — **not yet confirmed on a real Colab notebook**, only Kaggle/Databricks have real-world confirmation so far. This is the biggest untested gap right now.         | High                                               |
+| Local Mac (M1)                         | A + B                                            | Torch MPS path (`torch.backends.mps.is_available()`) against real hardware, not a mock — currently only test-mocked; also confirm the "imports torch, no GPU available" honest-negative case                                                 | High                                               |
+| GTX 1080 machine (if still accessible) | A + B                                            | Real CUDA detection (CI/test environment can't exercise this at all); best chance of a genuine hardware-tagged (`+cu121`) real notebook to confirm that warning against real data                                                            | Medium — do if available, don't go out of your way |
+| Databricks                             | A + B, plus `--batch` if you have a repo of them | If any notebooks are `.py` source-export format (not `.ipynb`) — confirm the tool fails **obviously and clearly**, not silently mis-parses. Not supported by design; a confusing failure would be worse than a clean "not supported" message | Medium                                             |
+
+**Pass/fail bar:** for each cell, either (a) output looks correct and matches what you'd expect from reading the notebook, or (b) you've found something wrong and logged it. "I didn't check closely" isn't a pass, note it as untested instead.
+
+**Update:** the GPU/Kaggle/Mac rows above test whether real hardware is _present_; they don't test whether the tool's detection and code-generation logic is _correct_, which turns out not to need real hardware at all — see Phase 5f. Real-hardware confirmation above is still valuable (it's the only way to test the actual detection call against real CUDA/MPS/TPU), but it's no longer the only way to exercise this code path, and Phase 5f can run today without waiting on Kaggle GPU quota or Mac access.
+
+---
+
+## Phase 2 — Batch mode across your collections (substantially run)
+
+Run `--batch` (analysis mode, then `--universal`, then `--output`/`--in-place`) across each of your existing notebook collections (course material, personal notebooks, whatever repos you have on hand).
+
+For each collection:
+
+- [x] Batch analysis report — run across the full 130-notebook corpus plus targeted subdirectories (`big_data`, `databricks`, `datashader`). Surfaced several real bugs (GPU probe crash, harvested-name duplication, false-positive local names, `pip` self-reference, `python-dotenv` annotation inconsistency) — see `development.md`, most now fixed.
+- [x] `--universal` manifest — spot-checked, same findings as above (the manifest and console report share the underlying duplication bug, now fixed).
+- [x] `--output`/`--in-place` — spot-checked across `big_data`; surfaced the non-idempotent-write bug (now fixed) and the directory-pollution problem that led to `--output-dir` being built.
+
+Mostly surface-level sanity, catching what Phase 1's individual-file testing wouldn't reveal (cross-notebook issues, repo-structure issues). This phase did most of the actual bug-finding work this round, more than Phase 3 below managed to, since Phase 3's diff got sidetracked into the idempotency bug before completing a clean comparison.
+
+---
+
+## Phase 3 — Batch-vs-single-file consistency (attempted, not completed as designed)
+
+Tests whether batch mode and single-file mode agree with each other, the fastest way to catch the class of bug this project has run into repeatedly (stale caching, cross-notebook contamination, wrong attribution).
+
+1. **Pick a stratified sample** of 10–15 notebooks from your batch collections:
+   - [ ] At least 2–3 GPU notebooks (mix of frameworks if available — torch, tensorflow)
+   - [ ] At least 1–2 notebooks with local sibling modules (repo-relative imports)
+   - [ ] At least 1 notebook with a hardware-tagged package, if you have one
+   - [ ] A few plain/boring notebooks as a baseline
+2. **Run each sampled notebook individually** via single-file `--output`.
+3. **Separately run `--batch --output`** over the entire collection containing those files.
+4. **Diff the generated companion notebooks** for the sampled files between the two runs.
+5. **Classify every difference**: expected/explainable → note and move on; unexplained → real bug, log it with the specific notebook and diff.
+
+**What actually happened**: a first attempt at step 3–4 (running single-file `--output` against an already-merged `model_training_merged.ipynb` rather than the original) surfaced the `apply_output_to_notebook` idempotency bug directly, valuable, but this wasn't the clean-diff comparison the phase was designed to produce, and the stratified sample above was never actually assembled or run properly. **Still genuinely open.** Given Phase 5c below is building a reusable version of this exact test, it may make more sense to do this phase via that automation once built, rather than repeating it by hand now — your call.
+
+**Pass bar:** every difference is identical or explainable. Zero unexplained diffs.
+
+---
+
+## Phase 4 — End-to-end reproducibility test (expensive, do last, don't skip)
+
+This is the test that validates the tool's actual claim rather than just its output's plausibility. Everything above checks "does this look right"; this checks "does the generated Cell 2 actually produce a working environment." Confirm each notebook's full loop: generate → paste/append Cell 2 → **execute Cell 2** → confirm the notebook runs. Generating a plausible-looking Cell 2 isn't a pass by itself.
+
+1. **Pick a small stratified sample** — 5–10 notebooks:
+   - [ ] 1–2 simple/boring notebooks (low-risk baseline)
+   - [ ] 1 guarded-import-heavy notebook (tests whether the guarded-import messaging is sufficient for someone to self-serve)
+   - [ ] 1–2 GPU notebooks (best done directly on Kaggle, the only environment where you can validate against a fresh, non-preloaded container)
+   - [ ] 1 notebook with a hardware-tagged package, if available
+2. **For each notebook**: generate the manifest, install it into a genuinely **clean/minimal container**, explicitly not a full Kaggle-image container, which would mask an incomplete manifest by already having everything pre-installed.
+3. **Run the notebook** against that clean install and confirm it completes.
+4. **Record pass/fail per notebook**; for failures, root-cause as manifest-generation bug vs. genuinely unfixable gap (e.g. a platform-specific setup step the tool can't know about, or a plugin/backend-selection dependency invisible to any static import scan — see Phase 5j's `holoviews`/`bokeh` finding for a concrete confirmed example of this category).
+
+**Pass bar:** a majority of the sample runs clean off the generated manifest alone. Every failure gets root-caused, not just marked "didn't work."
+
+**Clarification — full reproducibility isn't achievable as a binary pass/fail, and this is structural, not a testing shortfall.** Package installation is only part of what makes a real notebook run: many real notebooks depend on external data (Kaggle datasets, private buckets, credentials) Cell 2 was never meant to acquire, some need GPU-scale time to complete, some pin old CUDA-tagged wheels that have since vanished from any index. The next-best-thing isn't a bigger reproducibility test, it's automating the mechanical part (generate → install → execute, unattended) across a much larger slice of the corpus than hand-testing allows, while keeping triage manual: bucket every failure by cause (tool bug / missing external data / environment no longer resolvable / timeout) instead of collapsing to a pass/fail percentage. A number like "73% reproduced clean" is close to meaningless without that breakdown. See 5k for a way to make the _mechanism_ itself (as opposed to arbitrary real packages) fully reproducible and airtight, which is a narrower but achievable version of this claim.
+
+---
+
+## Phase 4.5 — Structural fixture testing (done by hand, ready to automate)
+
+Separate from the organic corpus above: four purpose-built directory structures (`build_test_structures.py`) targeting specific structural questions the organic corpus doesn't reliably exercise — subdirectory helpers (both package-style and `sys.path.append`-style), root-level helper resolution, `--output-dir` duplicate-stem collision avoidance, and relative-asset mirroring. All four run and checked by hand; see `development.md` for exact findings (three confirmed working as designed or fixed, one — `sys.path.append` — confirmed real but narrow and deliberately deferred). Ready to convert into pytest fixtures, this is Phase 5b below, since what "correct" means for each case is already fully decided.
+
+---
+
+## Phase 5 — Automation infrastructure
+
+Not a substitute for Phases 1–4's human judgment calls, several pass bars there are "does this look right," not just exit-code checks. This phase exists because hand-testing has already found real bugs the unit suite couldn't (argv contamination, duplicate handlers, non-idempotent writes, unmerged package names across code paths), confirming the unit suite alone isn't sufficient, but hand-testing itself doesn't scale as the primary ongoing method going forward. Goal: convert what's already been verified by hand into something that runs unattended and catches regressions automatically.
+
+### 5a — `--format json` output mode (dual-purpose)
+
+Design and build a machine-readable output mode, generated from the _same_ internal report structure the console output already builds, not a second independent computation. This is the single most important constraint on this item: this project has repeatedly hit the "two code paths compute the same answer slightly differently and drift apart" bug (GPU attribution, harvested-name normalization, the skip-suffix/managed-metadata inconsistency), and a JSON serializer built as a separate pass over the same data would be the same failure mode again. One report object, two renderers.
+
+This is genuinely dual-purpose, not just test scaffolding:
+
+- **Test infra**: every downstream automation piece (structural fixtures, batch-vs-single diff, corpus goldfiles) can assert on parsed fields instead of string-matching formatted console text with emoji and wrapped prose, far less brittle to cosmetic wording changes.
+- **Real product feature**: gives users a way to wire this into CI/release automation without parsing human-formatted output, worth documenting in README once it exists, not just `development.md`.
+
+Not blocking — build in parallel with 5b below, since 5b's fixtures are already fully specified against current output and don't need to wait.
+
+### 5b — Structural fixtures → pytest
+
+Convert `build_test_structures.py`'s four cases (see Phase 4.5) into `tmp_path`-based pytest fixtures: build structure → run CLI via `subprocess.run` → assert on output. Already fully specified since you validated by hand exactly what each case should assert — mechanical, not exploratory, at this point. Cheapest item in this phase, do first regardless of 5a's progress.
+
+### 5c — Batch-vs-single-file diff helper
+
+Generalize Phase 3's diff test (attempted, not completed by hand — see above) into a reusable `assert_batch_matches_single_file(fixture_dir)` function: run batch `--output` and single-file `--output` over the same notebook, diff the results, fail on unexplained differences. Once 5a exists, this should diff parsed JSON structures rather than raw notebook-cell text — semantic diffing is easier to classify programmatically (which field changed) than a raw text diff. This is also the natural way to finally close out Phase 3 properly, rather than repeating it by hand.
+
+### 5d — Idempotency harness
+
+Generalize what's been checked by hand for `--output`/`--in-place`/`--output-dir`: run each mode twice against the same fixture, assert exactly one managed cell survives, no stacking. Directly encodes the idempotency bug already found and fixed (see `development.md`), so it's also the harness's own first regression test.
+
+### 5e — Corpus snapshot-regression testing (real notebook corpus, 147 and growing)
+
+**Terminology correction:** this is snapshot-regression testing, not goldfile testing — the distinction matters and both are worth having (see 5i below). A goldfile is hand-verified: a human decided a specific output is correct, on purpose, for a specific input. This is not that — it has no independently-verified "correct" answer baked in, it only flags _drift_ from whatever the tool produced last time. That's still valuable, just a different claim: "did anything change" rather than "is this right."
+
+Snapshot-testing pattern, not a hardcoded-assertion pattern: save known-good output (ideally JSON, once 5a exists) as snapshots, diff future runs against them, flag any difference for review rather than auto-failing or auto-passing. When a change is intentional (a fix like the normalization bug, or `IMPORT_TO_PYPI_MAP` growing), regenerate the snapshot and review that diff like any other code change before committing it, the same discipline already used for reviewing real code changes in this project. When a difference shows up that wasn't expected from anything you changed, that's a regression, not a snapshot update. Separate from the pytest suite proper given the corpus's size and gitignored status — run periodically (pre-release, or on demand), not on every commit.
+
+### Sabotage-testing the harness itself
+
+Before trusting any of 5b–5e as a safety net, deliberately reintroduce a fixed bug (the argv contamination or the idempotency bug are good candidates, both well-understood) and confirm the relevant test actually fails. `development.md` already documents doing exactly this for the memoize decorator; worth the same discipline here given how often "the existing suite didn't catch it" has turned out to be true for this project.
+
+### Suggested build order
+
+1. **5b** (structural fixtures) — cheapest, fully specified, no dependencies.
+2. **5a** (`--format json`) — design and build in parallel with 5b; unblocks better versions of 5c/5e.
+3. **5j** (corpus inventory) — cheap, and should inform everything below it rather than run last; do early so its findings can still reshape priorities.
+4. **5g** (live-kernel automation, including the stale-module-after-repin scenario) — has proven historical bug yield (Phase 0's three bugs); worth prioritizing above despite being scoped after the original build order was set.
+5. **5d** (idempotency harness) — straightforward once 5b's fixture-building pattern exists.
+6. **5c** (batch-vs-single diff) — build against text output if 5a isn't ready yet; migrate to JSON once it is. Also finally closes out Phase 3.
+7. **5f** (hardware/accelerator mocking) — no dependencies on the others, can run in parallel with any of the above.
+8. **5k** (self-owned deterministic test package) — no dependencies; unblocks the hardware-tag and install-timeout scenarios it describes.
+9. **5h** (conda / network-restricted / read-only / encoding) — no dependencies, sequence relative to actual user-base risk (5j's findings may reprioritize this).
+10. **5i** (true goldfiles) — small and cheap per-item, but low urgency; do opportunistically alongside whichever feature it's documenting.
+11. **5e** (corpus snapshot-regression) — last, benefits most from 5a existing first, and is the least urgent to run frequently.
+
+Deviate from this order if something learned along the way argues for it — this is a starting sequence, not a commitment.
+
+### 5f — Hardware/accelerator mocking in Docker (no real hardware needed)
+
+Confirmed against source: `inspect_gpu_environment` (and the per-framework `probe_torch_gpu`/`probe_tensorflow_gpu`/`probe_jax_gpu` functions) run entirely at **generation time**, and their result is baked into a **static markdown section** in Cell 1 — not a live check embedded in the generated executable Cell 2. This means the code path that matters (detect hardware → correctly document it) can be fully exercised without any real GPU/TPU/MPS at all. We only need the exact library calls each probe makes to return "found," which is a small, precise surface:
+
+- **torch**: `torch.cuda.is_available()` → `True` plus `torch.cuda.get_device_name(0)` → a string (CUDA path), or `torch.backends.mps.is_available()` → `True` (Apple Silicon MPS path)
+- **tensorflow**: `tf.config.list_physical_devices('GPU')` → non-empty list, `tf.config.experimental.get_device_details(...)` → a dict with `device_name`
+- **jax**: `jax.devices()` → objects with `.platform` in `("gpu", "tpu", "metal")` and a `.device_kind`
+
+Each is fakeable with a tiny stub package a few lines long — no multi-GB real ML library installs needed. One wrinkle: the notebook must actually `import <framework>` for `inspect_gpu_environment` to probe it at all (gated by `SUPPORTED_GPU_FRAMEWORKS.intersection(expanded_imports)`), and for the framework to get a real `DEPENDENCIES` entry (rather than falling into the comment-only fallback for "not currently installed" packages — see Phase 7 below), the stub needs real package metadata, not just an importable `.py` file: `importlib.metadata.version('torch')` must resolve, so build it as an actual trivial wheel or `pip install -e` it, not just drop it on `PYTHONPATH`.
+
+This effectively gives Docker-based e2e coverage of **CUDA, Apple Silicon MPS, TensorFlow GPU, and JAX GPU/TPU/Metal detection** — every hardware permutation Phase 1 currently marks "needs real hardware" — as a code-generation-correctness test, distinct from (and much cheaper than) actually running compute on that hardware.
+
+**Suggested first step:** build one stub (fake `torch`, CUDA path) as a proof of concept, confirm it flows through to the generated `gpu_markdown_section` text, before generalizing to MPS/TensorFlow/JAX.
+
+**Still needs real hardware:** the actual correctness of `torch.cuda.is_available()` itself against real silicon — this only tests that _steady-py_ does the right thing _given_ a hardware signal, not that the signal-producing libraries are right. That's still Phase 1's job, just no longer the only way to exercise this code.
+
+### 5g — Live-kernel / interactive-session automation (highest proven value)
+
+Every e2e fixture built so far (Phase 7 below included) uses `jupyter nbconvert --execute`, which only performs clean, linear, one-shot execution. Real usage isn't linear: run a cell, edit it, rerun out of order, restart the kernel, rerun a single cell. Phase 0 already found three real bugs this exact way (argv contamination, duplicate log handlers, kernel-history self-introspection) — bugs that no amount of nbconvert-based e2e testing could ever catch, because nbconvert structurally can't represent "the same kernel already ran this once." This is the single gap on this list with _proven_ historical bug yield, currently only exercised by hand.
+
+This is fully automatable, no hardware needed: use `jupyter_client`'s `KernelManager`/`BlockingKernelClient` to start a real kernel inside the container and drive it via the Jupyter messaging protocol directly — send `execute_request` messages in whatever order the test wants (rerun cell 2 twice, run cell 3 before cell 1, restart and rerun only cell 2), inspect `iopub` messages for outputs/errors. This converts Phase 0's manual-paste-and-run discovery method into a repeatable regression harness, rather than relying on catching this class of bug by hand again in the future.
+
+**Priority:** given the proven bug yield, this should be sequenced ahead of 5c/5e in practice, even though it's new scope not in the original build order.
+
+**Added scenario — stale-module-after-repin (from external review, correctly rescoped):** initial critique framed this as a Phase 4 gap ("does a kernel restart get triggered/required after install"), but Phase 4's flow doesn't have this risk — Cell 2 sits at the top of a fresh kernel, before anything's been imported, so there's no stale `sys.modules` entry to worry about; every nbconvert-based fixture already implicitly confirms this. The real risk is exactly a live-kernel session mechanic: a reader who's already imported a package interactively, then re-runs Cell 2 later to fix a bad pin. Concrete scenario for this harness: import a package in the live kernel first, run the setup cell re-pinning it to a version with new-only behavior, then attempt that behavior in a later cell in the _same_ session — confirm it fails/behaves as stale, and confirm pip's own `"Note: you may need to restart the kernel..."` advisory (already confirmed passing through the setup cell's subprocess-output capture unmodified, in captured real output) is actually present, not swallowed. Mechanistically distinct from `test_e2e_failed_repin_surfaces_downstream` (successful install + stale loaded module, vs. a failed install), so a separate scenario rather than folded into that fixture. **Independent corpus confirmation**: a real notebook's stored cell output shows `!pip install pykeops` followed by `ModuleNotFoundError` for the same package in the same execution session — not a hypothesis, a documented in-the-wild occurrence of exactly this risk (see Phase 5j).
+
+**Open product question surfaced by this, not a test:** should Cell 1's documentation explicitly warn "restart your kernel if you've already run cells below this one," rather than relying on pip's easy-to-miss one-line advisory? Testing can produce the evidence to decide this; it doesn't resolve it by itself.
+
+### 5h — Other Docker-mockable environment conditions (no hardware needed)
+
+None of these need real hardware, all are currently untested by anything, and none appear in Phase 1's environment matrix (which is entirely hardware/platform-focused):
+
+- **Conda-managed environments.** `CONDA_INSTALL_PATTERN` already exists in `src/steady_py/core.py` as real logic (detects `%conda install` lines, warns they're untracked in pip manifests) but has zero test coverage at any level found so far. Pip-installing into a conda env is a well-known real landmine (ABI mismatches on compiled packages like numpy/scipy) and conda is extremely common in this tool's actual target audience (data scientists, students). A miniconda-base-image Docker fixture is straightforward to build.
+- **Network-restricted / air-gapped environments.** `docker run --network none`, or a proxy container, tests whether the tool degrades with a clear diagnostic when pip genuinely can't reach PyPI — real scenario (Kaggle no-internet competition mode, corporate firewalls), not exercised anywhere currently.
+- **Read-only source filesystem.** `docker run --read-only` (or a chmod'd mount) tests whether `--in-place`/`--output`/`--output-dir` fail with a clear, actionable error against a read-only source, rather than a confusing crash.
+- **Encoding/line-ending edge cases.** CRLF notebooks from Windows editors, non-UTF-8 residue in cell source (rare but real from copy-paste), unicode filenames/paths. Given this tool's actual dev environment is Windows/WSL2 and its target audience spans OSes, this is a plausible and currently-unexercised bug source in the AST/regex-based source scanning.
+
+### 5i — True goldfiles: small, hand-verified, deliberately not the corpus
+
+Distinct from 5e's corpus snapshot-regression testing (which only detects _drift_, with no independently-verified answer). A real goldfile means a human decided the exact expected output is correct, on purpose, for a specific input — that's the whole cost of a goldfile, so keep this set genuinely small:
+
+- **One canonical fixture per distinct feature, full exact output hand-verified.** Not field-level assertions (unit tests already do that) but the entire rendered Cell 1 markdown + Cell 2 code, exactly, for one minimal notebook per feature: guarded import, platform pseudo-module, hardware-tagged package, conda-install line, each GPU framework, local sibling import, index-url conflict. Catches formatting/wording regressions that field-level assertions structurally miss.
+- **The `--format json` schema itself, once 5a exists.** This is an API-stability contract, not a correctness test — once anything (CI, a user's own tooling) wires against that JSON, an unintentional shape change is a distinct regression class from "does the tool work."
+- **The README/HELP.md's own documented example**, checked against actual current output — docs drift is cheap to test and easy to miss.
+- **One deliberately boring, feature-free baseline notebook.** Should essentially never change; its value is as a maximally stable signal — if this one ever diverges, something is wrong regardless of what else changed. Phase 5j's corpus review identified a real candidate (a scikit-learn/`feature_engine` notebook with no unusual magics or environment pollution), externally confirmed clean rather than picked by hand.
+
+### 5j — Corpus inventory: extract test categories from evidence, not guesswork
+
+Addresses two related concerns raised directly: (1) the current downloaded notebook corpus was sampled somewhat ad hoc, particularly for enterprise notebooks (individual files grabbed rather than whole, cohesive projects), so there may be entire categories of real-world usage not represented at all; (2) rather than continuing to brainstorm candidate test categories from memory/intuition (the exact failure mode that made prior LLM-assisted planning feel like it was scratching the surface), extract them from the actual corpus.
+
+Build a script that walks the real downloaded notebook corpus and reports actual feature usage: magic-command variety beyond plain `%pip install` (editable/`-e .` installs, `git+https://` URLs, `-r requirements.txt`, `uv`/`poetry` invocations), `%%bash`/`%%sql`/`%%writefile` cell-magic frequency, sibling `requirements.txt`/`pyproject.toml`/`environment.yml`/`Pipfile` presence next to notebooks, import names not currently in `IMPORT_TO_PYPI_MAP`, and notebook-authoring-tool metadata fingerprints. These are plausible hypotheses worth specifically watching for, not confirmed gaps — the actual answer comes from running the inventory against real files.
+
+**Separate, harder-to-fix concern surfaced by the same discussion:** if real enterprise projects commonly manage environments _outside_ individual notebooks (a team `requirements.txt`, a Docker base image, an internal package index configured at the venv/CI level, never inside any single cell), a tool that only ever scans one `.ipynb` file is structurally blind to that regardless of test coverage. This may not be a testing gap at all but a **product-scope question** (should the tool optionally also scan sibling manifest files?) — getting a couple of full, cohesive enterprise projects (not orphan notebooks) would clarify whether this pattern is actually common enough to matter, before deciding whether it's in scope.
+
+- [x] Built `diagnose_coverage.py`, ran against the full 147-notebook corpus.
+- [x] Fixed a real detection bug found in the process: Databricks platform detection checked top-level notebook metadata, but real Databricks exports carry the marker per-cell (`cell["metadata"]["application/vnd.databricks.v1+cell"]`) — corrected 7 notebooks from "standard" to "databricks." Confirmed this only affects the platform label, not any other aggregate; every notebook's content was already fully scanned regardless of platform bucket.
+- [x] Confirmed findings: 0 hardware-tagged packages, 0 editable installs, 1 custom index URL, 0 sibling config files, 0 local `.py` helpers, 0 relative imports, across all 147 notebooks — a genuine platform/packaging monoculture. The script's parent-directory-only sibling search was a possible confound (real repos often keep manifests at the repo root, several directories above the notebook), resolved by direct confirmation of corpus provenance rather than more script work: these are individually-downloaded notebooks, not cloned full Databricks/SageMaker projects, so "0" is genuine, not a detection gap.
+- [x] **Verdict: this corpus is not useful for discovering structural edge cases** (local helpers, sibling configs, multi-file project organization). Getting that requires downloading/cloning full projects (a Databricks workspace export, a SageMaker project repo), not individual notebooks — not pursued, and not worth pursuing given Phase 4.5/5b's purpose-built synthetic fixtures already cover this class of test more precisely and cheaply than corpus-mining would.
+- [x] **This corpus's real value is Phase 5e** (snapshot-regression against realistic data-science import/packaging patterns) — broad and genuine for the common case (pandas/numpy/matplotlib-style notebooks, plain `%pip install`), never intended to reach the tool's more advanced/adversarial capabilities regardless of how it's mined.
+- [ ] Minor `diagnose_coverage.py` gaps noted, not acted on (none would change the verdict above): doesn't catch `python -m pip install`-style invocations; no distinct counter for `-r requirements.txt` usage; `pseudo_modules` is hardcoded rather than pulled from `ne.PLATFORM_PSEUDO_MODULES`.
+
+**Follow-up: open-ended qualitative review, complementary to the pattern-matching script above.** A script can only find what someone thought to write a pattern for. Followed up with an external LLM reading individual notebooks directly and reporting anything atypical about dependency/environment/execution structure, no predefined categories — targeted at a subset the audit's own atypical signals had already flagged (Databricks, git/editable/index-url/hardware-tag hits, unusual cell magics), not a fresh random draw, since the bulk "standard" notebooks were already confirmed a packaging monoculture with low expected yield from further mining.
+
+Every claim independently checked against actual code or actual corpus files before being trusted, not accepted on the reviewer's word alone — this discipline mattered: two claims from the first round were checked and found **false**. A hypothesized Scala-notebook-parsing crash was already prevented by `detect_notebook_language()` skipping non-Python notebooks before AST parsing ever runs. A hypothesized `cv2`→`opencv-python` mapping gap was already present in `IMPORT_TO_PYPI_MAP`. A narrower refinement of the Scala concern (a Databricks `%scala` cell embedded inside an otherwise Python-primary notebook — confirmed to genuinely exist via direct `grep` against `RTM Demo.ipynb`) was also checked and found already handled: `extract_imports_from_sources_full` wraps every cell's `ast.parse()` in `except SyntaxError: continue`, so any unparseable cell — Scala or otherwise — is silently skipped regardless of why it failed to parse. Two rounds, three checked hypotheses in this specific area, zero real bugs — closed, not left open.
+
+- [x] **Real finding: direct corpus evidence supporting Phase 5g's stale-module-after-repin scenario** (cross-referenced there). A real notebook's stored cell output shows `!pip install pykeops` followed by `ModuleNotFoundError` for the same package in the same execution session.
+- [x] **Real finding, structural, not fixable by better AST analysis: plugin/backend-selection dependencies invisible to any static import scan.** A notebook using `holoviews` with `hv.extension("bokeh")` pulls in `bokeh` as a real runtime dependency that never appears as an `import` statement anywhere in the notebook's own source — the library selects and imports its own backend internally based on a string argument at runtime. Generalizes beyond holoviews/bokeh: matplotlib backends, pandas `engine=` kwargs, xarray backends, and any similar plugin-selection pattern share this property. Not a bug to fix — a genuine, permanent scope boundary worth documenting explicitly (cross-referenced in Phase 4's pass-bar language), since it explains in advance a specific failure signature Phase 4 will eventually hit: "the tool detected and installed everything it could see, and execution still failed," with no further code investigation likely to find a fixable cause.
+- [x] Remaining findings from both review rounds were good concrete illustrations of categories already covered above (implicit environment assumptions: security-tool CLI dependencies, quantization/CUDA driver requirements, hardcoded multi-GPU device indices; external credentials/local file dependencies: `kaggle_secrets`, local prompt files) rather than new categories — kept as illustrative examples, not treated as separate action items.
+- [x] Confirmed one notebook (scikit-learn/`feature_engine`, no unusual magics or environment pollution) as a genuinely clean baseline — candidate for 5i's boring/feature-free goldfile notebook, externally confirmed rather than picked by hand.
+
+### 5k — Self-owned deterministic test package (removes external-dependency risk from reproducibility claims) — completed
+
+Distinct from — and a partial answer to — the "full reproducibility can't be made airtight" limitation noted in Phase 4's update above. Every install-engine fixture built in Phase 7 depends on real PyPI continuing to serve specific old wheels (`humanize==4.16.0`, `tabulate==0.9.0`, `numpy==1.23.5`) indefinitely — usually fine, but an external dependency the suite doesn't control (a maintainer dropping old wheel builds, a yanked release). Building and owning a tiny test-only package (`local_test_pkg`) removes this risk entirely for the narrower, airtight-able claim: "does our pin-and-install _mechanism_ deterministically reproduce known behavior," as opposed to the broader, not-fully-airtight-able claim "does this work against arbitrary real packages" (which Phase 4's hand-triaged sampling remains the right, imperfect answer for).
+
+- [x] **Package built and validated**: `local_test_pkg`, version baked into actual code (`which_version()`, a hardcoded literal, not just metadata) so a functional call proves that version's code genuinely ran, cross-checked against `importlib.metadata.version()`. Ships as wheels (1.0.0, 2.0.0) and sdists with custom `setup.py` build hooks (4.0.0 sleeps, 5.0.0 raises), plus a small `seed_dist/` of fast plain wheels for 4.0.0/5.0.0 used only to seed generation-time detection (see next bullet), and `bootstrap/` (setuptools/wheel/packaging) for `--no-build-isolation` sdist builds. All under `tests/fixtures/local_test_pkg/`.
+- [x] **Real bug caught in the fixture design itself, not the tool**: an explicit `%pip install pkg==X` line does _not_ pin that version unconditionally — `build_unified_timeline` only honors the explicit version if `resolve_pypi_package_and_extras` didn't already mark the entry `is_comment=True`, which it does whenever the package isn't in the frozen environment at generation time, regardless of the explicit pin. A package that can never successfully install (4.0.0/5.0.0, by design) could never seed the frozen environment for real, so the fixture initially generated a comment-only, non-executable entry — silently testing nothing. Fixed by seeding from `seed_dist`'s fast wheels before generation, then uninstalling before execution to force a genuine install attempt from the real sdist.
+- [x] **`--timeout` CLI flag added to `src/steady_py/core.py`** (default 120s, matches prior hardcoded behavior when unset) — a real, shipped feature, not test-only scaffolding, threaded through `generate_production_blueprint`'s Cell 2 template so the per-package install timeout is configurable rather than a fixed 120-second wait baked into every generated notebook.
+- [x] `test_local_pkg_pin_and_verify.ipynb` (positive, `Invoke-CommonTests`, bespoke block since it runs twice against the same source) — installs 1.0.0, verifies, repins to 2.0.0, verifies again. Confirmed both the real install path fires each time (not the "already satisfied" shortcut) and the version genuinely swaps.
+- [x] `test_local_pkg_timeout.ipynb` / `test_local_pkg_build_failure.ipynb` (positive, `local_pkg` tier) — exercise the 120s-timeout and genuine-build-failure branches of the install engine, both previously unreachable by anything else in the suite. Target version extracted directly from each fixture's own `%pip` line (`grep -oE`) so one `Build-DockerCmd` branch serves both without hardcoding per-notebook.
+- [x] Two static-analysis unit tests, no Docker needed: a bare local wheel-file path (no `-e` flag) confirmed skipped/untracked, matching `git+`-style VCS installs (`test_magic_harvesting.py`); a `+`-tagged local version confirmed to surface as a "Specific Package Builds Detected" warning in the generated notebook's actual Cell 1 markdown via the real `--output` code path (`build_dependency_entries` → `generate_production_blueprint`), distinct from the separate `generate_batch_analysis_report` warning already covered elsewhere. Superseded for the bare-path case: such tokens are now carried in `raw_installs` (see Phase 8).
+
+---
+
+## Phase 6 — Still-valid original automation ideas, now sequenced after Phase 5
+
+These were the original automation ideas for this plan; still worth doing, just no longer the immediate next step given Phase 5's higher-leverage infra work above.
+
+1. **Headless local runner** (nbclient/papermill): script the full loop, append generated Cell 2 to the notebook, execute it, assert exit code and installed versions. Automates Phase 4's mechanics for your local host environment only. Won't catch Kaggle-specific driver behavior (the `cuInit 303` class of bug), only Docker/cloud execution can, so it complements Phase 1/4 rather than replacing them.
+2. **Cloud CLI smoke suite** (`kaggle kernels push` against a fixed small set of test notebooks): reserve for occasional pre-release checks, not everyday iteration, given per-run queue/runtime cost. Automated version of Phase 1's Kaggle rows, not a replacement for Phase 4's clean-container reproducibility test.
+
+---
+
+## Phase 7 — E2E install-engine correctness under partial failure (completed)
+
+Sub-area not originally called out in this plan's initial scope: does the sequential per-package install engine actually behave correctly when one specifier in a multi-package manifest fails, as opposed to just documenting that it's supposed to (the original motivation for building it sequential rather than atomic in the first place).
+
+- [x] **Discovered and fixed a fixture-design bug before it shipped**: `DEPENDENCIES` only ever contains packages already installed at generation time (`resolve_pypi_package_and_extras` demotes anything not currently installed to an informational comment, regardless of import or explicit pip pin — confirmed against source, not assumed). This means a genuinely-nonexistent package can _never_ reach the sequential installer; the original `test_e2e_partial_install_failure` fixture was actually testing "an uncaught Python import crashes a notebook," true of any code, not anything specific to this tool. Retired; the ground it thought it covered (informational-comment generation for uninstalled imports) was already covered twice over by existing unit tests (`test_uninstalled_package_produces_fallback_comment_in_main`, `test_uninstalled_auxiliary_tools_rendered_as_unpinned_comment`).
+- [x] `test_partial_install_recovery.ipynb` (positive) — an already-installed real package re-pinned to a genuinely bad version fails via the engine, while a sibling already-installed package installs cleanly; both the failure diagnostic and the success message get verified against the executed notebook's actual content (not terminal stdout — nbconvert only ever streams per-cell `print()` output into the output notebook's JSON, never to the container's own stdout/stderr).
+- [x] `test_e2e_failed_repin_surfaces_downstream.ipynb` (negative) — proves a silently-failed re-pin surfaces as a clear, diagnosable downstream error (not silent wrong-version behavior) when code actually depends on the re-pin having succeeded.
+- [x] `test_numpy_old_pin_preserves_api.ipynb` (positive) — proves _correct_ pinning preserves old, working behavior across a real, documented API break (`numpy.bool` alias, removed in 1.24). **Sabotage-tested**: confirmed to actually fail (not vacuously pass) when the pin is dropped end-to-end (both the notebook's `%pip install` line and the environment bootstrap line), and confirmed to pass again once reverted.
+- [x] **Structural negative-fixture verification**, replacing a single-substring traceback grep: `--allow-errors` makes nbconvert always write the output notebook regardless of outcome; `tests/runners/check_negative_fixture.py` parses the notebook JSON directly and asserts exactly one cell error occurred, with the expected `ename` and an `evalue` substring — catches "wrong failure occurred" in a way a traceback-substring match structurally cannot. Pulled out of inline PowerShell (hit real nested-quoting/escaping failures passing complex strings from PowerShell to a containerized `bash -c`) into a standalone, independently-testable script.
+- [ ] Same negative-fixture coverage does not yet exist for the `kaggle`/`colab` tiers — lower priority than it sounds, since the install engine is shared code across all three tiers (a Kaggle/Colab run mostly re-exercises environment differences: system-site-packages venv, kernel setup — not new engine logic).
+
+---
+
+## Phase 8 — Non-PyPI sources, drift baseline and batch validation (completed)
+
+Each item was written test-first: the test was confirmed failing against the prior behavior for the intended reason before the change, then sabotage-tested (behavior deliberately broken, test confirmed to fail).
+
+- [x] `--in-place`/`--output` replace prior setup cells even when the managed tag is missing (`test_disk_output.py`). Pasted cells and metadata lost on save carry no tag, so replacement also matches the manifest assignment and the generated setup heading; guard tests confirm cells that merely mention either are untouched.
+- [x] Packages installed from URLs, paths and editable installs (`test_direct_references.py`): environment parsing, remote vs. local classification, raw-install carrying and dedupe, and the guarantee that a local path never reaches the manifest or generated output.
+- [x] Extras in the transitive graph (`test_drift_check.py`, plus one real-PyPI test in `test_drift_check_live.py`).
+- [x] Manifest hash verification over stored data, shared pin checks (generation and check-drift run identical checks), and generation-time ordering (`test_drift_check.py`).
+- [x] Baseline recording and new/known classification, exit-code rules, known custom-source notices, and per-finding `key` in JSON (`test_drift_check.py`; one real-PyPI round trip in `test_manifest_roundtrip.py`).
+- [x] Batch aggregate validation: grouping across notebooks, deterministic machine-independent JSON, clean and analysis-only cases (`test_drift_check.py`).
+- [x] `tests/runners/test_raw_installs.py` (Docker, common tier). Hermetic: a wheel built by hand, served from a local HTTP server, `PIP_NO_INDEX=1`, a real Jupyter kernel. Four scenarios (explicit path, inferred URL, unreachable source, inferred local path), each generating a locked notebook, removing the package, verifying it is absent, then executing the notebook in a fresh kernel. It prints the observed evidence for every check and ends with a per-scenario summary. Confirmed to fail against the pre-fix code.
+- [x] `e2e_harness.py`: `interactive_kernel(quiet=True)` discards the kernel process's own stderr (the TCP-encryption warning). `run_suite` sets `PIP_DISABLE_PIP_VERSION_CHECK=1` for every container to silence pip's upgrade notice.
+- [x] Module hygiene (`test_module_hygiene.py`): importing leaves streams and handlers untouched, `_configure_console` is idempotent, and a failed OpenCV probe falls back and logs at debug. The constants guard is `test_constants.py`.
+- [ ] Not covered: the fix-and-regenerate loop against a real environment in the Docker tier (checked by hand: after a yanked pin is replaced and `--in-place` is re-run, the baseline resets and check-drift exits 0); git URLs (need a network or a local git server); raw installs under check-drift (nothing is checked for them yet).
+
+---
+
+## Suggested time allocation (if time is genuinely tight)
+
+1. **Phase 5b** (structural fixtures → pytest) — cheapest automation win, already fully specified, start here.
+2. **Phase 5j** (corpus inventory) — cheap, and its findings can reshape everything else below, so do it early rather than last.
+3. **Phase 1** (smoke tests) — cheap, do fully by hand where automation doesn't yet cover it. Colab is the biggest current gap.
+4. **Phase 5a** (`--format json`) — build in parallel with the above; unblocks everything downstream in Phase 5.
+5. **Phase 5g** (live-kernel automation, including the stale-module-after-repin scenario) — the only item anywhere in this plan with _proven_ historical bug yield (Phase 0's three bugs, plus independent corpus confirmation via Phase 5j). Worth pulling forward ahead of 5c/5d despite being scoped after the original build order was set.
+6. **Phase 5c/5d** (diff + idempotency harnesses) — moderate cost, highest ongoing bug-catching value per hour invested, and closes out Phase 3 properly.
+7. **Phase 5f** (hardware/accelerator mocking) — no real hardware needed, closes most of Phase 1's GPU/MPS/TPU gaps at the code-generation-correctness level; real-hardware confirmation in Phase 1 still separately valuable.
+8. **Phase 4** (reproducibility, bucketed by failure cause per its updated scope note) — expensive but validates the tool's core claim; even a small sample (3–5 notebooks) is worth more than skipping it entirely.
+9. **Phase 5k** (self-owned deterministic test package) — removes external-PyPI risk from Phase 7's fixtures and unblocks the hardware-tag/timeout/genuine-install-failure scenarios it describes.
+10. **Phase 5h** (conda / network-restricted / read-only / encoding) — no hardware needed, currently zero coverage anywhere; sequence relative to your actual user base's likely environment mix, informed by 5j.
+11. **Phase 5i** (true goldfiles) — small, cheap, low urgency; build opportunistically alongside whichever feature it documents.
+12. **Phase 5e** (corpus snapshot-regression) and **Phase 6** (headless/cloud automation) — lowest immediate priority; both benefit from everything above existing first.
