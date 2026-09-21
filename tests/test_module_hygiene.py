@@ -55,13 +55,12 @@ def test_failed_opencv_probe_falls_back_and_is_logged_at_debug(monkeypatch, capl
     assert "Could not inspect installed OpenCV variants" in caplog.text
 
 
-def test_reexecuting_the_source_in_one_process_never_stacks_handlers():
-    """Pasting the tool into a live kernel more than once re-runs the whole file."""
+def test_reloading_the_module_in_one_process_never_stacks_handlers():
+    """Reloading the tool in a live kernel (autoreload, or a re-import after an edit) re-runs the whole file."""
     out = _run(
-        "import logging, sys, steady_py.core as spy\n"
-        "source = open(spy.__file__, encoding='utf-8').read()\n"
+        "import importlib, logging, sys, steady_py.core as spy\n"
         "for _ in range(2):\n"
-        "    exec(compile(source, 'core.py', 'exec'), {'__name__': 'steady_py_pasted'})\n"
+        "    importlib.reload(spy)\n"
         "    spy._configure_console()\n"
         "print(len(logging.getLogger('steady_py').handlers))"
     )

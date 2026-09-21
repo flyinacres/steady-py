@@ -4,8 +4,8 @@ import json
 import pytest
 
 import steady_py.core as spy
-from steady_py.endpoints import check
-from steady_py.results import CheckOptions, TargetKind
+from steady_py.endpoints import check, scan, snapshot
+from steady_py.results import CheckOptions, Environment, SnapshotOptions, TargetKind, WriteMode
 
 DEPS = [spy.PinnedDependency("requests", "2.32.1")]
 
@@ -77,5 +77,161 @@ class TestCheck:
 
     def test_computes_without_printing(self, tmp_path, offline, capsys):
         check(str(_notebook_with_manifest(tmp_path)))
+        captured = capsys.readouterr()
+        assert captured.out == "" and captured.err == ""
+
+
+# ---------------------------------------------------------------------------------------------
+# scan and snapshot
+
+ENV = Environment(
+    frozen_env={"requests": "requests==2.32.3", "torch": "torch==2.1.0+cu118"},
+    pkg_dist_map={"requests": ["requests"], "torch": ["torch"]},
+    raw_full_freeze=["requests==2.32.3", "torch==2.1.0+cu118"],
+)
+
+
+@pytest.fixture
+def isolated(monkeypatch):
+    """No PyPI, no accelerator probing, and no detection of the real environment."""
+    monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
+    monkeypatch.setattr(spy, "inspect_gpu_environment", lambda imports: None)
+
+    def no_detection():
+        raise AssertionError("the environment should have been passed in")
+    monkeypatch.setattr(spy, "get_installed_environment", no_detection)
+
+
+def _source(tmp_path, source="import requests", name="nb.ipynb"):
+    return str(_notebook(tmp_path, source, name))
+
+
+def _cells_text(path):
+    cells = json.loads(path.read_text(encoding="utf-8"))["cells"]
+    return ["".join(c["source"]) for c in cells]
+
+
+class TestScan:
+    def test_reports_what_the_notebook_needs(self, tmp_path, isolated):
+        result = scan(_source(tmp_path), ENV)
+        notebook, = result.notebooks
+        assert (result.kind, notebook.error) == (TargetKind.FILE, None)
+        assert [d.name for d in notebook.report.dependencies] == ["requests"]
+
+    def test_never_contacts_pypi(self, tmp_path, isolated, monkeypatch):
+        def refuse(*args, **kwargs):
+            raise AssertionError("scan must not check pins")
+        monkeypatch.setattr(spy, "run_pin_checks", refuse)
+        monkeypatch.setattr(spy, "generate_production_blueprint", refuse)
+        scan(_source(tmp_path), ENV)
+
+    def test_an_unreadable_file_is_an_error_with_a_report_carrying_it(self, tmp_path, isolated):
+        bad = tmp_path / "bad.ipynb"
+        bad.write_text("{ not json", encoding="utf-8")
+        notebook, = scan(str(bad), ENV).notebooks
+        assert notebook.error and notebook.report.parse_error == notebook.error
+        assert notebook.report.is_python is False
+
+    def test_detects_the_environment_when_none_is_given(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(spy, "inspect_gpu_environment", lambda imports: None)
+        monkeypatch.setattr(spy, "get_installed_environment", lambda: ({"requests": "requests==2.32.3"}, []))
+        notebook, = scan(_source(tmp_path)).notebooks
+        assert [d.version for d in notebook.report.dependencies] == ["2.32.3"]
+
+    def test_the_live_session_is_a_target_when_none_is_given(self, isolated, monkeypatch):
+        monkeypatch.setattr(spy, "is_running_in_ipython", lambda: True)
+        monkeypatch.setattr(spy, "extract_from_active_session", lambda: (["requests"], {}, ["import requests"], set(), []))
+        result = scan(None, ENV)
+        assert (result.kind, result.notebooks[0].path) == (TargetKind.SESSION, "session.ipynb")
+        assert [d.name for d in result.notebooks[0].report.dependencies] == ["requests"]
+
+    def test_no_target_outside_a_live_session_is_a_usage_error(self, isolated, monkeypatch):
+        monkeypatch.setattr(spy, "is_running_in_ipython", lambda: False)
+        with pytest.raises(ValueError, match="target"):
+            scan(None, ENV)
+
+    def test_a_directory_is_not_supported_yet(self, tmp_path, isolated):
+        with pytest.raises(NotImplementedError):
+            scan(str(tmp_path), ENV)
+
+
+class TestSnapshot:
+    def test_default_returns_the_cells_and_writes_nothing(self, tmp_path, isolated):
+        path = _source(tmp_path)
+        before = sorted(p.name for p in tmp_path.iterdir())
+        notebook, = snapshot(path, environment=ENV).notebooks
+        assert notebook.cells.markdown and "STEADY_PY_MANIFEST" in notebook.cells.code
+        assert [d.name for d in notebook.manifest.dependencies] == ["requests"]
+        assert (notebook.written_path, notebook.error) == (None, None)
+        assert sorted(p.name for p in tmp_path.iterdir()) == before
+
+    def test_companion_file_holds_the_same_cells_the_result_returned(self, tmp_path, isolated):
+        path = _source(tmp_path)
+        notebook, = snapshot(path, SnapshotOptions(write_mode=WriteMode.COMPANION), ENV).notebooks
+        written = tmp_path / "nb_merged.ipynb"
+        assert notebook.written_path == str(written)
+        assert [c.rstrip("\n") for c in _cells_text(written)[:2]] == [notebook.cells.markdown.rstrip("\n"), notebook.cells.code.rstrip("\n")]
+        assert "import requests" in _cells_text(written)[2]
+
+    def test_directory_mode_writes_into_the_directory_with_the_suffix(self, tmp_path, isolated):
+        options = SnapshotOptions(write_mode=WriteMode.DIRECTORY, output_dir=str(tmp_path / "out"), suffix="_x")
+        notebook, = snapshot(_source(tmp_path), options, ENV).notebooks
+        assert notebook.written_path == str(tmp_path / "out" / "nb_x.ipynb")
+
+    def test_in_place_replaces_setup_cells_and_is_idempotent(self, tmp_path, isolated):
+        path = _source(tmp_path)
+        options = SnapshotOptions(write_mode=WriteMode.IN_PLACE)
+        snapshot(path, options, ENV)
+        first = _cells_text(tmp_path / "nb.ipynb")
+        snapshot(path, options, ENV)
+        assert len(_cells_text(tmp_path / "nb.ipynb")) == len(first) == 3
+
+    def test_the_analysis_runs_once_however_the_result_is_delivered(self, tmp_path, isolated, monkeypatch):
+        calls = []
+        original = spy.build_single_notebook_report
+        monkeypatch.setattr(spy, "build_single_notebook_report", lambda *a, **k: calls.append(1) or original(*a, **k))
+        snapshot(_source(tmp_path), SnapshotOptions(write_mode=WriteMode.COMPANION), ENV)
+        assert len(calls) == 1
+
+    @pytest.mark.parametrize("mode", [WriteMode.NONE, WriteMode.COMPANION])
+    def test_full_freeze_reaches_the_cells_whether_or_not_they_are_written(self, tmp_path, isolated, mode):
+        notebook, = snapshot(_source(tmp_path), SnapshotOptions(write_mode=mode, full_freeze=True), ENV).notebooks
+        assert "requests==2.32.3" in notebook.cells.code
+        without, = snapshot(_source(tmp_path), SnapshotOptions(write_mode=mode), ENV).notebooks
+        assert "FULL_FREEZE_FALLBACK" not in without.cells.code
+
+    @pytest.mark.parametrize("mode", [WriteMode.NONE, WriteMode.COMPANION])
+    def test_specific_builds_are_called_out_whether_or_not_the_cells_are_written(self, tmp_path, isolated, mode):
+        path = _source(tmp_path, "import torch")
+        notebook, = snapshot(path, SnapshotOptions(write_mode=mode), ENV).notebooks
+        assert "Specific Package Builds Detected" in notebook.cells.markdown
+
+    def test_the_install_timeout_is_baked_into_the_cells(self, tmp_path, isolated):
+        path = _source(tmp_path)
+        slow, = snapshot(path, SnapshotOptions(install_timeout=999), ENV).notebooks
+        fast, = snapshot(path, SnapshotOptions(install_timeout=5), ENV).notebooks
+        assert "999" in slow.cells.code and "999" not in fast.cells.code
+
+    def test_an_unreadable_file_is_an_error_and_produces_no_cells(self, tmp_path, isolated):
+        bad = tmp_path / "bad.ipynb"
+        bad.write_text("{ not json", encoding="utf-8")
+        notebook, = snapshot(str(bad), SnapshotOptions(write_mode=WriteMode.COMPANION), ENV).notebooks
+        assert notebook.error and notebook.cells is None and notebook.written_path is None
+        assert not (tmp_path / "bad_merged.ipynb").exists()
+
+    def test_a_failed_write_is_an_error_but_the_cells_are_still_returned(self, tmp_path, isolated):
+        blocker = tmp_path / "blocker"
+        blocker.write_text("a file, not a directory", encoding="utf-8")
+        options = SnapshotOptions(write_mode=WriteMode.DIRECTORY, output_dir=str(blocker / "out"))
+        notebook, = snapshot(_source(tmp_path), options, ENV).notebooks
+        assert "could not write" in notebook.error and notebook.written_path is None
+        assert notebook.cells is not None
+
+    def test_the_live_session_cannot_be_written_to_a_file(self, isolated):
+        with pytest.raises(ValueError, match="session"):
+            snapshot(None, SnapshotOptions(write_mode=WriteMode.COMPANION), ENV)
+
+    def test_computes_without_printing(self, tmp_path, isolated, capsys):
+        snapshot(_source(tmp_path), environment=ENV)
         captured = capsys.readouterr()
         assert captured.out == "" and captured.err == ""

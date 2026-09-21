@@ -233,11 +233,16 @@ class InteractiveKernel:
         still arrive through execute()."""
         import jupyter_client
         self._km = jupyter_client.KernelManager(kernel_name=self.kernel_name)
+        kernel_env = dict(os.environ)  # the kernel imports steady_py the way a user's kernel does
+        src = str(WORKSPACE_ROOT / "src")
+        paths = [p for p in kernel_env.get("PYTHONPATH", "").split(os.pathsep) if p]
+        if src not in paths:
+            kernel_env["PYTHONPATH"] = os.pathsep.join([src, *paths])
         if quiet:
             self._devnull = open(os.devnull, "w")
-            self._km.start_kernel(stderr=self._devnull)
+            self._km.start_kernel(env=kernel_env, stderr=self._devnull)
         else:
-            self._km.start_kernel()
+            self._km.start_kernel(env=kernel_env)
         self._client = self._km.client()
         self._client.start_channels()
         self._client.wait_for_ready(timeout=ready_timeout)

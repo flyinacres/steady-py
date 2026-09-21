@@ -2,8 +2,9 @@
 """Phase 0: Live-Kernel Regressions Test.
 
 Simulates an interactive session: executes regular user cells, runs steady-py
-directly inside the active kernel, and verifies sys.argv isolation, duplicate log
-handler prevention, and cell execution history introspection.
+directly inside the active kernel (import steady_py.core as spy; spy.main()), and
+verifies sys.argv isolation, duplicate log handler prevention, and cell execution
+history introspection.
 """
 
 from __future__ import annotations
@@ -12,18 +13,13 @@ from pathlib import Path
 import sys
 
 from e2e_harness import (
-    WORKSPACE_ROOT,
     fail_test,
     interactive_kernel,
 )
 
 
 def main() -> None:
-    tool_path = WORKSPACE_ROOT / "src" / "steady_py" / "core.py"
-    if not tool_path.exists():
-        fail_test("Locate Tool Source", f"Could not find {tool_path}")
-
-    tool_source = tool_path.read_text(encoding="utf-8")
+    run_tool = "import steady_py.core as spy\nspy.main()"
 
     print("Starting interactive kernel...")
     with interactive_kernel("python3") as kernel:
@@ -32,8 +28,8 @@ def main() -> None:
         if not res1.ok:
             fail_test("Setup Dummy Imports", "Execution failed", stderr="\n".join(res1.errors))
 
-        print("\n2. Executing steady-py (Paste-and-Run 1)...")
-        res2 = kernel.execute(tool_source)
+        print("\n2. Running steady-py in the kernel (first run)...")
+        res2 = kernel.execute(run_tool)
         if not res2.ok:
             fail_test(
                 "Execute Tool in Kernel",
@@ -53,8 +49,8 @@ def main() -> None:
             )
         print("   PASS: History introspection correctly captured prior cells.")
 
-        print("\n4. Executing steady-py (Paste-and-Run 2 for Log Handlers)...")
-        res3 = kernel.execute(tool_source)
+        print("\n4. Running steady-py in the kernel again (for log handlers)...")
+        res3 = kernel.execute(run_tool)
         if not res3.ok:
             fail_test("Repeat Execution in Kernel", "Second execution crashed", stderr="\n".join(res3.errors))
 

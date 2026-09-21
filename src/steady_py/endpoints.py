@@ -6,11 +6,130 @@ tests can patch a function on `core` and have it take effect here.
 """
 from __future__ import annotations
 
+import importlib.metadata
+import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
 from steady_py import core
-from steady_py.results import CheckOptions, CheckResult, NotebookCheck, TargetKind
+from steady_py.results import (
+    CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanResult,
+    SetupCells, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
+)
+
+
+def detect_environment() -> Environment:
+    """The environment this process is running in."""
+    frozen_env, raw_full_freeze = core.get_installed_environment()
+    pkg_dist_map = importlib.metadata.packages_distributions() if hasattr(importlib.metadata, "packages_distributions") else {}
+    return Environment(frozen_env=frozen_env, pkg_dist_map=pkg_dist_map, raw_full_freeze=raw_full_freeze)
+
+
+@dataclass
+class _Analysis:
+    """The one analysis of a notebook that scan and snapshot both build on."""
+    path: str
+    kind: str
+    report: core.NotebookAnalysisReport
+    environment: Environment
+    scan_result: Optional[core.NotebookScanResult] = None  # None when the file could not be read
+    hardware: Optional[core.GpuInfo] = None                # the probed accelerator
+    root_dir: str = "."
+    error: Optional[str] = None
+
+
+def _analyze(target: Optional[str], environment: Optional[Environment]) -> _Analysis:
+    """Reads a notebook file, or the live IPython session when `target` is None, and analyzes it once."""
+    if target is not None and os.path.isdir(target):
+        raise NotImplementedError("directory targets are not supported yet")
+    environment = environment or detect_environment()
+
+    if target is not None:
+        ext_res = core.extract_from_file(target, strict=False)
+        if not ext_res.success:
+            unreadable = core.NotebookAnalysisReport(
+                notebook_path=str(target), is_python=False, lang_label=ext_res.lang_label, parse_error=ext_res.error_msg,
+            )
+            return _Analysis(path=target, kind=TargetKind.FILE, report=unreadable, environment=environment, error=ext_res.error_msg)
+        path, kind, root_dir = Path(target), TargetKind.FILE, str(Path(target).parent)
+    else:
+        if not core.is_running_in_ipython():
+            raise ValueError("a target file is required outside a live IPython session")
+        imports, submodules, code_sources, guarded_imports, dynamic_warnings = core.extract_from_active_session()
+        ext_res = core.ExtractionResult(
+            success=True, lang_label=core.StatusLabel.PYTHON, imports=imports, submodules=submodules,
+            code_sources=code_sources, guarded_imports=guarded_imports, dynamic_warnings=dynamic_warnings,
+            writefile_imports=core.extract_writefile_imports_from_sources(code_sources),
+        )
+        path, kind, root_dir = Path("session.ipynb"), TargetKind.SESSION, "."
+
+    hardware = core.inspect_gpu_environment(list(dict.fromkeys(ext_res.imports)))
+    scan_result = core.build_scan_result(path, ext_res)
+    report = core.build_single_notebook_report(
+        scan_result, environment.frozen_env, environment.pkg_dist_map, hardware, root_dir=root_dir,
+    )
+    return _Analysis(
+        path=str(path), kind=kind, report=report, environment=environment,
+        scan_result=scan_result, hardware=hardware, root_dir=root_dir,
+    )
+
+
+def scan(target: Optional[str] = None, environment: Optional[Environment] = None) -> ScanResult:
+    """Analyzes a notebook file, or the live IPython session when `target` is None, and reports what
+    it needs: its dependencies, warnings, notices and detected hardware.
+
+    Read-only, and it never contacts PyPI.
+    """
+    analysis = _analyze(target, environment)
+    notebook = NotebookScan(path=analysis.path, report=analysis.report, error=analysis.error)
+    return ScanResult(target=target if target is not None else analysis.path, kind=analysis.kind, notebooks=[notebook])
+
+
+def snapshot(
+    target: Optional[str] = None,
+    options: Optional[SnapshotOptions] = None,
+    environment: Optional[Environment] = None,
+) -> SnapshotResult:
+    """Analyzes a notebook file, or the live IPython session when `target` is None, and produces the
+    two setup cells and the manifest, validated against PyPI.
+
+    With the default options nothing is written and the cells come back in the result. Otherwise
+    they are also written, per `options.write_mode`. The cells are the same either way.
+    """
+    options = options or SnapshotOptions()
+    if target is None and options.write_mode != WriteMode.NONE:
+        raise ValueError("the live IPython session has no file to write into; use write_mode 'none'")
+    analysis = _analyze(target, environment)
+    result_target = target if target is not None else analysis.path
+    if analysis.scan_result is None:
+        failed = NotebookSnapshot(path=analysis.path, report=analysis.report, error=analysis.error)
+        return SnapshotResult(target=result_target, kind=analysis.kind, notebooks=[failed])
+
+    blueprint = core.build_blueprint_for_notebook(
+        analysis.scan_result, analysis.report, analysis.hardware,
+        install_timeout=options.install_timeout,
+        full_freeze_lines=analysis.environment.raw_full_freeze if options.full_freeze else None,
+    )
+    notebook = NotebookSnapshot(
+        path=analysis.path,
+        report=analysis.report,
+        cells=SetupCells(markdown=blueprint["step1_markdown"], code=blueprint["step2_code"]),
+        drift_report=blueprint["drift_report"],
+    )
+    if options.write_mode != WriteMode.NONE:
+        try:
+            written = core.write_locked_notebook(
+                analysis.scan_result, blueprint,
+                suffix=options.suffix,
+                in_place=options.write_mode == WriteMode.IN_PLACE,
+                root_dir=analysis.root_dir,
+                output_dir=options.output_dir,
+            )
+            notebook.written_path = str(written)
+        except OSError as exc:
+            notebook.error = f"could not write the locked notebook: {exc}"
+    return SnapshotResult(target=result_target, kind=analysis.kind, notebooks=[notebook])
 
 
 def check(target: str, options: Optional[CheckOptions] = None) -> CheckResult:

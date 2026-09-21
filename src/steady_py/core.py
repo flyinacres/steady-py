@@ -545,6 +545,7 @@ class NotebookAnalysisReport:
     warnings: List[DiagnosticEvent] = field(default_factory=list)
     notices: List[DiagnosticEvent] = field(default_factory=list)
     promotions: List[PromotionDetail] = field(default_factory=list)
+    local_tagged: List[Tuple[str, List[str]]] = field(default_factory=list)  # specific package builds; feeds the blueprint, not the JSON
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -3929,6 +3930,38 @@ def select_primary_index_url(url_to_notebooks: Dict[str, List[Path]]) -> Tuple[O
     return best_url, reason
 
 
+def build_scan_result(
+    path: Path,
+    ext_res: ExtractionResult,
+    *,
+    is_python: bool = True,
+    lang_label: str = StatusLabel.PYTHON,
+    parse_error: Optional[str] = None,
+) -> NotebookScanResult:
+    """Harvests a notebook's cell magics and commands and assembles its scan result from an extraction."""
+    h_res = harvest_cell_magics_and_commands(ext_res.code_sources)
+    return NotebookScanResult(
+        path=path,
+        is_python=is_python,
+        lang_label=lang_label,
+        parse_error=parse_error,
+        imports=ext_res.imports,
+        submodules=ext_res.submodules,
+        guarded_imports=ext_res.guarded_imports,
+        dynamic_warnings=ext_res.dynamic_warnings,
+        code_sources=ext_res.code_sources,
+        harvested_urls=h_res.base_index_urls.union(h_res.extra_index_urls),
+        writefile_imports=ext_res.writefile_imports,
+        harvested_pkgs=h_res.harvested_packages,
+        base_index_urls=h_res.base_index_urls,
+        extra_index_urls=h_res.extra_index_urls,
+        scoped_flags=h_res.scoped_flags,
+        magic_warnings=h_res.magic_warnings,
+        magic_notices=h_res.magic_notices,
+        raw_installs=h_res.raw_installs,
+    )
+
+
 def walk_and_scan_directory(target_dir: str, skip_suffix: Optional[str] = None) -> RepoEnvironmentMap:
     """Recursively scans directory for .ipynb files in batch mode."""
     repo_map = RepoEnvironmentMap(target_dir)
@@ -3946,29 +3979,10 @@ def walk_and_scan_directory(target_dir: str, skip_suffix: Optional[str] = None) 
 
                 ext_res = extract_from_file(str(full_path), strict=True)
                 
-                h_res = harvest_cell_magics_and_commands(ext_res.code_sources)
-                harvested_urls = h_res.base_index_urls.union(h_res.extra_index_urls)
-
-                parse_err = ext_res.error_msg if (not ext_res.success and "Skipped non-Python notebook" not in (ext_res.error_msg or "")) else None                
-                res = NotebookScanResult(
-                    path=full_path,
-                    is_python=ext_res.success,
-                    lang_label=ext_res.lang_label,
-                    parse_error=parse_err,
-                    imports=ext_res.imports,
-                    submodules=ext_res.submodules,
-                    guarded_imports=ext_res.guarded_imports,
-                    dynamic_warnings=ext_res.dynamic_warnings,
-                    code_sources=ext_res.code_sources,
-                    harvested_urls=harvested_urls,
-                    writefile_imports=ext_res.writefile_imports,
-                    harvested_pkgs=h_res.harvested_packages,
-                    base_index_urls=h_res.base_index_urls,
-                    extra_index_urls=h_res.extra_index_urls,
-                    scoped_flags=h_res.scoped_flags,
-                    magic_warnings=h_res.magic_warnings,
-                    magic_notices=h_res.magic_notices,
-                    raw_installs=h_res.raw_installs
+                parse_err = ext_res.error_msg if (not ext_res.success and "Skipped non-Python notebook" not in (ext_res.error_msg or "")) else None
+                res = build_scan_result(
+                    full_path, ext_res,
+                    is_python=ext_res.success, lang_label=ext_res.lang_label, parse_error=parse_err,
                 )
                 repo_map.add_result(res)
 
@@ -3996,7 +4010,7 @@ def build_single_notebook_report(
     aux_entries = build_auxiliary_tool_entries(scan_res.harvested_pkgs - timeline_pkgs, scan_res.imports, frozen_env)    
     writefile_entries = build_writefile_tool_entries(scan_res.writefile_imports, scan_res.imports, frozen_env)
 
-    all_dep_entries, _, hw_warnings = build_dependency_entries(
+    all_dep_entries, local_tagged, hw_warnings = build_dependency_entries(
         timeline_res.dependencies,
         scoped_flags=scan_res.scoped_flags,
         auxiliary_entries=aux_entries,
@@ -4028,7 +4042,8 @@ def build_single_notebook_report(
         gpu=gpu_info,
         warnings=all_warnings,
         notices=scan_res.magic_notices,
-        promotions=timeline_res.promotion_notices
+        promotions=timeline_res.promotion_notices,
+        local_tagged=local_tagged,
     )
 
 
@@ -4345,42 +4360,38 @@ def generate_universal_manifest(
     return "\n".join(lines)
 
 
-def apply_output_to_notebook(
-    scan_res: NotebookScanResult, 
-    frozen_env: Dict[str, str], 
-    pkg_dist_map: Mapping[str, List[str]], 
-    batch_hw_cache: Optional[GpuInfo], 
-    suffix: Optional[str] = None, 
+def build_blueprint_for_notebook(
+    scan_res: NotebookScanResult,
+    report: NotebookAnalysisReport,
+    hardware: Optional[GpuInfo],
+    install_timeout: int = 120,
+    full_freeze_lines: Optional[List[str]] = None,
+) -> BlueprintResult:
+    """The two setup cells and the generation-time validation for an analyzed notebook.
+
+    `hardware` is the probed accelerator; it is narrowed to the frameworks this notebook imports.
+    """
+    return generate_production_blueprint(
+        report.dependencies,
+        full_freeze_lines=full_freeze_lines,
+        local_tagged_info=report.local_tagged,
+        gpu_info=resolve_notebook_gpu_info(scan_res.imports, hardware),
+        install_timeout=install_timeout,
+        raw_installs=scan_res.raw_installs,
+    )
+
+
+def write_locked_notebook(
+    scan_res: NotebookScanResult,
+    blueprint: BlueprintResult,
+    suffix: Optional[str] = None,
     in_place: bool = False,
     root_dir: Optional[str] = None,
     output_dir: Optional[str] = None,
-    install_timeout: int = 120
-) -> Tuple[Path, "DriftCheckReport"]:
-    """Writes per-notebook locked file or replaces setup cells in-place idempotently.
-    Returns the written path and the generation-time drift-check report."""
-    local_ctx = LocalModuleContext(str(scan_res.path.parent), root_dir)
-
-    timeline_res = build_unified_timeline(
-        scan_res.code_sources,
-        frozen_env=frozen_env,
-        pkg_dist_map=pkg_dist_map,
-        local_ctx=local_ctx
-    )
-
-    timeline_pkgs = {canonicalize_pkg_name(d.name) for d in timeline_res.dependencies if d.name}
-    aux_entries = build_auxiliary_tool_entries(scan_res.harvested_pkgs - timeline_pkgs, scan_res.imports, frozen_env)    
-    writefile_entries = build_writefile_tool_entries(scan_res.writefile_imports, scan_res.imports, frozen_env)
-    
-    all_dep_entries, local_tagged, _ = build_dependency_entries(
-        timeline_res.dependencies, 
-        scoped_flags=scan_res.scoped_flags, 
-        auxiliary_entries=aux_entries, 
-        writefile_entries=writefile_entries
-    )
-    
-    gpu_info = resolve_notebook_gpu_info(scan_res.imports, batch_hw_cache)
-
-    blueprint = generate_production_blueprint(all_dep_entries, local_tagged_info=local_tagged, gpu_info=gpu_info, install_timeout=install_timeout, raw_installs=scan_res.raw_installs)
+) -> Path:
+    """Writes a notebook with the blueprint's setup cells in place of any prior ones (idempotent),
+    either over the source (in_place), into output_dir, or beside the source with a suffix.
+    Returns the path written."""
     managed_cells = create_managed_cells(blueprint)
 
     with open(scan_res.path, 'r', encoding='utf-8') as f:
@@ -4419,6 +4430,27 @@ def apply_output_to_notebook(
     with open(target_path, 'w', encoding='utf-8') as f:
         json.dump(nb_data, f, indent=1)
 
+    return target_path
+
+
+def apply_output_to_notebook(
+    scan_res: NotebookScanResult, 
+    frozen_env: Dict[str, str], 
+    pkg_dist_map: Mapping[str, List[str]], 
+    batch_hw_cache: Optional[GpuInfo], 
+    suffix: Optional[str] = None, 
+    in_place: bool = False,
+    root_dir: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    install_timeout: int = 120
+) -> Tuple[Path, "DriftCheckReport"]:
+    """Writes per-notebook locked file or replaces setup cells in-place idempotently.
+    Returns the written path and the generation-time drift-check report."""
+    report = build_single_notebook_report(scan_res, frozen_env, pkg_dist_map, batch_hw_cache, root_dir=root_dir)
+    blueprint = build_blueprint_for_notebook(scan_res, report, batch_hw_cache, install_timeout=install_timeout)
+    target_path = write_locked_notebook(
+        scan_res, blueprint, suffix=suffix, in_place=in_place, root_dir=root_dir, output_dir=output_dir
+    )
     return target_path, blueprint["drift_report"]
 
 
@@ -4501,167 +4533,6 @@ def run_batch_pipeline(
     return
 
 
-def run_single_file_pipeline(
-    args: argparse.Namespace, 
-    frozen_env: Dict[str, str], 
-    raw_full_freeze: List[str],
-    pkg_dist_map: Mapping[str, List[str]],
-    precomputed_gpu_info: Optional[GpuInfo] = None
-) -> None:
-    """Executes single-notebook analysis or live IPython kernel history extraction."""
-    in_live_ipython = is_running_in_ipython()
-    is_json = getattr(args, "format", "text") == "json"
-
-    target_single_file_dir = str(Path(args.notebook).parent) if (args.notebook and not os.path.isdir(args.notebook)) else "."
-
-    if args.notebook and not os.path.isdir(args.notebook):
-        logger.info(f"🔍 [Path A] Analyzing saved notebook file '{args.notebook}' via AST...")
-        logger.info(f"📌 Active Python Interpreter: {sys.executable}\n")
-        
-        ext_res = extract_from_file(args.notebook, strict=False)
-        if not ext_res.success:
-            logger.error(f"❌ Error: {ext_res.error_msg}")
-            if is_json:
-                bad_report = NotebookAnalysisReport(
-                    notebook_path=str(args.notebook),
-                    is_python=False,
-                    lang_label=ext_res.lang_label,
-                    parse_error=ext_res.error_msg
-                )
-                print(format_json_single_report(bad_report))
-            if in_live_ipython:
-                return
-            sys.exit(1)
-            
-        imports, submodules, code_sources = ext_res.imports, ext_res.submodules, ext_res.code_sources
-        guarded_imports, dyn_warnings = ext_res.guarded_imports, ext_res.dynamic_warnings
-        writefile_imports = ext_res.writefile_imports
-        gpu_info = precomputed_gpu_info
-    elif in_live_ipython:
-        logger.info("🔍 [Path B] Analyzing live IPython session kernel history via AST...")
-        imports, submodules, code_sources, guarded_imports, dyn_warnings = extract_from_active_session()
-        writefile_imports = extract_writefile_imports_from_sources(code_sources)
-        gpu_info = inspect_gpu_environment(imports)
-    else:
-        return
-
-    h_res = harvest_cell_magics_and_commands(code_sources)
-    harvested_pkgs = h_res.harvested_packages
-    base_urls, extra_urls = h_res.base_index_urls, h_res.extra_index_urls
-    magic_warns, magic_notices = h_res.magic_warnings, h_res.magic_notices
-    harvested_urls = extra_urls.union(base_urls)
-
-    single_res = NotebookScanResult(
-        path=Path(args.notebook) if args.notebook and not os.path.isdir(args.notebook) else Path("session.ipynb"),
-        is_python=True,
-        lang_label=StatusLabel.PYTHON,
-        imports=imports,
-        submodules=submodules,
-        guarded_imports=guarded_imports,
-        dynamic_warnings=dyn_warnings,
-        code_sources=code_sources,
-        harvested_urls=harvested_urls,
-        writefile_imports=writefile_imports,
-        harvested_pkgs=harvested_pkgs,
-        base_index_urls=base_urls,
-        extra_index_urls=extra_urls,
-        scoped_flags=h_res.scoped_flags,
-        magic_warnings=magic_warns,
-        magic_notices=magic_notices,
-        raw_installs=h_res.raw_installs
-    )
-
-    nb_report = build_single_notebook_report(
-        single_res, frozen_env, pkg_dist_map, gpu_info, root_dir=target_single_file_dir
-    )
-
-    if not is_json:
-        if nb_report.warnings:
-            logger.warning("⚠️ DIAGNOSTIC WARNINGS:")
-            for warn in nb_report.warnings:
-                logger.warning(f"  • {warn.detail}")
-            logger.warning("")
-
-        if nb_report.notices:
-            for notice in nb_report.notices:
-                logger.info(notice.format_console())
-            logger.info("")
-
-        if gpu_info:
-            if gpu_info.has_gpu:
-                logger.info(f"⚡ Active accelerator detected: {gpu_info.device_name}\n")
-            elif gpu_info.probe_errors:
-                err_msg = "; ".join(gpu_info.probe_errors)
-                logger.warning(f"⚠️ Accelerator detection encountered errors: {err_msg}\n")
-            elif gpu_info.frameworks:
-                fw_list = ", ".join(gpu_info.frameworks)
-                logger.warning(f"⚠️ Acceleration Framework ({fw_list}) imported, but NO active accelerator detected in host runtime.\n")
-
-        if nb_report.promotions:
-            for promo in nb_report.promotions:
-                logger.info(promo.detail)
-            logger.info("")
-
-    artifacts_written: Optional[Dict[str, Any]] = None
-
-    if args.output or args.in_place or args.output_dir:
-        active_suffix_display = args.suffix if args.suffix is not None else ("" if args.output_dir else "_merged")
-        if args.in_place:
-            loc_desc = "in-place"
-        elif args.output_dir:
-            loc_desc = f"directory: '{args.output_dir}'" + (f", suffix: '{active_suffix_display}'" if active_suffix_display else "")
-        else:
-            loc_desc = f"suffix: '{active_suffix_display}'"
-
-        logger.info(f"🚀 Writing updated notebook ({loc_desc})...")
-        written_path, drift_report = apply_output_to_notebook(
-            single_res,
-            frozen_env,
-            pkg_dist_map,
-            gpu_info,
-            suffix=args.suffix,
-            in_place=args.in_place,
-            root_dir=target_single_file_dir,
-            output_dir=args.output_dir,
-            install_timeout=args.timeout
-        )
-        artifacts_written = {"locked_notebook": str(written_path)}
-        logger.info(f"✅ Updated '{written_path}'")
-        if is_json:
-            print(format_json_single_report(nb_report, artifacts_written=artifacts_written, drift_report=drift_report))
-        elif drift_report.manifest.dependencies:
-            print(format_console_drift_report(drift_report))
-        if in_live_ipython:
-            return
-        return
-
-    if is_json:
-        print(format_json_single_report(nb_report))
-        if in_live_ipython:
-            return
-        return
-
-    full_freeze_lines = raw_full_freeze if args.full_freeze else None
-    blueprint = generate_production_blueprint(
-        nb_report.dependencies, 
-        full_freeze_lines=full_freeze_lines, 
-        gpu_info=gpu_info,
-        install_timeout=args.timeout,
-        raw_installs=single_res.raw_installs
-    )
-
-    print("--- [ STEP 1: PASTE INTO CELL 1 (MARKDOWN) ] ---\n")
-    print(blueprint["step1_markdown"])
-    print("\n" + "="*80 + "\n")
-
-    print("--- [ STEP 2: PASTE INTO CELL 2 (CODE) ] ---\n")
-    print(blueprint["step2_code"])
-    print("\n" + "="*80)
-    if blueprint["drift_report"].manifest.dependencies:
-        print()
-        print(format_console_drift_report(blueprint["drift_report"]))
-
-
 def main() -> None:
     """CLI entrypoint and dispatch router for single notebook or batch analysis modes."""
     _configure_console()
@@ -4725,32 +4596,28 @@ def main() -> None:
             return
         sys.exit(1)
 
-    frozen_env, raw_full_freeze = get_installed_environment()
+    if not target_batch_dir:
+        # Imported here because cli imports this module; goes away when main moves into cli.
+        from steady_py import cli
+        exit_code = cli.run_single_file(args)
+        if exit_code and not is_running_in_ipython():
+            sys.exit(exit_code)
+        return
+
+    frozen_env, _ = get_installed_environment()
     pkg_dist_map = importlib.metadata.packages_distributions() if hasattr(importlib.metadata, "packages_distributions") else {}
-    
-    initial_imports: List[str] = []
-    repo_map_pre: Optional[RepoEnvironmentMap] = None
 
     effective_suffix = args.suffix if args.suffix is not None else "_merged"
     skip_suffix = None if args.in_place else effective_suffix
 
-    if target_batch_dir:
-        repo_map_pre = walk_and_scan_directory(target_batch_dir, skip_suffix=skip_suffix)
-        for imp in repo_map_pre.global_imports:
-            if imp not in initial_imports:
-                initial_imports.append(imp)
-    elif args.notebook and os.path.isfile(args.notebook):
-        ext_res = extract_from_file(args.notebook, strict=False)
-        for imp in ext_res.imports:
-            if imp not in initial_imports:
-                initial_imports.append(imp)
+    initial_imports: List[str] = []
+    repo_map_pre = walk_and_scan_directory(target_batch_dir, skip_suffix=skip_suffix)
+    for imp in repo_map_pre.global_imports:
+        if imp not in initial_imports:
+            initial_imports.append(imp)
 
     batch_hw_cache = inspect_gpu_environment(initial_imports)
-
-    if target_batch_dir:
-        run_batch_pipeline(target_batch_dir, args, frozen_env, pkg_dist_map, batch_hw_cache, precomputed_repo_map=repo_map_pre)
-    else:
-        run_single_file_pipeline(args, frozen_env, raw_full_freeze, pkg_dist_map, batch_hw_cache)
+    run_batch_pipeline(target_batch_dir, args, frozen_env, pkg_dist_map, batch_hw_cache, precomputed_repo_map=repo_map_pre)
 
 
 if __name__ == "__main__":

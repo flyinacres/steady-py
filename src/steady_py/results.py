@@ -50,7 +50,7 @@ class Environment:
     instead of patching the detection functions. The accelerator is not part of it: it is probed
     per target, from the imports found there.
     """
-    frozen_env: Dict[str, str]                 # installed distribution -> version
+    frozen_env: Dict[str, str]                 # installed distribution -> its pin, e.g. 'numpy==2.0.1'
     pkg_dist_map: Mapping[str, List[str]]      # import name -> distributions that provide it
     raw_full_freeze: List[str] = field(default_factory=list)  # full pip freeze lines
 
