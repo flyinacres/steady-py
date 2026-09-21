@@ -66,10 +66,10 @@ class TestCheckExitCode:
     def test_an_unreadable_manifest_is_2(self):
         assert cli.check_exit_code(_result(NotebookCheck(path="a.ipynb", error="not a manifest"))) == 2
 
-    def test_errors_outrank_drift(self):
+    def test_drift_and_an_unreadable_manifest_together_is_1(self):
         drift = _checked(_finding(spy.Signal.YANKED, spy.Severity.CONFIRMED))
         result = _result(drift, NotebookCheck(path="b.ipynb", error="unreadable"))
-        assert cli.check_exit_code(result) == 2
+        assert cli.check_exit_code(result) == 1
 
     def test_no_notebooks_is_0(self):
         assert cli.check_exit_code(_result()) == 0
@@ -94,6 +94,18 @@ class TestFormatCheckResult:
         out, _ = cli.format_check_result(_result(checked), "json")
         assert out == spy.format_json_drift_report(checked.report)
         assert json.loads(out)["target"] == "a.ipynb"
+
+    def test_json_for_a_notebook_with_no_manifest_is_json_not_text(self):
+        out, err = cli.format_check_result(_result(NotebookCheck(path="a.ipynb")), "json")
+        payload = json.loads(out)
+        assert (payload["mode"], payload["target"], payload["manifest_found"], payload["error"]) == ("check_drift", "a.ipynb", False, None)
+        assert err == ""
+
+    def test_json_for_an_unreadable_manifest_is_json_on_stdout_and_the_message_on_stderr(self):
+        out, err = cli.format_check_result(_result(NotebookCheck(path="a.ipynb", error="boom")), "json")
+        payload = json.loads(out)
+        assert (payload["manifest_found"], payload["error"]) == (False, "boom")
+        assert err == "⚠️ boom"
 
 
 class TestRunCheck:
@@ -459,11 +471,17 @@ class TestMain:
         assert self._exit_code(monkeypatch, "--check-drift", path, "--format", "json", "--root-dir", "/repo") == 1
         assert seen == [(path, "json", "/repo")]
 
-    def test_check_drift_needs_an_existing_file(self, tmp_path, monkeypatch, caplog):
+    def test_check_drift_needs_an_existing_file_or_directory(self, tmp_path, monkeypatch, caplog):
         with caplog.at_level(logging.INFO, logger="steady_py"):
             assert self._exit_code(monkeypatch, "--check-drift") == 2
             assert self._exit_code(monkeypatch, "--check-drift", str(tmp_path / "missing.ipynb")) == 2
-        assert "requires a target notebook or .py file path" in caplog.text
+        assert "requires a target notebook, .py file or directory" in caplog.text
+
+    def test_check_drift_accepts_a_directory(self, tmp_path, monkeypatch):
+        seen = []
+        monkeypatch.setattr(cli, "run_check", lambda target, output_format, root_dir: seen.append(target) or 0)
+        assert self._exit_code(monkeypatch, "--check-drift", str(tmp_path)) == 0
+        assert seen == [str(tmp_path)]
 
     def test_write_flags_need_a_target(self, monkeypatch, caplog):
         with caplog.at_level(logging.INFO, logger="steady_py"):
@@ -588,3 +606,83 @@ class TestDeltaInOutput:
         _write_notebook(root, name="plain.ipynb")
         cli.run_directory(_args(batch=str(root), format="json"), ENV)
         assert json.loads(capsys.readouterr().out)["deltas"] is None
+
+
+# ---------------------------------------------------------------------------------------------
+# check over a directory
+
+def _dir_result(*notebooks):
+    validation = spy.build_batch_validation([(Path(n.path).name, n.report) for n in notebooks if n.report is not None])
+    return CheckResult(target="repo", kind=TargetKind.DIRECTORY, notebooks=list(notebooks),
+                       validation=validation if any(n.report for n in notebooks) else None)
+
+
+def _clean(name):
+    return _checked(path=name)
+
+
+def _drifted(name):
+    return _checked(_finding(spy.Signal.YANKED, spy.Severity.CONFIRMED), path=name)
+
+
+def _cannot_check(name):
+    return _checked(_finding(spy.Signal.CHECK_ERROR, spy.Severity.ERROR), path=name)
+
+
+class TestCheckExitCodeOverADirectory:
+    def test_all_clean_is_0_and_no_manifest_is_no_problem(self):
+        assert cli.check_exit_code(_dir_result(_clean("a"), NotebookCheck(path="plain"))) == 0
+
+    def test_no_notebooks_is_0(self):
+        assert cli.check_exit_code(CheckResult(target="repo", kind=TargetKind.DIRECTORY)) == 0
+
+    def test_drift_in_any_notebook_is_1(self):
+        assert cli.check_exit_code(_dir_result(_clean("a"), _drifted("b"))) == 1
+
+    def test_some_notebooks_that_could_not_be_checked_among_others_that_were_is_1(self):
+        assert cli.check_exit_code(_dir_result(_clean("a"), _cannot_check("b"))) == 1
+        assert cli.check_exit_code(_dir_result(_clean("a"), NotebookCheck(path="b", error="unreadable"))) == 1
+
+    def test_when_nothing_could_be_checked_it_is_2(self):
+        assert cli.check_exit_code(_dir_result(_cannot_check("a"), NotebookCheck(path="b", error="unreadable"))) == 2
+        assert cli.check_exit_code(_dir_result(NotebookCheck(path="b", error="unreadable"))) == 2
+
+    def test_a_notebook_with_no_manifest_does_not_count_as_checked_or_failed(self):
+        assert cli.check_exit_code(_dir_result(NotebookCheck(path="plain"), NotebookCheck(path="b", error="unreadable"))) == 1
+
+
+class TestFormatCheckDirectory:
+    def test_text_summarizes_then_shows_the_aggregate_validation(self):
+        result = _dir_result(_drifted("a.ipynb"), _clean("b.ipynb"), NotebookCheck(path="plain.ipynb"))
+        out, err = cli.format_check_result(result)
+        assert out.startswith("Checked 3 notebook(s) in repo: 2 with a manifest, 1 without (nothing to check), 0 could not be read.")
+        assert out.endswith(spy.format_console_batch_validation(result.validation)) and err == ""
+
+    def test_unreadable_manifests_are_named_on_stderr(self):
+        result = _dir_result(_clean("a.ipynb"), NotebookCheck(path="repo/bad.ipynb", error="boom"))
+        out, err = cli.format_check_result(result)
+        assert "1 could not be read" in out and err == "⚠️ bad.ipynb: boom"
+
+    def test_an_empty_directory_says_so(self):
+        out, _ = cli.format_check_result(CheckResult(target="repo", kind=TargetKind.DIRECTORY))
+        assert out == "No notebooks found in repo -- nothing to check."
+
+    def test_json_lists_every_notebook_and_the_validation(self):
+        result = _dir_result(_drifted("a.ipynb"), NotebookCheck(path="plain.ipynb"), NotebookCheck(path="bad.ipynb", error="boom"))
+        payload = json.loads(cli.format_check_result(result, "json")[0])
+        assert (payload["mode"], payload["target_dir"]) == ("check_batch", "repo")
+        assert payload["summary"] == {"notebooks": 3, "with_manifest": 1, "without_manifest": 1, "unreadable": 1}
+        by_path = {n["path"]: n for n in payload["notebooks"]}
+        assert by_path["a.ipynb"]["drift_check"]["target"] == "a.ipynb" and by_path["a.ipynb"]["manifest_found"] is True
+        assert by_path["plain.ipynb"]["manifest_found"] is False and by_path["bad.ipynb"]["error"] == "boom"
+        assert payload["validation"]["notebooks_checked"] == 1
+
+
+class TestRunCheckDirectory:
+    def test_prints_the_summary_and_returns_the_worst_case_rule(self, tmp_path, capsys, monkeypatch):
+        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
+        _write_notebook(tmp_path, spy.generate_production_blueprint([PIN])["step2_code"], "a.ipynb")
+        _write_notebook(tmp_path, "import requests", "plain.ipynb")
+        assert cli.run_check(str(tmp_path)) == 0
+        out = capsys.readouterr().out
+        assert "Checked 2 notebook(s)" in out and "1 with a manifest, 1 without" in out

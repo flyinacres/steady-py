@@ -6,6 +6,7 @@ process, a network or a notebook on disk.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -15,7 +16,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 from steady_py import core, endpoints
 from steady_py.results import (
     CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
-    ScanResult, SnapshotOptions, SnapshotResult, WriteMode,
+    ScanResult, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
 )
 
 logger = core.logger
@@ -42,22 +43,72 @@ def check_exit_code(result: CheckResult) -> int:
     """0 clean, 1 drift found, 2 the manifest or a pin could not be checked.
 
     Drift is any confirmed finding, new or already known at generation, or a heuristic finding
-    that was not already known. Across several notebooks this is the worst code; how a
-    directory aggregates is settled when check takes directories.
+    that was not already known. Across the notebooks of a directory: 2 only when none of them
+    could be checked, otherwise 1 if any has drift or any could not be checked, otherwise 0. A
+    notebook with no manifest has nothing to check and counts as clean.
     """
-    return max((_notebook_check_code(n) for n in result.notebooks), default=EXIT_OK)
+    codes = [_notebook_check_code(n) for n in result.notebooks]
+    failed = codes.count(EXIT_FAILED)
+    if not failed:
+        return max(codes, default=EXIT_OK)
+    return EXIT_ATTENTION if failed < len(codes) else EXIT_FAILED
+
+
+def _notebook_check_json(notebook: NotebookCheck) -> str:
+    """The JSON for one notebook: the drift report, or a small object saying why there is none."""
+    if notebook.report is not None:
+        return core.format_json_drift_report(notebook.report)
+    return json.dumps({
+        "schema_version": core.SCHEMA_VERSION, "tool_version": core.TOOL_VERSION, "mode": "check_drift",
+        "target": notebook.path, "manifest_found": False, "error": notebook.error,
+    }, indent=2)
+
+
+def _format_check_directory(result: CheckResult, output_format: str) -> Tuple[str, str]:
+    notebooks = result.notebooks
+    with_manifest = [n for n in notebooks if n.report is not None]
+    unreadable = [n for n in notebooks if n.error is not None]
+    without = len(notebooks) - len(with_manifest) - len(unreadable)
+    if output_format == "json":
+        payload = {
+            "schema_version": core.SCHEMA_VERSION, "tool_version": core.TOOL_VERSION, "mode": "check_batch",
+            "target_dir": result.target,
+            "summary": {"notebooks": len(notebooks), "with_manifest": len(with_manifest),
+                        "without_manifest": without, "unreadable": len(unreadable)},
+            "notebooks": [
+                {"path": core.relative_notebook_path(Path(n.path), result.target), "manifest_found": n.report is not None,
+                 "error": n.error, "drift_check": n.report.to_dict() if n.report is not None else None}
+                for n in notebooks
+            ],
+            "validation": result.validation.to_dict() if result.validation else None,
+        }
+        errors = [f"⚠️ {core.relative_notebook_path(Path(n.path), result.target)}: {n.error}" for n in unreadable]
+        return json.dumps(payload, indent=2), "\n".join(errors)
+    if not notebooks:
+        return f"No notebooks found in {result.target} -- nothing to check.", ""
+    out = [f"Checked {len(notebooks)} notebook(s) in {result.target}: {len(with_manifest)} with a manifest, "
+           f"{without} without (nothing to check), {len(unreadable)} could not be read."]
+    if result.validation is not None:
+        out += ["", core.format_console_batch_validation(result.validation)]
+    errors = [f"⚠️ {core.relative_notebook_path(Path(n.path), result.target)}: {n.error}" for n in unreadable]
+    return "\n".join(out), "\n".join(errors)
 
 
 def format_check_result(result: CheckResult, output_format: str = "text") -> Tuple[str, str]:
-    """(stdout text, stderr text) for a check result. Either may be empty."""
+    """(stdout text, stderr text) for a check result. Either may be empty. JSON mode always puts
+    JSON on stdout, including for a notebook with no manifest or one that could not be read."""
+    if result.kind == TargetKind.DIRECTORY:
+        return _format_check_directory(result, output_format)
     out_parts, err_parts = [], []
     for notebook in result.notebooks:
         if notebook.error is not None:
             err_parts.append(f"⚠️ {notebook.error}")
+        if output_format == "json":
+            out_parts.append(_notebook_check_json(notebook))
+        elif notebook.error is not None:
+            continue
         elif notebook.report is None:
             out_parts.append(f"No STEADY_PY_MANIFEST found in {notebook.path} -- nothing to check.")
-        elif output_format == "json":
-            out_parts.append(core.format_json_drift_report(notebook.report))
         else:
             out_parts.append(core.format_console_drift_report(notebook.report))
     return "\n".join(out_parts), "\n".join(err_parts)
@@ -423,8 +474,8 @@ def main() -> None:
         logger.setLevel(logging.DEBUG)
 
     if args.check_drift:
-        if not args.notebook or not os.path.isfile(args.notebook):
-            logger.error("❌ Error: --check-drift requires a target notebook or .py file path.")
+        if not args.notebook or not os.path.exists(args.notebook):
+            logger.error("❌ Error: --check-drift requires a target notebook, .py file or directory.")
             if in_live_ipython:
                 return
             sys.exit(EXIT_FAILED)

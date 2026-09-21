@@ -82,6 +82,72 @@ class TestCheck:
         assert captured.out == "" and captured.err == ""
 
 
+class TestCheckDirectory:
+    """check over a directory: one result per notebook, plus the aggregate validation section."""
+
+    def _tree(self, tmp_path, with_manifest=("a.ipynb", "sub/b.ipynb")):
+        root = tmp_path / "repo"
+        (root / "sub").mkdir(parents=True)
+        for rel in ("a.ipynb", "sub/b.ipynb", "plain.ipynb"):
+            target = root / rel
+            if rel in with_manifest:
+                _notebook(target.parent, spy.generate_production_blueprint(DEPS)["step2_code"], target.name)
+            else:
+                _notebook(target.parent, "import requests", target.name)
+        return str(root)
+
+    def test_returns_one_result_per_notebook_and_an_aggregate(self, tmp_path, offline):
+        root = self._tree(tmp_path)
+        result = check(root)
+        assert (result.target, result.kind) == (root, TargetKind.DIRECTORY)
+        by_name = {Path(n.path).name: n for n in result.notebooks}
+        assert sorted(by_name) == ["a.ipynb", "b.ipynb", "plain.ipynb"]
+        assert by_name["a.ipynb"].manifest_found and by_name["b.ipynb"].manifest_found
+        assert not by_name["plain.ipynb"].manifest_found and by_name["plain.ipynb"].error is None
+        assert result.validation.notebooks_checked == 2
+
+    def test_generated_companion_files_are_checked_too(self, tmp_path, offline):
+        root = self._tree(tmp_path, with_manifest=())
+        _notebook(tmp_path / "repo", spy.generate_production_blueprint(DEPS)["step2_code"], "plain_merged.ipynb")
+        found = {Path(n.path).name: n.manifest_found for n in check(root).notebooks}
+        assert found["plain_merged.ipynb"] is True
+
+    def test_hidden_and_ignored_directories_are_skipped(self, tmp_path, offline):
+        root = self._tree(tmp_path)
+        for skipped in (".hidden", ".ipynb_checkpoints", "build", "venv"):
+            (Path(root) / skipped).mkdir()
+            _notebook(Path(root) / skipped, "import requests", "x.ipynb")
+        assert sorted(Path(n.path).name for n in check(root).notebooks) == ["a.ipynb", "b.ipynb", "plain.ipynb"]
+
+    def test_an_unreadable_manifest_is_that_notebooks_error_and_the_rest_are_still_checked(self, tmp_path, offline):
+        root = self._tree(tmp_path)
+        _notebook(Path(root), "STEADY_PY_MANIFEST = {'python_version': 3}", "broken.ipynb")
+        result = check(root)
+        assert [Path(n.path).name for n in result.failed] == ["broken.ipynb"]
+        assert result.validation.notebooks_checked == 2
+
+    def test_a_finding_shared_by_notebooks_is_grouped_once(self, tmp_path, monkeypatch):
+        finding = spy.DriftFinding("requests", "2.32.1", spy.Signal.YANKED, spy.Severity.CONFIRMED, "yanked")
+        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [finding])
+        root = self._tree(tmp_path)
+        group, = check(root).validation.findings
+        assert sorted(group.notebooks) == ["a.ipynb", "sub/b.ipynb"]
+
+    def test_the_directory_is_the_default_root_dir_and_an_explicit_one_wins(self, tmp_path, monkeypatch, offline):
+        seen = []
+        monkeypatch.setattr(spy, "check_local_modules", lambda manifest, notebook_dir, root_dir=None: seen.append(root_dir) or [])
+        root = self._tree(tmp_path)
+        check(root)
+        assert set(seen) == {root}
+        seen.clear()
+        check(root, CheckOptions(root_dir="/elsewhere"))
+        assert set(seen) == {"/elsewhere"}
+
+    def test_an_empty_directory_has_nothing_to_check(self, tmp_path, offline):
+        result = check(str(tmp_path))
+        assert (result.notebooks, result.validation) == ([], None)
+
+
 # ---------------------------------------------------------------------------------------------
 # scan and snapshot
 

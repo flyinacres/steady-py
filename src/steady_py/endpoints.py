@@ -281,14 +281,28 @@ def _snapshot_directory(target: str, options: SnapshotOptions, environment: Opti
 
 
 def check(target: str, options: Optional[CheckOptions] = None) -> CheckResult:
-    """Compares the manifest in a notebook or .py file with live PyPI: yanked or removed pins,
-    conflicts, an unsupported Python, a hand-edited manifest, missing local modules.
+    """Compares the manifest in a notebook, a .py file or every notebook under a directory with
+    live PyPI: yanked or removed pins, conflicts, an unsupported Python, a hand-edited manifest,
+    missing local modules.
 
     Read-only. A file with no manifest is not an error (a notebook from before manifests is a
-    valid state): the result has `manifest_found` False and nothing to report.
+    valid state): its result has `manifest_found` False and nothing to report. For a directory,
+    the result also carries the aggregate validation section, and generated companion files are
+    checked too, since they are where the manifests are. A directory is the default `root_dir`
+    for local modules, the same root snapshot recorded them against.
     """
     options = options or CheckOptions()
+    if os.path.isdir(target):
+        return _check_directory(target, options)
     return CheckResult(target=target, kind=TargetKind.FILE, notebooks=[_check_file(target, options)])
+
+
+def _check_directory(target: str, options: CheckOptions) -> CheckResult:
+    options = CheckOptions(root_dir=options.root_dir or target)
+    notebooks = [_check_file(str(path), options) for path in core.iter_notebook_paths(target)]
+    reports = [(core.relative_notebook_path(Path(n.path), target), n.report) for n in notebooks if n.report is not None]
+    validation = core.build_batch_validation(reports) if reports else None
+    return CheckResult(target=target, kind=TargetKind.DIRECTORY, notebooks=notebooks, validation=validation)
 
 
 def _check_file(path: str, options: CheckOptions) -> NotebookCheck:

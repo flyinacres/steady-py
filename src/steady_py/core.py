@@ -52,7 +52,7 @@ import urllib.parse
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Set, FrozenSet, Dict, List, Tuple, Optional, Any, TypedDict, Callable, NamedTuple, Union, Mapping, Sequence
+from typing import Set, FrozenSet, Dict, List, Tuple, Optional, Any, TypedDict, Callable, NamedTuple, Union, Mapping, Sequence, Iterator
 from packaging.version import Version, InvalidVersion
 from packaging.specifiers import SpecifierSet, InvalidSpecifier
 from packaging.requirements import Requirement, InvalidRequirement
@@ -3954,29 +3954,33 @@ def build_scan_result(
     )
 
 
-def walk_and_scan_directory(target_dir: str, skip_suffix: Optional[str] = None) -> RepoEnvironmentMap:
-    """Recursively scans directory for .ipynb files in batch mode."""
-    repo_map = RepoEnvironmentMap(target_dir)
-    target_path = Path(target_dir)
-
-    for root, dirs, files in os.walk(target_path):
+def iter_notebook_paths(target_dir: str) -> Iterator[Path]:
+    """Every .ipynb under a directory, skipping hidden and ignored directories (the same rule for
+    scan, snapshot and check)."""
+    for root, dirs, files in os.walk(Path(target_dir)):
         dirs[:] = [d for d in dirs if not d.startswith('.') and d not in DEFAULT_IGNORED_DIRS]
         for file in sorted(files):
             if file.endswith('.ipynb'):
-                full_path = Path(root) / file
+                yield Path(root) / file
 
-                if skip_suffix and full_path.stem.endswith(skip_suffix):
-                    repo_map.companion_files_skipped.append(full_path)
-                    continue
 
-                ext_res = extract_from_file(str(full_path), strict=True)
-                
-                parse_err = ext_res.error_msg if (not ext_res.success and "Skipped non-Python notebook" not in (ext_res.error_msg or "")) else None
-                res = build_scan_result(
-                    full_path, ext_res,
-                    is_python=ext_res.success, lang_label=ext_res.lang_label, parse_error=parse_err,
-                )
-                repo_map.add_result(res)
+def walk_and_scan_directory(target_dir: str, skip_suffix: Optional[str] = None) -> RepoEnvironmentMap:
+    """Recursively scans directory for .ipynb files in batch mode."""
+    repo_map = RepoEnvironmentMap(target_dir)
+
+    for full_path in iter_notebook_paths(target_dir):
+        if skip_suffix and full_path.stem.endswith(skip_suffix):
+            repo_map.companion_files_skipped.append(full_path)
+            continue
+
+        ext_res = extract_from_file(str(full_path), strict=True)
+
+        parse_err = ext_res.error_msg if (not ext_res.success and "Skipped non-Python notebook" not in (ext_res.error_msg or "")) else None
+        res = build_scan_result(
+            full_path, ext_res,
+            is_python=ext_res.success, lang_label=ext_res.lang_label, parse_error=parse_err,
+        )
+        repo_map.add_result(res)
 
     return repo_map
 
