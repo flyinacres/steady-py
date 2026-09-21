@@ -5,23 +5,25 @@ from pathlib import Path
 
 import steady_py.core as spy
 
-SOURCE = Path(spy.__file__).read_text(encoding="utf-8", errors="replace")
+PACKAGE_DIR = Path(spy.__file__).resolve().parent
+SOURCES = {path.name: path.read_text(encoding="utf-8", errors="replace") for path in sorted(PACKAGE_DIR.glob("*.py"))}
 BARE = re.compile(r'\b(signal|severity|baseline_status|kind|status)\b(\s*(?:==|!=|=)\s*|\s+(?:not\s+)?in\s+\(?)"[a-z_]+"')
 
 
 def _code_lines():
-    """Lines of the module outside triple-quoted text (docstrings and the generated notebook cells)."""
-    inside = False
-    for number, line in enumerate(SOURCE.splitlines(), 1):
-        quotes = line.count('"""')
-        if not inside and quotes == 0:
-            yield number, line
-        if quotes % 2:
-            inside = not inside
+    """Lines of every module outside triple-quoted text (docstrings and the generated notebook cells)."""
+    for name, source in SOURCES.items():
+        inside = False
+        for number, line in enumerate(source.splitlines(), 1):
+            quotes = line.count('"""')
+            if not inside and quotes == 0:
+                yield f"{name}:{number}", line
+            if quotes % 2:
+                inside = not inside
 
 
 def test_no_bare_literals_for_signal_severity_or_status():
-    offenders = [f"{n}: {line.strip()}" for n, line in _code_lines() if BARE.search(line)]
+    offenders = [f"{where}: {line.strip()}" for where, line in _code_lines() if BARE.search(line)]
     assert offenders == []
 
 
@@ -37,3 +39,7 @@ def test_constant_values_are_the_wire_strings():
 def test_constants_embed_in_the_manifest_literal_as_plain_strings():
     baseline = spy.build_baseline([spy.DriftFinding("requests", "2.32.0", spy.Signal.YANKED, spy.Severity.CONFIRMED, "m")])
     assert repr(baseline.to_dict()) == "{'version': 1, 'findings': [['yanked', 'requests', '2.32.0']], 'errors': []}"
+
+
+def test_scan_covers_every_module_in_the_package():
+    assert {"core.py", "cli.py", "endpoints.py", "results.py"} <= set(SOURCES)

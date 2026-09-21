@@ -3300,59 +3300,6 @@ def check_local_modules(
     return findings
 
 
-def run_check_drift_pipeline(target: str, output_format: str = "text", root_dir: Optional[str] = None) -> int:
-    """Orchestrates Check mode end to end: extract -> run all checks -> report.
-
-    Returns the process exit code: 0 clean, 1 drift found (any confirmed finding, new or
-    already known at generation, or a heuristic finding that is not already known), 2 a pin
-    (or the manifest itself) could not be checked. A heuristic finding that was already
-    present at generation does not fail the check. A
-    missing manifest is not an error -- it exits 0 with a clear "nothing to
-    check" message, since a pre-feature notebook is an expected, valid state.
-    """
-    manifest, error = extract_manifest_from_file(target)
-
-    if error:
-        print(f"⚠️ {error}", file=sys.stderr)
-        return 2
-
-    if manifest is None:
-        print(f"No STEADY_PY_MANIFEST found in {target} -- nothing to check.")
-        return 0
-
-    findings: List[DriftFinding] = []
-
-    # Verify the manifest hasn't been hand-edited since it was generated. Only
-    # meaningful here -- generation is writing dependency_hash for the first
-    # time, not verifying a prior one. The stored hash stays on the manifest so
-    # the report shows what the file actually contains.
-    stored_hash = manifest.dependency_hash
-    recomputed_hash = manifest.verified_hash
-    if recomputed_hash != stored_hash:
-        findings.append(DriftFinding(
-            package="", version="", signal=Signal.TAMPERED, severity=Severity.CONFIRMED,
-            message=f"Manifest hash mismatch in {target} -- it may have been hand-edited since generation.",
-            details={"stored_hash": stored_hash, "recomputed_hash": recomputed_hash},
-        ))
-
-    findings.extend(check_local_modules(manifest, notebook_dir=str(Path(target).parent), root_dir=root_dir))
-
-    findings.extend(run_pin_checks(manifest.dependencies, manifest.python_version))
-
-    report = build_drift_check_report(target, manifest, findings)
-
-    if output_format == "json":
-        print(format_json_drift_report(report))
-    else:
-        print(format_console_drift_report(report))
-
-    if report.has_errors:
-        return 2
-    if report.has_confirmed or report.has_actionable_heuristic:
-        return 1
-    return 0
-
-
 # =====================================================================
 # HARDWARE ACCELERATION INSPECTION
 # =====================================================================
@@ -4763,7 +4710,9 @@ def main() -> None:
             if is_running_in_ipython():
                 return
             sys.exit(2)
-        exit_code = run_check_drift_pipeline(args.notebook, output_format=args.format, root_dir=args.root_dir)
+        # Imported here because cli imports this module; goes away when main moves into cli.
+        from steady_py import cli
+        exit_code = cli.run_check(args.notebook, output_format=args.format, root_dir=args.root_dir)
         if is_running_in_ipython():
             return
         sys.exit(exit_code)

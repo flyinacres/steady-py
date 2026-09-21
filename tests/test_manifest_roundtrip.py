@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+import steady_py.cli as cli
 import steady_py.core as spy
 
 
@@ -123,7 +124,7 @@ class TestBaselineE2E:
 
         assert ("yanked", "requests", "2.32.0") in result["drift_report"].manifest.baseline.findings
 
-        exit_code = spy.run_check_drift_pipeline(str(path), output_format="json")
+        exit_code = cli.run_check(str(path), output_format="json")
         report = json.loads(capsys.readouterr().out)
         yanked = [f for f in report["confirmed"] if f["signal"] == "yanked"]
         assert [f["baseline_status"] for f in yanked] == ["known"]
@@ -142,14 +143,14 @@ class TestTamperingDetectionE2E:
         assert tampered != content, "replacement did not match anything in the generated file"
         path.write_text(tampered, encoding="utf-8")
 
-        exit_code = spy.run_check_drift_pipeline(str(path))
+        exit_code = cli.run_check(str(path))
         assert exit_code == 1  # confirmed findings present, no check_error
 
     def test_untampered_manifest_has_no_tampering_finding(self, tmp_path, capsys):
         deps = [spy.PinnedDependency("requests", "2.32.1")]
         path, _ = _write_notebook_with_manifest(tmp_path, deps)
 
-        spy.run_check_drift_pipeline(str(path))
+        cli.run_check(str(path))
         out = capsys.readouterr().out
         assert "[tampered]" not in out
 
@@ -162,11 +163,11 @@ class TestCheckDriftPipelineE2E:
         deps = [spy.PinnedDependency("requests", "2.32.0")]
         path, _ = _write_notebook_with_manifest(tmp_path, deps)
 
-        exit_code = spy.run_check_drift_pipeline(str(path))
+        exit_code = cli.run_check(str(path))
         assert exit_code == 1
 
     def test_no_manifest_exits_zero(self):
-        exit_code = spy.run_check_drift_pipeline(str(KITCHEN_SINK_PATH))
+        exit_code = cli.run_check(str(KITCHEN_SINK_PATH))
         assert exit_code == 0
 
 

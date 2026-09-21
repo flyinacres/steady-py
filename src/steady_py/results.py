@@ -164,7 +164,8 @@ class NotebookSnapshot:
 class NotebookCheck:
     """check of one notebook: its manifest against live PyPI."""
     path: str
-    manifest_found: bool = False                       # False: nothing to check, which is not an error
+    manifest_found: bool = False                       # True only when a manifest was found and read; False for
+                                                       # 'nothing to check' (not an error) or an unreadable one (`error`)
     report: Optional[core.DriftCheckReport] = None
     error: Optional[str] = None                        # the manifest could not be read; a pin that could
                                                        # not be checked is in report.has_errors instead

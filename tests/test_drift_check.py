@@ -13,6 +13,7 @@ import json
 
 import pytest
 
+import steady_py.cli as cli
 import steady_py.core as spy
 
 
@@ -641,7 +642,7 @@ def _write_literal(tmp_path, manifest, name="nb.py"):
 
 
 def _check(path, capsys):
-    exit_code = spy.run_check_drift_pipeline(str(path), output_format="json")
+    exit_code = cli.run_check(str(path), output_format="json")
     return exit_code, json.loads(capsys.readouterr().out)
 
 
@@ -711,7 +712,7 @@ class TestPinChecksAreSharedBetweenGenerationAndCheckDrift:
         path = _write_literal(tmp_path, result["drift_report"].manifest.to_dict())
 
         self._record_calls(monkeypatch, checked)
-        spy.run_check_drift_pipeline(str(path), output_format="json")
+        cli.run_check(str(path), output_format="json")
         capsys.readouterr()
 
         assert generated, "the generation path ran no pin checks at all"
@@ -925,7 +926,7 @@ class TestCheckDriftClassifiesAgainstBaseline:
             world["core-dep"]["versions"]["1.0.0"]["yanked"] = True
         _change_world(monkeypatch, yank)
 
-        spy.run_check_drift_pipeline(str(path))
+        cli.run_check(str(path))
         out = capsys.readouterr().out
         assert "[new]" in out and "[known]" in out
 
@@ -950,7 +951,7 @@ class TestCheckDriftClassifiesAgainstBaseline:
         assert report["baseline"] == {"recorded": False}
         assert exit_code == 1
 
-        spy.run_check_drift_pipeline(str(path))
+        cli.run_check(str(path))
         assert "no generation-time baseline" in capsys.readouterr().out.lower()
 
     def test_unrecognized_baseline_format_is_treated_as_no_baseline(self, tmp_path, capsys):
@@ -991,7 +992,7 @@ class TestKnownCustomSources:
 
     def test_console_report_lists_it_as_a_notice_and_stays_clean(self, tmp_path, capsys):
         path, _ = _generate_file(tmp_path, [PRIVATE_PKG])
-        exit_code = spy.run_check_drift_pipeline(str(path))
+        exit_code = cli.run_check(str(path))
         out = capsys.readouterr().out
         assert "CUSTOM SOURCES" in out and "[known] [not_found_on_pypi]" in out
         assert "CONFIRMED ISSUES" not in out
