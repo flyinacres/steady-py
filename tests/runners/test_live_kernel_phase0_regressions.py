@@ -2,7 +2,7 @@
 """Phase 0: Live-Kernel Regressions Test.
 
 Simulates an interactive session: executes regular user cells, runs steady-py
-directly inside the active kernel (import steady_py.core as spy; spy.main()), and
+directly inside the active kernel (import steady_py.cli as spy; spy.main()), and
 verifies sys.argv isolation, duplicate log handler prevention, and cell execution
 history introspection.
 """
@@ -19,7 +19,7 @@ from e2e_harness import (
 
 
 def main() -> None:
-    run_tool = "import steady_py.core as spy\nspy.main()"
+    run_tool = "import steady_py.cli as spy\nspy.main()"
 
     print("Starting interactive kernel...")
     with interactive_kernel("python3") as kernel:

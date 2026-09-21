@@ -32,12 +32,12 @@ def test_import_leaves_streams_and_logging_untouched():
     assert out == "True ['NullHandler'] False"
 
 
-def test_configure_console_is_where_streams_and_the_handler_get_set_up():
+def testconfigure_console_is_where_streams_and_the_handler_get_set_up():
     """The stderr handler replaces the import-time placeholder, leaving exactly one handler."""
     out = _run(
         "import sys, logging, steady_py.core as spy\n"
-        "spy._configure_console()\n"
-        "spy._configure_console()  # idempotent\n"
+        "spy.configure_console()\n"
+        "spy.configure_console()  # idempotent\n"
         "log = logging.getLogger('steady_py')\n"
         "print(sys.stdout.encoding, sorted(type(h).__name__ for h in log.handlers), log.propagate)",
         PYTHONIOENCODING="latin-1",
@@ -61,7 +61,7 @@ def test_reloading_the_module_in_one_process_never_stacks_handlers():
         "import importlib, logging, sys, steady_py.core as spy\n"
         "for _ in range(2):\n"
         "    importlib.reload(spy)\n"
-        "    spy._configure_console()\n"
+        "    spy.configure_console()\n"
         "print(len(logging.getLogger('steady_py').handlers))"
     )
     assert out == "1"

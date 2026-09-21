@@ -12,7 +12,7 @@ license = { text = "MIT" }
 dependencies = []
 
 [project.scripts]
-steady-py = "steady_py.core:main"
+steady-py = "steady_py.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

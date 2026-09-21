@@ -20,6 +20,7 @@ from typing import Dict, List, Set, Tuple, Any
 
 import pytest
 
+import steady_py.cli as cli
 import steady_py.core as spy
 from steady_py.core import (
     StatusLabel,
@@ -338,7 +339,7 @@ class TestDualPathIngestion:
 
         monkeypatch.setattr(sys, "argv", ["steady-py", str(nb_path)])
         
-        spy.main()
+        cli.main()
         assert sys.executable in caplog.text
 
     def test_uninstalled_package_produces_fallback_comment_in_main(
@@ -351,7 +352,7 @@ class TestDualPathIngestion:
         monkeypatch.setattr(spy, "get_installed_environment", lambda: ({}, []))
         monkeypatch.setattr(sys, "argv", ["steady-py", str(nb_path)])
 
-        spy.main()
+        cli.main()
         captured_stdout: str = capsys.readouterr().out
 
         assert "#" in captured_stdout
@@ -1006,10 +1007,10 @@ class TestMemoizeForRun:
 
     def test_main_clears_memoization_caches_before_anything_else(self, monkeypatch):
         """main() is the single documented entrypoint for both CLI and live-kernel
-        usage (`import steady_py.core as spy; spy.main()`). It must clear both memoized
+        usage (`import steady_py.core as spy; cli.main()`). It must clear both memoized
         caches unconditionally, before argument parsing even happens, so a
         long-lived kernel session never returns stale results after the user
-        edits files on disk between calls to spy.main()."""
+        edits files on disk between calls to cli.main()."""
         cleared = {"local_modules": False, "manifest": False}
         monkeypatch.setattr(spy.resolve_local_module, "cache_clear", lambda: cleared.__setitem__("local_modules", True))
         monkeypatch.setattr(spy.build_manifest_entries, "cache_clear", lambda: cleared.__setitem__("manifest", True))
@@ -1025,7 +1026,7 @@ class TestMemoizeForRun:
         monkeypatch.setattr(sys, "argv", ["steady-py", "--output"])
 
         with pytest.raises(SystemExit):
-            spy.main()
+            cli.main()
 
         assert cleared["local_modules"] is True
         assert cleared["manifest"] is True
@@ -1109,8 +1110,8 @@ class TestInteractiveKernelRuntime:
 
         # The stderr handler is attached by the CLI entry point, not at import; calling it twice
         # must not add a second one.
-        spy._configure_console()
-        spy._configure_console()
+        spy.configure_console()
+        spy.configure_console()
 
         # In live sessions, propagate must be False so root loggers (e.g. IPython) don't duplicate logs
         assert logger.propagate is False
@@ -1135,7 +1136,7 @@ class TestInteractiveKernelRuntime:
             "",
             "import pandas as pd\nimport numpy as np\n",
             "class NotebookImportVisitor(ast.NodeVisitor):\n    pass\ndef extract_from_active_session():\n    pass\nimport cupy\n",  # Simulated steady-py source cell
-            "import steady_py.core as spy\nne.main()\n",  # Invocation cell
+            "import steady_py.cli as spy\nspy.main()\n",  # Invocation cell
         ]
 
         monkeypatch.setattr(__main__, "In", simulated_in_history, raising=False)

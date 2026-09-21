@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+import steady_py.cli as cli
 import steady_py.core as spy
 
 
@@ -92,7 +93,7 @@ class TestKitchenSinkNotebook:
         monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
         monkeypatch.setattr(sys, "argv", ["steady-py", str(kitchen_sink_notebook)])
 
-        spy.main()
+        cli.main()
         out = capsys.readouterr().out
 
         assert "pillow" in out and "10.3.0" in out
@@ -154,7 +155,7 @@ class TestKitchenSinkNotebook:
             raise importlib.metadata.PackageNotFoundError(pkg_name)
         monkeypatch.setattr(importlib.metadata, "distribution", fake_distribution)
 
-        spy.main()
+        cli.main()
         out = capsys.readouterr().out
 
         assert "umap-learn" in out

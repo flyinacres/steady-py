@@ -13,6 +13,7 @@ from typing import Dict, List, Tuple
 
 import pytest
 
+import steady_py.cli as cli
 import steady_py.core as spy
 from steady_py.core import StatusLabel
 
@@ -147,7 +148,7 @@ class TestBatchFailureModes:
         monkeypatch.setattr(sys, "argv", ["steady-py", "--batch", str(tmp_path), "--universal"])
 
         with pytest.raises(SystemExit) as excinfo:
-            spy.main()
+            cli.main()
 
         assert excinfo.value.code == 1
 

@@ -14,7 +14,7 @@ reproducible lockfile manifests and isolated sequential installation blueprints.
 If you are running inside a Jupyter notebook cell:
   1. Paste this entire file into a notebook cell.
   2. Run:
-       import steady_py.core as spy
+       import steady_py.cli as spy
        spy.main()
   3. Copy the output setup cells into the top of your notebook.
 
@@ -25,7 +25,7 @@ see the repository README:
 Execution Modes:
   1. Single Notebook CLI:  python -m steady_py notebook.ipynb [--format {text,json}] [--output | --output-dir DIR | --in-place]
   2. Batch Repo Directory: python -m steady_py --batch ./repo [--format {text,json}] [--universal [FILENAME]] [--output | --output-dir DIR | --in-place]
-  3. Live IPython Kernel:   import steady_py.core as spy; spy.main()
+  3. Live IPython Kernel:   import steady_py.cli as spy; spy.main()
 """
 
 # =====================================================================
@@ -65,7 +65,7 @@ SCHEMA_VERSION: str = "1.0"
 
 # Diagnostics go through this logger. Importing the module must not touch process-global state
 # (the standard streams, other loggers' handlers), so the logger itself is only given a NullHandler;
-# the CLI entry point (main) calls _configure_console() to attach the stderr handler and force UTF-8
+# the CLI entry point (cli.main) calls configure_console() to attach the stderr handler and force UTF-8
 # output. It never propagates to the root logger, so a host that configures logging (an IPython
 # session, a test runner) does not print every message twice. The name is explicit, not __name__,
 # because running the file as a script would otherwise name it "__main__".
@@ -76,7 +76,7 @@ if not logger.handlers:  # guarded: the file is re-executed when pasted into a l
     logger.addHandler(logging.NullHandler())
 
 
-def _configure_console() -> None:
+def configure_console() -> None:
     """CLI-only process setup: UTF-8 stdout/stderr (Windows and redirected output) and a plain
     stderr log handler at INFO. Called once from main(), never at import."""
     for stream in (sys.stdout, sys.stderr):
@@ -1014,7 +1014,7 @@ def extract_from_active_session() -> Tuple[List[str], Dict[str, Set[str]], List[
         if "NotebookImportVisitor" in src or "def extract_from_active_session" in src:
             continue
         stripped = src.strip()
-        if re.search(r'\b(?:spy|steady_py|steady_py\.core)\.main\s*\(', stripped) or stripped in ("import steady_py", "import steady_py.core") or stripped.startswith(("import steady_py as", "import steady_py.core as")):
+        if re.search(r'\b(?:spy|steady_py|steady_py\.cli)\.main\s*\(', stripped) or stripped in ("import steady_py", "import steady_py.cli") or stripped.startswith(("import steady_py as", "import steady_py.cli as")):
             continue
         clean_sources.append(src)
 
@@ -4452,77 +4452,3 @@ def apply_output_to_notebook(
         scan_res, blueprint, suffix=suffix, in_place=in_place, root_dir=root_dir, output_dir=output_dir
     )
     return target_path, blueprint["drift_report"]
-
-
-def main() -> None:
-    """CLI entrypoint and dispatch router for single notebook or batch analysis modes."""
-    _configure_console()
-    resolve_local_module.cache_clear()  # type: ignore[attr-defined]  # attached by _memoize_for_run
-    build_manifest_entries.cache_clear()  # type: ignore[attr-defined]
-
-    parser = argparse.ArgumentParser(prog="steady-py", description="Generate environment lockfiles for Jupyter Notebooks.")
-    parser.add_argument("notebook", nargs="?", help="Path to target .ipynb file or directory (when using --batch).")
-    parser.add_argument("--format", choices=["text", "json"], default="text", help="Output report format (default: 'text').")
-    parser.add_argument("--full-freeze", action="store_true", help="Append full environment pip freeze after targeted manifest.")
-    parser.add_argument("--timeout", type=int, default=120, metavar="SECONDS", help="Per-package pip install timeout in seconds, baked into the generated notebook's install cell (default: 120).")
-    parser.add_argument("--quiet", action="store_true", help="Suppress diagnostic and status logging outputs.")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose debug output.")
-    parser.add_argument("--check-drift", action="store_true", help="Read-only: check an existing notebook's pinned manifest for drift against live PyPI, instead of generating a new one.")
-    parser.add_argument("--root-dir", metavar="DIR", help="Root directory to re-verify root_dir-anchored local modules against during --check-drift; without it, those entries are reported as unverifiable, not silently skipped.")
-
-    # Batch / Output Flags
-    parser.add_argument("--batch", metavar="DIR", help="Run in batch mode across all notebooks in specified directory.")
-    parser.add_argument("--analyze", action="store_true", help="Run batch analysis mode (default when --batch is provided).")
-    parser.add_argument(
-        "--universal", 
-        nargs="?", 
-        const=DEFAULT_UNIVERSAL_MANIFEST_NAME, 
-        default=None, 
-        metavar="FILENAME",
-        help=f"Generate universal repository manifest (default: '{DEFAULT_UNIVERSAL_MANIFEST_NAME}' when flag is provided)."
-    )
-    parser.add_argument("--output", action="store_true", help="Generate per-notebook merged lockfiles.")
-    parser.add_argument("--output-dir", metavar="DIR", help="Directory where generated locked notebooks should be written.")
-    parser.add_argument("--suffix", default=None, help="File suffix for merged notebook outputs (default: '_merged' alongside source, '' with --output-dir).")
-    parser.add_argument("--in-place", action="store_true", help="Overwrite original notebooks in-place instead of creating companion files.")
-
-    args, unknown = parser.parse_known_args()
-
-    if is_running_in_ipython():
-        sanitize_kernel_argv(args)
-
-    if args.quiet:
-        logger.setLevel(logging.ERROR)
-    elif args.verbose:
-        logger.setLevel(logging.DEBUG)
-
-    if args.check_drift:
-        if not args.notebook or not os.path.isfile(args.notebook):
-            logger.error("❌ Error: --check-drift requires a target notebook or .py file path.")
-            if is_running_in_ipython():
-                return
-            sys.exit(2)
-        # Imported here because cli imports this module; goes away when main moves into cli.
-        from steady_py import cli
-        exit_code = cli.run_check(args.notebook, output_format=args.format, root_dir=args.root_dir)
-        if is_running_in_ipython():
-            return
-        sys.exit(exit_code)
-
-    target_batch_dir = args.batch or (args.notebook if args.notebook and os.path.isdir(args.notebook) else None)
-
-    if (args.output or args.in_place or args.output_dir) and not target_batch_dir and not (args.notebook and os.path.isfile(args.notebook)):
-        logger.error("❌ Error: --output, --output-dir, or --in-place requires a target notebook file path or --batch directory.")
-        if is_running_in_ipython():
-            return
-        sys.exit(1)
-
-    # Imported here because cli imports this module; goes away when main moves into cli.
-    from steady_py import cli
-    exit_code = cli.run_directory(args) if target_batch_dir else cli.run_single_file(args)
-    if exit_code and not is_running_in_ipython():
-        sys.exit(exit_code)
-
-
-if __name__ == "__main__":
-    main()

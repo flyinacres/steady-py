@@ -6,6 +6,7 @@ process, a network or a notebook on disk.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 from typing import Any, Dict, Optional, Tuple, Union
@@ -296,3 +297,76 @@ def run_directory(args: argparse.Namespace, environment: Optional[Environment] =
             summary, artifacts_written=artifacts_written if artifacts_written else None, validation=result.validation,
         ))
     return EXIT_OK
+
+
+# --- the command line -------------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="steady-py", description="Generate environment lockfiles for Jupyter Notebooks.")
+    parser.add_argument("notebook", nargs="?", help="Path to target .ipynb file or directory (when using --batch).")
+    parser.add_argument("--format", choices=["text", "json"], default="text", help="Output report format (default: 'text').")
+    parser.add_argument("--full-freeze", action="store_true", help="Append full environment pip freeze after targeted manifest.")
+    parser.add_argument("--timeout", type=int, default=120, metavar="SECONDS", help="Per-package pip install timeout in seconds, baked into the generated notebook's install cell (default: 120).")
+    parser.add_argument("--quiet", action="store_true", help="Suppress diagnostic and status logging outputs.")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose debug output.")
+    parser.add_argument("--check-drift", action="store_true", help="Read-only: check an existing notebook's pinned manifest for drift against live PyPI, instead of generating a new one.")
+    parser.add_argument("--root-dir", metavar="DIR", help="Root directory to re-verify root_dir-anchored local modules against during --check-drift; without it, those entries are reported as unverifiable, not silently skipped.")
+
+    # Batch / Output Flags
+    parser.add_argument("--batch", metavar="DIR", help="Run in batch mode across all notebooks in specified directory.")
+    parser.add_argument("--analyze", action="store_true", help="Run batch analysis mode (default when --batch is provided).")
+    parser.add_argument(
+        "--universal",
+        nargs="?",
+        const=core.DEFAULT_UNIVERSAL_MANIFEST_NAME,
+        default=None,
+        metavar="FILENAME",
+        help=f"Generate universal repository manifest (default: '{core.DEFAULT_UNIVERSAL_MANIFEST_NAME}' when flag is provided).",
+    )
+    parser.add_argument("--output", action="store_true", help="Generate per-notebook merged lockfiles.")
+    parser.add_argument("--output-dir", metavar="DIR", help="Directory where generated locked notebooks should be written.")
+    parser.add_argument("--suffix", default=None, help="File suffix for merged notebook outputs (default: '_merged' alongside source, '' with --output-dir).")
+    parser.add_argument("--in-place", action="store_true", help="Overwrite original notebooks in-place instead of creating companion files.")
+    return parser
+
+
+def main() -> None:
+    """The entry point: parses the flags, runs the verb they ask for, and exits with its code (in a
+    live IPython session it returns instead, so the kernel is not killed)."""
+    core.configure_console()
+    core.resolve_local_module.cache_clear()  # type: ignore[attr-defined]  # attached by _memoize_for_run
+    core.build_manifest_entries.cache_clear()  # type: ignore[attr-defined]
+
+    args, _unknown = build_parser().parse_known_args()
+
+    in_live_ipython = core.is_running_in_ipython()
+    if in_live_ipython:
+        core.sanitize_kernel_argv(args)
+
+    if args.quiet:
+        logger.setLevel(logging.ERROR)
+    elif args.verbose:
+        logger.setLevel(logging.DEBUG)
+
+    if args.check_drift:
+        if not args.notebook or not os.path.isfile(args.notebook):
+            logger.error("❌ Error: --check-drift requires a target notebook or .py file path.")
+            if in_live_ipython:
+                return
+            sys.exit(2)
+        exit_code = run_check(args.notebook, output_format=args.format, root_dir=args.root_dir)
+        if in_live_ipython:
+            return
+        sys.exit(exit_code)
+
+    target_batch_dir = args.batch or (args.notebook if args.notebook and os.path.isdir(args.notebook) else None)
+
+    if (args.output or args.in_place or args.output_dir) and not target_batch_dir and not (args.notebook and os.path.isfile(args.notebook)):
+        logger.error("❌ Error: --output, --output-dir, or --in-place requires a target notebook file path or --batch directory.")
+        if in_live_ipython:
+            return
+        sys.exit(1)
+
+    exit_code = run_directory(args) if target_batch_dir else run_single_file(args)
+    if exit_code and not in_live_ipython:
+        sys.exit(exit_code)

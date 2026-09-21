@@ -3,6 +3,7 @@ them to the endpoint and to stdout/stderr."""
 import argparse
 import json
 import logging
+import sys
 from pathlib import Path
 
 import pytest
@@ -361,3 +362,77 @@ class TestRunDirectory:
         with caplog.at_level(logging.INFO, logger="steady_py"):
             assert self._run(tmp_path / "nowhere", output=True) == 2
         assert "is not a directory" in caplog.text and capsys.readouterr().out == ""
+
+
+class TestMain:
+    """main() parses the flags, dispatches to one verb, and exits with its code."""
+
+    @pytest.fixture(autouse=True)
+    def quiet_logger(self):
+        level = spy.logger.level
+        yield
+        spy.logger.setLevel(level)
+
+    def _main(self, monkeypatch, *argv):
+        monkeypatch.setattr(sys, "argv", ["steady-py", *argv])
+        monkeypatch.setattr(spy, "is_running_in_ipython", lambda: False)
+        cli.main()
+
+    def _exit_code(self, monkeypatch, *argv):
+        with pytest.raises(SystemExit) as excinfo:
+            self._main(monkeypatch, *argv)
+        return excinfo.value.code
+
+    def test_a_file_goes_to_the_single_file_runner_and_its_code_is_the_exit_code(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(cli, "run_single_file", lambda args: calls.append(args.notebook) or 1)
+        path = _write_notebook(tmp_path)
+        assert self._exit_code(monkeypatch, path) == 1 and calls == [path]
+
+    def test_a_clean_run_returns_without_exiting(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(cli, "run_single_file", lambda args: 0)
+        self._main(monkeypatch, _write_notebook(tmp_path))
+
+    @pytest.mark.parametrize("via_flag", [True, False])
+    def test_a_directory_goes_to_the_directory_runner(self, tmp_path, monkeypatch, via_flag):
+        seen = []
+        monkeypatch.setattr(cli, "run_directory", lambda args: seen.append((args.batch, args.notebook)) or 0)
+        monkeypatch.setattr(cli, "run_single_file", lambda args: pytest.fail("a directory is not a single file"))
+        self._main(monkeypatch, *(["--batch", str(tmp_path)] if via_flag else [str(tmp_path)]))
+        expected = [(str(tmp_path), None)] if via_flag else [(None, str(tmp_path))]
+        assert seen == expected
+
+    def test_check_drift_runs_check_with_the_format_and_root_dir(self, tmp_path, monkeypatch):
+        seen = []
+        monkeypatch.setattr(cli, "run_check", lambda target, output_format, root_dir: seen.append((target, output_format, root_dir)) or 1)
+        path = _write_notebook(tmp_path)
+        assert self._exit_code(monkeypatch, "--check-drift", path, "--format", "json", "--root-dir", "/repo") == 1
+        assert seen == [(path, "json", "/repo")]
+
+    def test_check_drift_needs_an_existing_file(self, tmp_path, monkeypatch, caplog):
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            assert self._exit_code(monkeypatch, "--check-drift") == 2
+            assert self._exit_code(monkeypatch, "--check-drift", str(tmp_path / "missing.ipynb")) == 2
+        assert "requires a target notebook or .py file path" in caplog.text
+
+    def test_write_flags_need_a_target(self, monkeypatch, caplog):
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            assert self._exit_code(monkeypatch, "--output") == 1
+        assert "requires a target notebook file path or --batch directory" in caplog.text
+
+    def test_no_target_outside_a_live_session_does_nothing(self, monkeypatch, capsys):
+        self._main(monkeypatch)
+        assert capsys.readouterr().out == ""
+
+    def test_a_live_session_returns_instead_of_exiting(self, monkeypatch, caplog):
+        monkeypatch.setattr(sys, "argv", ["steady-py", "--output"])
+        monkeypatch.setattr(spy, "is_running_in_ipython", lambda: True)
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            cli.main()
+        assert "requires a target" in caplog.text
+
+    @pytest.mark.parametrize("flag, level", [("--quiet", logging.ERROR), ("--verbose", logging.DEBUG)])
+    def test_quiet_and_verbose_set_the_log_level(self, tmp_path, monkeypatch, flag, level):
+        monkeypatch.setattr(cli, "run_single_file", lambda args: 0)
+        self._main(monkeypatch, _write_notebook(tmp_path), flag)
+        assert spy.logger.level == level

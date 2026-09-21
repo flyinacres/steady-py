@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+import steady_py.cli as cli
 import steady_py.core as spy
 
 
@@ -220,7 +221,7 @@ def test_structural_case(scenario_id, tmp_path, minimal_environment, monkeypatch
     # Batch mode's exit behavior on success isn't what this test is about --
     # tolerate either a clean return or sys.exit(0), fail only on a real error exit.
     try:
-        spy.main()
+        cli.main()
     except SystemExit as exc:
         assert exc.code in (0, None), f"unexpected non-zero exit: {exc.code}"
 
