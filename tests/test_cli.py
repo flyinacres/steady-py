@@ -3,6 +3,7 @@ them to the endpoint and to stdout/stderr."""
 import argparse
 import json
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -275,3 +276,88 @@ class TestRunSingleFile:
         with caplog.at_level(logging.INFO, logger="steady_py"):
             cli.run_single_file(_args(notebook=path))
         assert "DIAGNOSTIC WARNINGS" in caplog.text and "Dynamic import detected" in caplog.text
+
+
+class TestRunDirectory:
+    """A directory of notebooks: scan when nothing is written, snapshot when something is."""
+
+    @pytest.fixture(autouse=True)
+    def offline(self, monkeypatch):
+        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
+        monkeypatch.setattr(spy, "inspect_gpu_environment", lambda imports: None)
+
+    def _repo(self, tmp_path, corrupt=False):
+        root = tmp_path / "repo"
+        root.mkdir()
+        _write_notebook(root, "import requests", "a.ipynb")
+        _write_notebook(root, "import requests", "b.ipynb")
+        if corrupt:
+            (root / "bad.ipynb").write_text("{ not json", encoding="utf-8")
+        return root
+
+    def _run(self, root, **flags):
+        return cli.run_directory(_args(batch=str(root), **flags), ENV)
+
+    def test_without_a_write_flag_it_prints_the_analysis_and_never_contacts_pypi(self, tmp_path, capsys, monkeypatch):
+        monkeypatch.setattr(spy, "run_pin_checks", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no PyPI")))
+        assert self._run(self._repo(tmp_path)) == 0
+        assert "requests" in capsys.readouterr().out
+
+    def test_json_without_a_write_flag_is_the_batch_report(self, tmp_path, capsys):
+        assert self._run(self._repo(tmp_path), format="json") == 0
+        report = json.loads(capsys.readouterr().out)
+        assert report["mode"] == "batch" and report["summary"]["total_python_notebooks"] == 2
+        assert not report["validation"] and not report["artifacts_written"]
+
+    def test_the_positional_directory_works_like_batch(self, tmp_path, capsys):
+        assert cli.run_directory(_args(notebook=str(self._repo(tmp_path))), ENV) == 0
+        assert "requests" in capsys.readouterr().out
+
+    def test_output_writes_companions_logs_each_and_prints_the_validation_section(self, tmp_path, capsys, caplog):
+        root = self._repo(tmp_path)
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            assert self._run(root, output=True) == 0
+        assert sorted(p.name for p in root.glob("*_merged.ipynb")) == ["a_merged.ipynb", "b_merged.ipynb"]
+        assert "Writing per-notebook locked files (suffix: '_merged')..." in caplog.text
+        assert f"Updated '{root / 'a_merged.ipynb'}'" in caplog.text and "Batch output complete." in caplog.text
+        assert "STEADY_PY_MANIFEST" not in capsys.readouterr().out
+
+    def test_json_output_lists_what_was_written_and_the_validation(self, tmp_path, capsys):
+        root = self._repo(tmp_path)
+        assert self._run(root, output=True, format="json") == 0
+        report = json.loads(capsys.readouterr().out)
+        assert sorted(Path(p).name for p in report["artifacts_written"]["locked_notebooks"]) == ["a_merged.ipynb", "b_merged.ipynb"]
+        assert report["validation"]["notebooks_checked"] == 2
+
+    def test_universal_writes_the_file_and_says_so(self, tmp_path, caplog):
+        root = self._repo(tmp_path)
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            assert self._run(root, universal="all.txt") == 0
+        assert (root / "all.txt").exists() and "Wrote universal repository manifest" in caplog.text
+        assert not list(root.glob("*_merged.ipynb"))
+
+    def test_an_unreadable_notebook_aborts_every_write_after_the_report(self, tmp_path, capsys, caplog):
+        root = self._repo(tmp_path, corrupt=True)
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            assert self._run(root, output=True, universal="all.txt") == 1
+        assert "Execution aborted" in caplog.text
+        assert "bad.ipynb" in capsys.readouterr().out
+        assert not list(root.glob("*_merged.ipynb")) and not (root / "all.txt").exists()
+
+    def test_an_unreadable_notebook_in_json_mode_still_prints_the_batch_report(self, tmp_path, capsys):
+        assert self._run(self._repo(tmp_path, corrupt=True), output=True, format="json") == 1
+        assert "bad.ipynb" in capsys.readouterr().out
+
+    def test_an_unreadable_notebook_does_not_fail_a_run_that_writes_nothing(self, tmp_path, capsys):
+        assert self._run(self._repo(tmp_path, corrupt=True)) == 0
+        assert "bad.ipynb" in capsys.readouterr().out
+
+    def test_a_universal_file_that_cannot_be_written_logs_the_error_and_returns_1(self, tmp_path, caplog):
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            assert self._run(self._repo(tmp_path), universal="missing_dir/all.txt") == 1
+        assert "could not write the universal manifest" in caplog.text
+
+    def test_a_directory_that_does_not_exist_is_an_error_not_an_empty_report(self, tmp_path, capsys, caplog):
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            assert self._run(tmp_path / "nowhere", output=True) == 2
+        assert "is not a directory" in caplog.text and capsys.readouterr().out == ""

@@ -56,6 +56,12 @@ class Environment:
 
 
 @dataclass(frozen=True)
+class ScanOptions:
+    """Options for scan."""
+    suffix: Optional[str] = None  # marks generated companion files, which a directory scan skips; None means "_merged"
+
+
+@dataclass(frozen=True)
 class SnapshotOptions:
     """How snapshot delivers its output. The defaults return the cells and write nothing."""
     write_mode: str = WriteMode.NONE
@@ -197,6 +203,7 @@ class SnapshotResult:
     batch_summary: Optional[core.BatchAnalysisSummary] = None  # directories only
     validation: Optional[core.BatchValidation] = None         # aggregate validation across written notebooks
     universal_path: Optional[str] = None                      # the combined requirements file, if written
+    error: Optional[str] = None                               # a failure of the run as a whole, not of one notebook
 
     @property
     def failed(self) -> List[NotebookSnapshot]:

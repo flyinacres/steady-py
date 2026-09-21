@@ -8,6 +8,7 @@ from steady_py.results import (
     NotebookScan,
     NotebookSnapshot,
     PackageChange,
+    ScanOptions,
     ScanResult,
     SetupCells,
     SnapshotOptions,
@@ -18,6 +19,6 @@ from steady_py.results import (
 
 __all__ = [
     "CheckOptions", "CheckResult", "Delta", "Environment", "NotebookCheck", "NotebookScan",
-    "NotebookSnapshot", "PackageChange", "ScanResult", "SetupCells", "SnapshotOptions",
+    "NotebookSnapshot", "PackageChange", "ScanOptions", "ScanResult", "SetupCells", "SnapshotOptions",
     "SnapshotResult", "TargetKind", "WriteMode",
 ]

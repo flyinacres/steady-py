@@ -3101,7 +3101,7 @@ class BatchValidation:
         }
 
 
-def _relative_notebook_path(path: Path, root: str) -> str:
+def relative_notebook_path(path: Path, root: str) -> str:
     try:
         return Path(path).relative_to(root).as_posix()
     except ValueError:
@@ -4454,85 +4454,6 @@ def apply_output_to_notebook(
     return target_path, blueprint["drift_report"]
 
 
-def run_batch_pipeline(
-    target_batch_dir: str, 
-    args: argparse.Namespace, 
-    frozen_env: Dict[str, str], 
-    pkg_dist_map: Mapping[str, List[str]], 
-    batch_hw_cache: Optional[GpuInfo],
-    precomputed_repo_map: Optional[RepoEnvironmentMap] = None
-) -> None:
-    """Executes the batch processing pipeline across a directory of notebooks."""
-    effective_suffix = args.suffix if args.suffix is not None else "_merged"
-    skip_suffix = None if args.in_place else effective_suffix
-    repo_map = precomputed_repo_map or walk_and_scan_directory(target_batch_dir, skip_suffix=skip_suffix)
-    summary = analyze_batch_repository(repo_map, frozen_env, pkg_dist_map, batch_hw_cache)
-
-    is_json = getattr(args, "format", "text") == "json"
-    if not is_json:
-        print(format_console_report(summary))
-
-    if not summary.is_clean and (args.universal or args.output or args.in_place or args.output_dir):
-        logger.error("\n❌ Execution aborted: Resolve file/parse errors before running --universal, --output, --output-dir, or --in-place.")
-        if is_json:
-            print(format_json_batch_report(summary))
-        sys.exit(1)
-
-    artifacts_written: Dict[str, Any] = {}
-    validation: Optional[BatchValidation] = None
-
-    if args.universal:
-        manifest_filename = args.universal if isinstance(args.universal, str) else DEFAULT_UNIVERSAL_MANIFEST_NAME
-        uni_content = generate_universal_manifest(repo_map, frozen_env, pkg_dist_map)
-        out_file = Path(target_batch_dir) / manifest_filename
-        with open(out_file, 'w', encoding='utf-8') as f:
-            f.write(uni_content)
-        artifacts_written["universal_manifest"] = str(out_file)
-        logger.info(f"\n✅ Wrote universal repository manifest to '{out_file}'")
-
-    if args.output or args.in_place or args.output_dir:
-        active_suffix_display = args.suffix if args.suffix is not None else ("" if args.output_dir else "_merged")
-        if args.in_place:
-            loc_desc = "in-place"
-        elif args.output_dir:
-            loc_desc = f"directory: '{args.output_dir}'" + (f", suffix: '{active_suffix_display}'" if active_suffix_display else "")
-        else:
-            loc_desc = f"suffix: '{active_suffix_display}'"
-
-        logger.info(f"\n🚀 Writing per-notebook locked files ({loc_desc})...")
-        written_files = []
-        validation_reports: List[Tuple[str, DriftCheckReport]] = []
-        for res in repo_map.scan_results:
-            written_path, drift_report = apply_output_to_notebook(
-                res, 
-                frozen_env, 
-                pkg_dist_map, 
-                batch_hw_cache, 
-                suffix=args.suffix, 
-                in_place=args.in_place,
-                root_dir=repo_map.target_dir,
-                output_dir=args.output_dir,
-                install_timeout=args.timeout
-            )
-            written_files.append(str(written_path))
-            logger.info(f"  • Updated '{written_path}'")
-            validation_reports.append((_relative_notebook_path(res.path, repo_map.target_dir), drift_report))
-        artifacts_written["locked_notebooks"] = written_files
-        logger.info("✅ Batch output complete.")
-        validation = build_batch_validation(validation_reports)
-        if not is_json:
-            print(format_console_batch_validation(validation))
-
-    if is_json:
-        print(format_json_batch_report(
-            summary,
-            artifacts_written=artifacts_written if artifacts_written else None,
-            validation=validation,
-        ))
-
-    return
-
-
 def main() -> None:
     """CLI entrypoint and dispatch router for single notebook or batch analysis modes."""
     _configure_console()
@@ -4596,28 +4517,11 @@ def main() -> None:
             return
         sys.exit(1)
 
-    if not target_batch_dir:
-        # Imported here because cli imports this module; goes away when main moves into cli.
-        from steady_py import cli
-        exit_code = cli.run_single_file(args)
-        if exit_code and not is_running_in_ipython():
-            sys.exit(exit_code)
-        return
-
-    frozen_env, _ = get_installed_environment()
-    pkg_dist_map = importlib.metadata.packages_distributions() if hasattr(importlib.metadata, "packages_distributions") else {}
-
-    effective_suffix = args.suffix if args.suffix is not None else "_merged"
-    skip_suffix = None if args.in_place else effective_suffix
-
-    initial_imports: List[str] = []
-    repo_map_pre = walk_and_scan_directory(target_batch_dir, skip_suffix=skip_suffix)
-    for imp in repo_map_pre.global_imports:
-        if imp not in initial_imports:
-            initial_imports.append(imp)
-
-    batch_hw_cache = inspect_gpu_environment(initial_imports)
-    run_batch_pipeline(target_batch_dir, args, frozen_env, pkg_dist_map, batch_hw_cache, precomputed_repo_map=repo_map_pre)
+    # Imported here because cli imports this module; goes away when main moves into cli.
+    from steady_py import cli
+    exit_code = cli.run_directory(args) if target_batch_dir else cli.run_single_file(args)
+    if exit_code and not is_running_in_ipython():
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
+from steady_py.results import Environment
 
 
 # ---------------------------------------------------------------------------
@@ -1083,9 +1084,10 @@ def _make_batch(tmp_path):
 
 def _run_batch(root, capsys, fmt="text", write=True, only=None):
     args = argparse.Namespace(
-        suffix=None, in_place=False, universal=None, output=write, output_dir=None, timeout=300, format=fmt,
+        notebook=None, batch=str(root), suffix=None, in_place=False, universal=None, output=write, output_dir=None,
+        timeout=300, format=fmt, full_freeze=False,
     )
-    spy.run_batch_pipeline(str(root), args, dict(FROZEN), {}, None)
+    cli.run_directory(args, Environment(frozen_env=dict(FROZEN), pkg_dist_map={}))
     return capsys.readouterr().out
 
 

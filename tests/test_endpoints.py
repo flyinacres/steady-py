@@ -1,11 +1,12 @@
 """The endpoints compute typed results; they never print or exit. check is the first."""
 import json
+from pathlib import Path
 
 import pytest
 
 import steady_py.core as spy
 from steady_py.endpoints import check, scan, snapshot
-from steady_py.results import CheckOptions, Environment, SnapshotOptions, TargetKind, WriteMode
+from steady_py.results import CheckOptions, Environment, ScanOptions, SnapshotOptions, TargetKind, WriteMode
 
 DEPS = [spy.PinnedDependency("requests", "2.32.1")]
 
@@ -113,7 +114,7 @@ def _cells_text(path):
 
 class TestScan:
     def test_reports_what_the_notebook_needs(self, tmp_path, isolated):
-        result = scan(_source(tmp_path), ENV)
+        result = scan(_source(tmp_path), environment=ENV)
         notebook, = result.notebooks
         assert (result.kind, notebook.error) == (TargetKind.FILE, None)
         assert [d.name for d in notebook.report.dependencies] == ["requests"]
@@ -123,12 +124,12 @@ class TestScan:
             raise AssertionError("scan must not check pins")
         monkeypatch.setattr(spy, "run_pin_checks", refuse)
         monkeypatch.setattr(spy, "generate_production_blueprint", refuse)
-        scan(_source(tmp_path), ENV)
+        scan(_source(tmp_path), environment=ENV)
 
     def test_an_unreadable_file_is_an_error_with_a_report_carrying_it(self, tmp_path, isolated):
         bad = tmp_path / "bad.ipynb"
         bad.write_text("{ not json", encoding="utf-8")
-        notebook, = scan(str(bad), ENV).notebooks
+        notebook, = scan(str(bad), environment=ENV).notebooks
         assert notebook.error and notebook.report.parse_error == notebook.error
         assert notebook.report.is_python is False
 
@@ -141,18 +142,14 @@ class TestScan:
     def test_the_live_session_is_a_target_when_none_is_given(self, isolated, monkeypatch):
         monkeypatch.setattr(spy, "is_running_in_ipython", lambda: True)
         monkeypatch.setattr(spy, "extract_from_active_session", lambda: (["requests"], {}, ["import requests"], set(), []))
-        result = scan(None, ENV)
+        result = scan(None, environment=ENV)
         assert (result.kind, result.notebooks[0].path) == (TargetKind.SESSION, "session.ipynb")
         assert [d.name for d in result.notebooks[0].report.dependencies] == ["requests"]
 
     def test_no_target_outside_a_live_session_is_a_usage_error(self, isolated, monkeypatch):
         monkeypatch.setattr(spy, "is_running_in_ipython", lambda: False)
         with pytest.raises(ValueError, match="target"):
-            scan(None, ENV)
-
-    def test_a_directory_is_not_supported_yet(self, tmp_path, isolated):
-        with pytest.raises(NotImplementedError):
-            scan(str(tmp_path), ENV)
+            scan(None, environment=ENV)
 
 
 class TestSnapshot:
@@ -235,3 +232,98 @@ class TestSnapshot:
         snapshot(_source(tmp_path), environment=ENV)
         captured = capsys.readouterr()
         assert captured.out == "" and captured.err == ""
+
+
+# ---------------------------------------------------------------------------------------------
+# directories
+
+def _repo(tmp_path, corrupt=()):
+    """A directory with a.ipynb and sub/b.ipynb, each importing requests, plus any corrupt notebooks."""
+    root = tmp_path / "repo"
+    (root / "sub").mkdir(parents=True)
+    _notebook(root, "import requests", "a.ipynb")
+    _notebook(root / "sub", "import requests", "b.ipynb")
+    for name in corrupt:
+        (root / name).write_text("{ not json", encoding="utf-8")
+    return str(root)
+
+
+class TestDirectoryScan:
+    def test_returns_a_result_per_notebook_and_the_aggregate(self, tmp_path, isolated):
+        result = scan(_repo(tmp_path), environment=ENV)
+        assert result.kind == TargetKind.DIRECTORY
+        assert sorted(Path(n.path).relative_to(tmp_path / "repo").as_posix() for n in result.notebooks) == ["a.ipynb", "sub/b.ipynb"]
+        assert result.batch_summary.total_python_notebooks == 2 and result.failed == []
+        assert "requests" in result.batch_summary.matched_packages
+
+    def test_an_unreadable_notebook_is_a_failed_entry_and_the_rest_are_still_scanned(self, tmp_path, isolated):
+        result = scan(_repo(tmp_path, corrupt=["bad.ipynb"]), environment=ENV)
+        assert [Path(n.path).name for n in result.failed] == ["bad.ipynb"]
+        assert result.failed[0].error and result.failed[0].report.parse_error == result.failed[0].error
+        assert len(result.notebooks) == 3
+        assert [Path(e["path"]).name for e in result.batch_summary.parse_errors] == ["bad.ipynb"]
+
+    def test_generated_companion_files_are_skipped_by_suffix(self, tmp_path, isolated):
+        root = _repo(tmp_path)
+        _notebook(tmp_path / "repo", "import requests", "a_merged.ipynb")
+        assert len(scan(root, environment=ENV).notebooks) == 2
+        assert len(scan(root, ScanOptions(suffix="_other"), ENV).notebooks) == 3
+
+    def test_never_contacts_pypi(self, tmp_path, isolated, monkeypatch):
+        def refuse(*args, **kwargs):
+            raise AssertionError("scan must not check pins")
+        monkeypatch.setattr(spy, "run_pin_checks", refuse)
+        scan(_repo(tmp_path), environment=ENV)
+
+
+class TestDirectorySnapshot:
+    def test_default_returns_cells_for_every_notebook_and_writes_nothing(self, tmp_path, isolated):
+        root = _repo(tmp_path)
+        result = snapshot(root, environment=ENV)
+        assert [n.cells is not None and n.written_path is None for n in result.notebooks] == [True, True]
+        assert result.validation is None and result.universal_path is None
+        assert sorted(p.name for p in (tmp_path / "repo").rglob("*_merged.ipynb")) == []
+
+    def test_writes_a_companion_per_notebook_and_an_aggregate_validation(self, tmp_path, isolated):
+        root = _repo(tmp_path)
+        result = snapshot(root, SnapshotOptions(write_mode=WriteMode.COMPANION), ENV)
+        assert sorted(Path(n.written_path).name for n in result.notebooks) == ["a_merged.ipynb", "b_merged.ipynb"]
+        assert result.validation.notebooks_checked == 2
+
+    def test_universal_manifest_is_written_into_the_directory(self, tmp_path, isolated):
+        root = _repo(tmp_path)
+        result = snapshot(root, SnapshotOptions(universal="all.txt"), ENV)
+        assert result.universal_path == str(tmp_path / "repo" / "all.txt")
+        assert "requests==2.32.3" in Path(result.universal_path).read_text(encoding="utf-8")
+
+    def test_directory_mode_keeps_the_relative_layout(self, tmp_path, isolated):
+        root = _repo(tmp_path)
+        options = SnapshotOptions(write_mode=WriteMode.DIRECTORY, output_dir=str(tmp_path / "out"))
+        snapshot(root, options, ENV)
+        assert sorted(p.relative_to(tmp_path / "out").as_posix() for p in (tmp_path / "out").rglob("*.ipynb")) == ["a.ipynb", "sub/b.ipynb"]
+
+    def test_in_place_does_not_skip_companion_named_files(self, tmp_path, isolated):
+        root = _repo(tmp_path)
+        _notebook(tmp_path / "repo", "import requests", "x_merged.ipynb")
+        assert len(snapshot(root, SnapshotOptions(write_mode=WriteMode.IN_PLACE), ENV).notebooks) == 3
+
+    def test_for_now_one_unreadable_notebook_stops_every_write(self, tmp_path, isolated):
+        root = _repo(tmp_path, corrupt=["bad.ipynb"])
+        result = snapshot(root, SnapshotOptions(write_mode=WriteMode.COMPANION, universal="all.txt"), ENV)
+        assert not result.batch_summary.is_clean
+        assert all(n.written_path is None and n.cells is None for n in result.notebooks)
+        assert result.universal_path is None and result.validation is None
+        assert not list((tmp_path / "repo").rglob("*_merged.ipynb")) and not (tmp_path / "repo" / "all.txt").exists()
+
+    def test_an_unreadable_notebook_does_not_stop_a_run_that_writes_nothing(self, tmp_path, isolated):
+        result = snapshot(_repo(tmp_path, corrupt=["bad.ipynb"]), environment=ENV)
+        assert len([n for n in result.notebooks if n.cells is not None]) == 2 and len(result.failed) == 1
+
+    def test_a_universal_file_that_cannot_be_written_is_a_result_level_error(self, tmp_path, isolated):
+        root = _repo(tmp_path)
+        result = snapshot(root, SnapshotOptions(universal="missing_dir/all.txt"), ENV)
+        assert "universal" in result.error and result.universal_path is None
+
+    def test_universal_is_only_for_directories(self, tmp_path, isolated):
+        with pytest.raises(ValueError, match="universal"):
+            snapshot(_source(tmp_path), SnapshotOptions(universal="all.txt"), ENV)

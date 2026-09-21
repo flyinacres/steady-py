@@ -10,13 +10,15 @@ import importlib.metadata
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from steady_py import core
 from steady_py.results import (
-    CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanResult,
-    SetupCells, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
+    CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
+    ScanResult, SetupCells, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
 )
+
+DEFAULT_COMPANION_SUFFIX = "_merged"
 
 
 def detect_environment() -> Environment:
@@ -41,8 +43,6 @@ class _Analysis:
 
 def _analyze(target: Optional[str], environment: Optional[Environment]) -> _Analysis:
     """Reads a notebook file, or the live IPython session when `target` is None, and analyzes it once."""
-    if target is not None and os.path.isdir(target):
-        raise NotImplementedError("directory targets are not supported yet")
     environment = environment or detect_environment()
 
     if target is not None:
@@ -75,12 +75,19 @@ def _analyze(target: Optional[str], environment: Optional[Environment]) -> _Anal
     )
 
 
-def scan(target: Optional[str] = None, environment: Optional[Environment] = None) -> ScanResult:
-    """Analyzes a notebook file, or the live IPython session when `target` is None, and reports what
-    it needs: its dependencies, warnings, notices and detected hardware.
+def scan(
+    target: Optional[str] = None,
+    options: Optional[ScanOptions] = None,
+    environment: Optional[Environment] = None,
+) -> ScanResult:
+    """Analyzes a notebook file, a directory of notebooks, or the live IPython session when `target`
+    is None, and reports what it needs: its dependencies, warnings, notices and detected hardware.
 
     Read-only, and it never contacts PyPI.
     """
+    options = options or ScanOptions()
+    if target is not None and os.path.isdir(target):
+        return _scan_directory(target, options, environment)
     analysis = _analyze(target, environment)
     notebook = NotebookScan(path=analysis.path, report=analysis.report, error=analysis.error)
     return ScanResult(target=target if target is not None else analysis.path, kind=analysis.kind, notebooks=[notebook])
@@ -91,8 +98,8 @@ def snapshot(
     options: Optional[SnapshotOptions] = None,
     environment: Optional[Environment] = None,
 ) -> SnapshotResult:
-    """Analyzes a notebook file, or the live IPython session when `target` is None, and produces the
-    two setup cells and the manifest, validated against PyPI.
+    """Analyzes a notebook file, a directory of notebooks, or the live IPython session when `target`
+    is None, and produces the two setup cells and the manifest for each, validated against PyPI.
 
     With the default options nothing is written and the cells come back in the result. Otherwise
     they are also written, per `options.write_mode`. The cells are the same either way.
@@ -100,36 +107,136 @@ def snapshot(
     options = options or SnapshotOptions()
     if target is None and options.write_mode != WriteMode.NONE:
         raise ValueError("the live IPython session has no file to write into; use write_mode 'none'")
+    if target is not None and os.path.isdir(target):
+        return _snapshot_directory(target, options, environment)
+    if options.universal:
+        raise ValueError("universal is only valid for a directory target")
     analysis = _analyze(target, environment)
     result_target = target if target is not None else analysis.path
     if analysis.scan_result is None:
         failed = NotebookSnapshot(path=analysis.path, report=analysis.report, error=analysis.error)
         return SnapshotResult(target=result_target, kind=analysis.kind, notebooks=[failed])
 
-    blueprint = core.build_blueprint_for_notebook(
-        analysis.scan_result, analysis.report, analysis.hardware,
-        install_timeout=options.install_timeout,
+    notebook = _snapshot_notebook(
+        analysis.scan_result, analysis.report, analysis.hardware, options,
         full_freeze_lines=analysis.environment.raw_full_freeze if options.full_freeze else None,
+        root_dir=analysis.root_dir,
+    )
+    return SnapshotResult(target=result_target, kind=analysis.kind, notebooks=[notebook])
+
+
+def _snapshot_notebook(
+    scan_result: core.NotebookScanResult,
+    report: core.NotebookAnalysisReport,
+    hardware: Optional[core.GpuInfo],
+    options: SnapshotOptions,
+    full_freeze_lines: Optional[List[str]],
+    root_dir: str,
+) -> NotebookSnapshot:
+    """The cells and manifest for one analyzed notebook, written as the options say."""
+    blueprint = core.build_blueprint_for_notebook(
+        scan_result, report, hardware, install_timeout=options.install_timeout, full_freeze_lines=full_freeze_lines,
     )
     notebook = NotebookSnapshot(
-        path=analysis.path,
-        report=analysis.report,
+        path=str(scan_result.path),
+        report=report,
         cells=SetupCells(markdown=blueprint["step1_markdown"], code=blueprint["step2_code"]),
         drift_report=blueprint["drift_report"],
     )
     if options.write_mode != WriteMode.NONE:
         try:
             written = core.write_locked_notebook(
-                analysis.scan_result, blueprint,
+                scan_result, blueprint,
                 suffix=options.suffix,
                 in_place=options.write_mode == WriteMode.IN_PLACE,
-                root_dir=analysis.root_dir,
+                root_dir=root_dir,
                 output_dir=options.output_dir,
             )
             notebook.written_path = str(written)
         except OSError as exc:
             notebook.error = f"could not write the locked notebook: {exc}"
-    return SnapshotResult(target=result_target, kind=analysis.kind, notebooks=[notebook])
+    return notebook
+
+
+# --- directories -----------------------------------------------------------------------------
+
+@dataclass
+class _DirectoryAnalysis:
+    """The one analysis of a directory of notebooks that scan and snapshot both build on."""
+    repo_map: core.RepoEnvironmentMap
+    summary: core.BatchAnalysisSummary
+    environment: Environment
+    hardware: Optional[core.GpuInfo]
+
+
+def _analyze_directory(target: str, environment: Optional[Environment], skip_suffix: Optional[str]) -> _DirectoryAnalysis:
+    environment = environment or detect_environment()
+    repo_map = core.walk_and_scan_directory(target, skip_suffix=skip_suffix)
+    hardware = core.inspect_gpu_environment(list(dict.fromkeys(repo_map.global_imports)))
+    summary = core.analyze_batch_repository(repo_map, environment.frozen_env, environment.pkg_dist_map, hardware)
+    return _DirectoryAnalysis(repo_map=repo_map, summary=summary, environment=environment, hardware=hardware)
+
+
+def _skip_suffix(suffix: Optional[str], in_place: bool) -> Optional[str]:
+    """The suffix that marks a generated companion file to skip while scanning. An in-place run
+    writes no companions, so it skips none."""
+    return None if in_place else (suffix if suffix is not None else DEFAULT_COMPANION_SUFFIX)
+
+
+def _unreadable(repo_map: core.RepoEnvironmentMap) -> List[Tuple[str, core.NotebookAnalysisReport, str]]:
+    """(path, report, cause) for each notebook that could not be read."""
+    out = []
+    for err in repo_map.parse_errors:
+        cause = err.parse_error or "Unknown parse error"
+        report = core.NotebookAnalysisReport(
+            notebook_path=str(err.path), is_python=err.is_python, lang_label=err.lang_label, parse_error=cause,
+        )
+        out.append((str(err.path), report, cause))
+    return out
+
+
+def _scan_directory(target: str, options: ScanOptions, environment: Optional[Environment]) -> ScanResult:
+    analysis = _analyze_directory(target, environment, _skip_suffix(options.suffix, in_place=False))
+    notebooks = [
+        NotebookScan(path=str(res.path), report=report)
+        for res, report in zip(analysis.repo_map.scan_results, analysis.summary.notebooks)
+    ]
+    notebooks += [NotebookScan(path=path, report=report, error=cause) for path, report, cause in _unreadable(analysis.repo_map)]
+    return ScanResult(target=target, kind=TargetKind.DIRECTORY, notebooks=notebooks, batch_summary=analysis.summary)
+
+
+def _snapshot_directory(target: str, options: SnapshotOptions, environment: Optional[Environment]) -> SnapshotResult:
+    analysis = _analyze_directory(target, environment, _skip_suffix(options.suffix, options.write_mode == WriteMode.IN_PLACE))
+    repo_map, summary = analysis.repo_map, analysis.summary
+    result = SnapshotResult(target=target, kind=TargetKind.DIRECTORY, batch_summary=summary)
+    failures = [NotebookSnapshot(path=path, report=report, error=cause) for path, report, cause in _unreadable(repo_map)]
+
+    wants_output = bool(options.universal) or options.write_mode != WriteMode.NONE
+    if wants_output and not summary.is_clean:
+        # Interim rule, replaced by partial writes: one unreadable notebook stops every write.
+        result.notebooks = [NotebookSnapshot(path=str(r.path), report=rp) for r, rp in zip(repo_map.scan_results, summary.notebooks)] + failures
+        return result
+
+    if options.universal:
+        out_file = Path(target) / options.universal
+        try:
+            out_file.write_text(core.generate_universal_manifest(repo_map, analysis.environment.frozen_env, analysis.environment.pkg_dist_map), encoding="utf-8")
+        except OSError as exc:
+            result.error = f"could not write the universal manifest: {exc}"
+            return result
+        result.universal_path = str(out_file)
+
+    full_freeze_lines = analysis.environment.raw_full_freeze if options.full_freeze else None
+    validation_reports: List[Tuple[str, core.DriftCheckReport]] = []
+    for res, report in zip(repo_map.scan_results, summary.notebooks):
+        notebook = _snapshot_notebook(res, report, analysis.hardware, options, full_freeze_lines, root_dir=repo_map.target_dir)
+        result.notebooks.append(notebook)
+        if notebook.drift_report is not None:
+            validation_reports.append((core.relative_notebook_path(res.path, repo_map.target_dir), notebook.drift_report))
+    result.notebooks += failures
+    if options.write_mode != WriteMode.NONE:
+        result.validation = core.build_batch_validation(validation_reports)
+    return result
 
 
 def check(target: str, options: Optional[CheckOptions] = None) -> CheckResult:

@@ -8,12 +8,12 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from typing import Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 from steady_py import core, endpoints
 from steady_py.results import (
-    CheckOptions, CheckResult, NotebookCheck, NotebookScan, NotebookSnapshot, ScanResult, SnapshotOptions,
-    SnapshotResult, WriteMode,
+    CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
+    ScanResult, SnapshotOptions, SnapshotResult, WriteMode,
 )
 
 logger = core.logger
@@ -178,7 +178,7 @@ def _report_unreadable(notebook: Union[NotebookScan, NotebookSnapshot], is_json:
         print(core.format_json_single_report(notebook.report))
 
 
-def run_single_file(args: argparse.Namespace) -> int:
+def run_single_file(args: argparse.Namespace, environment: Optional[Environment] = None) -> int:
     """One notebook file, or the live IPython session: runs scan or snapshot as the flags ask,
     prints the result and returns the exit code.
 
@@ -199,7 +199,7 @@ def run_single_file(args: argparse.Namespace) -> int:
     write_mode, output_dir = _write_mode(args)
 
     if is_json and write_mode == WriteMode.NONE:
-        scan_result = endpoints.scan(target)
+        scan_result = endpoints.scan(target, environment=environment)
         scanned = scan_result.notebooks[0]
         if scanned.report.parse_error is not None:
             _report_unreadable(scanned, is_json)
@@ -211,7 +211,7 @@ def run_single_file(args: argparse.Namespace) -> int:
         write_mode=write_mode, suffix=args.suffix, output_dir=output_dir,
         full_freeze=args.full_freeze, install_timeout=args.timeout,
     )
-    snapshot_result = endpoints.snapshot(target, options)
+    snapshot_result = endpoints.snapshot(target, options, environment)
     snapped = snapshot_result.notebooks[0]
     if snapped.report.parse_error is not None:
         _report_unreadable(snapped, is_json)
@@ -230,3 +230,69 @@ def run_single_file(args: argparse.Namespace) -> int:
     if out:
         print(out)
     return snapshot_exit_code(snapshot_result)
+
+
+# --- a directory of notebooks ---------------------------------------------------------------------
+
+def run_directory(args: argparse.Namespace, environment: Optional[Environment] = None) -> int:
+    """A directory of notebooks: scan when nothing is to be written, snapshot otherwise. Prints
+    the result and returns the exit code.
+
+    For now one unreadable notebook stops every write (exit 1), after the report has shown which.
+    """
+    target = args.batch or args.notebook
+    is_json = getattr(args, "format", "text") == "json"
+    write_mode, output_dir = _write_mode(args)
+    universal = args.universal or None
+    wants_output = bool(universal) or write_mode != WriteMode.NONE
+
+    if not os.path.isdir(target):
+        logger.error(f"❌ Error: '{target}' is not a directory.")
+        return EXIT_FAILED
+
+    if not wants_output:
+        scanned = endpoints.scan(target, ScanOptions(suffix=args.suffix), environment)
+        assert scanned.batch_summary is not None
+        summary = scanned.batch_summary
+        print(core.format_json_batch_report(summary) if is_json else core.format_console_report(summary))
+        return EXIT_OK
+
+    options = SnapshotOptions(
+        write_mode=write_mode, suffix=args.suffix, output_dir=output_dir, universal=universal,
+        full_freeze=args.full_freeze, install_timeout=args.timeout,
+    )
+    result = endpoints.snapshot(target, options, environment)
+    assert result.batch_summary is not None
+    summary = result.batch_summary
+    if not is_json:
+        print(core.format_console_report(summary))
+
+    if not summary.is_clean:
+        logger.error("\n❌ Execution aborted: Resolve file/parse errors before running --universal, --output, --output-dir, or --in-place.")
+        if is_json:
+            print(core.format_json_batch_report(summary))
+        return EXIT_ATTENTION
+
+    artifacts_written: Dict[str, Any] = {}
+    if result.universal_path is not None:
+        artifacts_written["universal_manifest"] = result.universal_path
+        logger.info(f"\n✅ Wrote universal repository manifest to '{result.universal_path}'")
+    if result.error is not None:
+        logger.error(f"❌ Error: {result.error}")
+        return EXIT_ATTENTION
+
+    if write_mode != WriteMode.NONE:
+        logger.info(f"\n🚀 Writing per-notebook locked files ({_destination_description(args)})...")
+        written = [n.written_path for n in result.notebooks if n.written_path is not None]
+        for path in written:
+            logger.info(f"  • Updated '{path}'")
+        artifacts_written["locked_notebooks"] = written
+        logger.info("✅ Batch output complete.")
+        if result.validation is not None and not is_json:
+            print(core.format_console_batch_validation(result.validation))
+
+    if is_json:
+        print(core.format_json_batch_report(
+            summary, artifacts_written=artifacts_written if artifacts_written else None, validation=result.validation,
+        ))
+    return EXIT_OK
