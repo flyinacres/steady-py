@@ -76,16 +76,27 @@ def run_check(target: str, output_format: str = "text", root_dir: Optional[str] 
 
 # --- scan and snapshot, for one notebook file or the live session ------------------------------
 
+def _run_exit_code(result: Union[ScanResult, SnapshotResult]) -> int:
+    """0 when everything was processed; 1 when some of it was and some was not (an unreadable
+    notebook, a failed write); 2 when nothing could be processed."""
+    failed = len(result.failed)
+    processed = len(result.notebooks) - failed
+    run_error = getattr(result, "error", None) is not None
+    if not failed and not run_error:
+        return EXIT_OK
+    return EXIT_ATTENTION if processed else EXIT_FAILED
+
+
 def scan_exit_code(result: ScanResult) -> int:
-    """0 when every notebook was read; 1 when one could not be (the rule for a notebook that
-    cannot be processed is 2, and this changes with it)."""
-    return EXIT_ATTENTION if result.failed else EXIT_OK
+    """0, 1 or 2 by how much of the target could be read. One unreadable file is 2, as is a
+    directory where nothing could be read; a directory where only some could be is 1."""
+    return _run_exit_code(result)
 
 
 def snapshot_exit_code(result: SnapshotResult) -> int:
-    """0 when every notebook was processed; 1 when one could not be (the rule for a notebook that
-    cannot be processed is 2, and this changes with it)."""
-    return EXIT_ATTENTION if result.failed else EXIT_OK
+    """0, 1 or 2 by how much of the target could be processed and written; see scan_exit_code.
+    A failure of the run as a whole, such as the universal file, counts like a failed notebook."""
+    return _run_exit_code(result)
 
 
 def _gpu_label(setting: Optional[Dict[str, Any]]) -> str:
@@ -218,6 +229,16 @@ def _destination_description(args: argparse.Namespace) -> str:
     return f"suffix: '{suffix}'"
 
 
+def _log_failures(result: Union[ScanResult, SnapshotResult]) -> None:
+    """Names every notebook that could not be processed, and why."""
+    failed = result.failed
+    if not failed:
+        return
+    logger.warning(f"\n⚠️ {len(failed)} notebook(s) could not be processed and were skipped:")
+    for notebook in failed:
+        logger.warning(f"  • {core.relative_notebook_path(Path(notebook.path), result.target)}: {notebook.error}")
+
+
 def _report_unreadable(notebook: Union[NotebookScan, NotebookSnapshot], is_json: bool) -> None:
     logger.error(f"❌ Error: {notebook.error}")
     if is_json:
@@ -284,7 +305,9 @@ def run_directory(args: argparse.Namespace, environment: Optional[Environment] =
     """A directory of notebooks: scan when nothing is to be written, snapshot otherwise. Prints
     the result and returns the exit code.
 
-    For now one unreadable notebook stops every write (exit 1), after the report has shown which.
+    Whatever could be read is processed and written. The notebooks that could not be are listed
+    on stderr and in the report, and the exit code says the run was partial (1) or that nothing
+    could be done (2).
     """
     target = args.batch or args.notebook
     is_json = getattr(args, "format", "text") == "json"
@@ -299,15 +322,15 @@ def run_directory(args: argparse.Namespace, environment: Optional[Environment] =
     if not wants_output:
         scanned = endpoints.scan(target, ScanOptions(suffix=args.suffix), environment)
         assert scanned.batch_summary is not None
-        summary = scanned.batch_summary
         deltas = {rel: d.to_dict() for rel, d in _directory_deltas(scanned).items()} or None
         if is_json:
-            print(core.format_json_batch_report(summary, deltas=deltas))
+            print(core.format_json_batch_report(scanned.batch_summary, deltas=deltas))
         else:
-            print(core.format_console_report(summary))
+            print(core.format_console_report(scanned.batch_summary))
             if deltas:
                 print("\n" + format_directory_deltas(scanned))
-        return EXIT_OK
+            _log_failures(scanned)
+        return scan_exit_code(scanned)
 
     options = SnapshotOptions(
         write_mode=write_mode, suffix=args.suffix, output_dir=output_dir, universal=universal,
@@ -322,19 +345,12 @@ def run_directory(args: argparse.Namespace, environment: Optional[Environment] =
         if deltas:
             print("\n" + format_directory_deltas(result))
 
-    if not summary.is_clean:
-        logger.error("\n❌ Execution aborted: Resolve file/parse errors before running --universal, --output, --output-dir, or --in-place.")
-        if is_json:
-            print(core.format_json_batch_report(summary))
-        return EXIT_ATTENTION
-
     artifacts_written: Dict[str, Any] = {}
     if result.universal_path is not None:
         artifacts_written["universal_manifest"] = result.universal_path
         logger.info(f"\n✅ Wrote universal repository manifest to '{result.universal_path}'")
     if result.error is not None:
         logger.error(f"❌ Error: {result.error}")
-        return EXIT_ATTENTION
 
     if write_mode != WriteMode.NONE:
         logger.info(f"\n🚀 Writing per-notebook locked files ({_destination_description(args)})...")
@@ -342,16 +358,18 @@ def run_directory(args: argparse.Namespace, environment: Optional[Environment] =
         for path in written:
             logger.info(f"  • Updated '{path}'")
         artifacts_written["locked_notebooks"] = written
-        logger.info("✅ Batch output complete.")
+        if written:
+            logger.info("✅ Batch output complete.")
         if result.validation is not None and not is_json:
             print(core.format_console_batch_validation(result.validation))
 
+    _log_failures(result)
     if is_json:
         print(core.format_json_batch_report(
             summary, artifacts_written=artifacts_written if artifacts_written else None, validation=result.validation,
             deltas=deltas,
         ))
-    return EXIT_OK
+    return snapshot_exit_code(result)
 
 
 # --- the command line -------------------------------------------------------------------------
@@ -392,7 +410,8 @@ def main() -> None:
     core.resolve_local_module.cache_clear()  # type: ignore[attr-defined]  # attached by _memoize_for_run
     core.build_manifest_entries.cache_clear()  # type: ignore[attr-defined]
 
-    args, _unknown = build_parser().parse_known_args()
+    parser = build_parser()
+    args, _unknown = parser.parse_known_args()
 
     in_live_ipython = core.is_running_in_ipython()
     if in_live_ipython:
@@ -408,7 +427,7 @@ def main() -> None:
             logger.error("❌ Error: --check-drift requires a target notebook or .py file path.")
             if in_live_ipython:
                 return
-            sys.exit(2)
+            sys.exit(EXIT_FAILED)
         exit_code = run_check(args.notebook, output_format=args.format, root_dir=args.root_dir)
         if in_live_ipython:
             return
@@ -420,7 +439,12 @@ def main() -> None:
         logger.error("❌ Error: --output, --output-dir, or --in-place requires a target notebook file path or --batch directory.")
         if in_live_ipython:
             return
-        sys.exit(1)
+        sys.exit(EXIT_FAILED)
+
+    if not args.notebook and not target_batch_dir and not in_live_ipython:
+        parser.print_usage(sys.stderr)
+        logger.error("❌ Error: a target notebook file, a directory, or --batch DIR is required.")
+        sys.exit(EXIT_FAILED)
 
     exit_code = run_directory(args) if target_batch_dir else run_single_file(args)
     if exit_code and not in_live_ipython:

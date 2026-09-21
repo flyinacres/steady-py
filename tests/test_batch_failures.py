@@ -41,12 +41,13 @@ def mock_batch_env(
 class TestBatchFailureModes:
     """Tests directory scanning and batch orchestration failure modes."""
 
-    def test_corrupted_json_blocks_execution(
+    def test_a_corrupted_notebook_is_a_parse_error_and_makes_the_scan_unclean(
         self, 
         tmp_path: Path, 
         mock_batch_env: Tuple[Dict[str, str], Dict[str, List[str]]]
     ) -> None:
-        """A corrupted JSON file must populate parse_errors and halt batch execution."""
+        """A corrupted JSON file must populate parse_errors and mark the scan unclean, and must not
+        cost the notebooks that did parse their place in the results."""
         frozen_env, pkg_dist_map = mock_batch_env
 
         valid_nb = {
@@ -138,19 +139,36 @@ class TestBatchFailureModes:
         assert len(repo_map.scan_results) == 0
         assert len(repo_map.non_python_files) == 3
 
-    def test_cli_batch_aborts_on_parse_errors(
+    def test_cli_batch_exits_2_when_no_notebook_could_be_read(
         self, 
         tmp_path: Path, 
         monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Calling --batch --universal on a directory with parse errors must exit with code 1."""
+        """Calling --batch --universal on a directory where nothing parses must exit with code 2 and
+        write nothing."""
         (tmp_path / "broken.ipynb").write_text("{ invalid json ", encoding="utf-8")
         monkeypatch.setattr(sys, "argv", ["steady-py", "--batch", str(tmp_path), "--universal"])
 
         with pytest.raises(SystemExit) as excinfo:
             cli.main()
 
-        assert excinfo.value.code == 1
+        assert excinfo.value.code == 2
+        assert not (tmp_path / "steady_py_universal_manifest.txt").exists()
+
+    def test_the_universal_manifest_opens_by_naming_the_notebooks_it_does_not_cover(
+        self, 
+        tmp_path: Path, 
+        mock_batch_env: Tuple[Dict[str, str], Dict[str, List[str]]]
+    ) -> None:
+        frozen_env, pkg_dist_map = mock_batch_env
+        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        header = spy.generate_universal_manifest(
+            repo_map, frozen_env, pkg_dist_map, skipped=[("sub/bad.ipynb", "Invalid JSON:\nline 1")]
+        ).splitlines()[:3]
+        assert header[0] == "# !!! INCOMPLETE: 1 notebook(s) could not be read and are NOT covered by this file:"
+        assert header[1] == "#   sub/bad.ipynb: Invalid JSON: line 1"
+        complete = spy.generate_universal_manifest(repo_map, frozen_env, pkg_dist_map)
+        assert "INCOMPLETE" not in complete
 
     def test_multiple_extra_index_urls_aggregated(
         self, 

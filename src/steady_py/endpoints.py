@@ -251,32 +251,31 @@ def _snapshot_directory(target: str, options: SnapshotOptions, environment: Opti
     analysis = _analyze_directory(target, environment, _skip_suffix(options.suffix, options.write_mode == WriteMode.IN_PLACE))
     repo_map, summary = analysis.repo_map, analysis.summary
     result = SnapshotResult(target=target, kind=TargetKind.DIRECTORY, batch_summary=summary)
-    failures = [NotebookSnapshot(path=path, report=report, error=cause) for path, report, cause in _unreadable(repo_map)]
+    unreadable = _unreadable(repo_map)
 
-    wants_output = bool(options.universal) or options.write_mode != WriteMode.NONE
-    if wants_output and not summary.is_clean:
-        # Interim rule, replaced by partial writes: one unreadable notebook stops every write.
-        result.notebooks = [NotebookSnapshot(path=str(r.path), report=rp) for r, rp in zip(repo_map.scan_results, summary.notebooks)] + failures
-        return result
-
-    if options.universal:
+    # Partial writes: whatever parsed is processed and written, and the notebooks that did not are
+    # listed in the result (and in the universal file), never silently dropped.
+    if options.universal and repo_map.scan_results:
+        skipped = [(core.relative_notebook_path(Path(path), repo_map.target_dir), cause) for path, _, cause in unreadable]
         out_file = Path(target) / options.universal
         try:
-            out_file.write_text(core.generate_universal_manifest(repo_map, analysis.environment.frozen_env, analysis.environment.pkg_dist_map), encoding="utf-8")
+            out_file.write_text(
+                core.generate_universal_manifest(repo_map, analysis.environment.frozen_env, analysis.environment.pkg_dist_map, skipped),
+                encoding="utf-8",
+            )
+            result.universal_path = str(out_file)
         except OSError as exc:
             result.error = f"could not write the universal manifest: {exc}"
-            return result
-        result.universal_path = str(out_file)
 
     full_freeze_lines = analysis.environment.raw_full_freeze if options.full_freeze else None
     validation_reports: List[Tuple[str, core.DriftCheckReport]] = []
     for res, report in zip(repo_map.scan_results, summary.notebooks):
         notebook = _snapshot_notebook(res, report, analysis.hardware, options, full_freeze_lines, root_dir=repo_map.target_dir)
         result.notebooks.append(notebook)
-        if notebook.drift_report is not None:
+        if notebook.written_path is not None and notebook.drift_report is not None:
             validation_reports.append((core.relative_notebook_path(res.path, repo_map.target_dir), notebook.drift_report))
-    result.notebooks += failures
-    if options.write_mode != WriteMode.NONE:
+    result.notebooks += [NotebookSnapshot(path=path, report=report, error=cause) for path, report, cause in unreadable]
+    if validation_reports:
         result.validation = core.build_batch_validation(validation_reports)
     return result
 

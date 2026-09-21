@@ -328,7 +328,7 @@ In write modes (`--output`, `--in-place`, `--output-dir`), each notebook's gener
 
 ## Package design: verbs, results, exit codes
 
-Status: items marked Decided were settled in review; items marked Proposed or Open are defaults awaiting review. Nothing here is implemented yet. Guiding principle: what is best for the users. "False success is worse than nothing" means the tool never hides a gap; it does not mean the tool refuses to produce output. The tool stops only when it cannot proceed or when continuing would do harm; otherwise it continues and reports.
+Status: items marked Decided were settled in review; items marked Proposed or Open are defaults awaiting review. The checklist under "Order of work" shows what is implemented. Guiding principle: what is best for the users. "False success is worse than nothing" means the tool never hides a gap; it does not mean the tool refuses to produce output. The tool stops only when it cannot proceed or when continuing would do harm; otherwise it continues and reports.
 
 **Names and layout** (Decided): package and PyPI name `steady-py`, import name `steady_py`, source under `src/steady_py/` with subpackages as needed, console script `steady-py`, and `python -m steady_py`. The old `notebook_env` name is retired with no shim, including persisted names (cell tag `metadata.steady_py`, logger `steady_py`). The version starts at 0.0.45 in pyproject, and the first release happens only after the split and packaging work. The GitHub URLs point at the old repo until the new one is live.
 
@@ -351,16 +351,34 @@ Each user verb takes a file or a directory. A directory is a larger target, not 
 
 **Refusals to produce output** (each needs a ruling; today's behavior first):
 
-1. A batch with any parse error writes nothing and exits 1. Decided: replaced by the write rule. A partial run exits 1, and a run where nothing could be processed exits 2.
-2. A single file that cannot be parsed gives an error and exit 1; JSON mode prints a report carrying the parse error. Decided: exit 2, since the tool could not do the job, with the error carried in the result.
+1. A batch with any parse error wrote nothing and exited 1. Done: replaced by the write rule. A partial run exits 1, and a run where nothing could be processed exits 2. The skipped notebooks are listed on stderr, in the report and at the top of the universal file.
+2. A single file that cannot be parsed gives an error; JSON mode prints a report carrying the parse error. Done: exit 2 (it was 1), since the tool could not do the job, with the error carried in the result.
 3. `--check-drift` on anything other than an existing file gives an error and exit 2. A directory becomes valid because check takes directories; a missing path stays an error.
-4. `--output`, `--output-dir` or `--in-place` with no target gives an error and exit 1. Decided: exit 2, as a usage error.
-5. No target and not in a live kernel: silently does nothing (`run_single_file_pipeline` just returns). Proposed: print usage and exit 2.
-6. Usage errors exit 1 in some places and 2 in others. Decided: all are 2, matching argparse, which already exits 2 on bad arguments.
+4. `--output`, `--output-dir` or `--in-place` with no target gives an error. Done: exit 2 (it was 1), as a usage error.
+5. No target and not in a live kernel used to do nothing, silently. Done: prints usage and exits 2.
+6. Usage errors exited 1 in some places and 2 in others. Done: all are 2, matching argparse, which already exits 2 on bad arguments.
 7. Generated Cell 2 hard-stops on a Python major-version mismatch, and only warns on a minor one. Decided: remove the hard stop, so a major mismatch becomes a warning like the minor one. The check is effectively dead code (Cell 2 uses f-strings, so Python 2 fails to compile it first, and the required major version is always 3), and pip reports an unusable pin with its own clear error.
 
 Cell 2's behavior when an install fails has not been surveyed; it gets covered when the installer is extracted.
 
 **Runtime helper** (Proposed): Cell 2 shrinks to a few lines that install and call a pinned helper, `steady-py==<generating version>`. Generation warns loudly when that version is not released, with an override (path or wheel) for tests and development. `packaging` and `resolvelib` move into an extra, `steady-py[check]`, and pyproject's empty `dependencies` gets fixed then (today `pip install` yields a tool that fails on import). The manifest gets an explicit schema version, and the package version replaces `TOOL_VERSION`. The manifest literal stays in the cell for check.
 
-**Order of work** (Proposed): (1) rename and move, unsplit: done and verified, including the Docker tiers. (2) result types and the three verbs, with the CLI as a thin layer. (3) extract the runtime installer and slim Cell 2; steps 2 and 3 may swap. (4) peel modules off bottom-up per the layering above. Afterwards: rewrite the README (its install steps are stale), update the GitHub URLs, and redesign the paste-and-run tests.
+**Order of work** (a checklist; update it as items land):
+
+Done:
+
+- [x] Step 1: rename to `steady_py`, `src` layout, Docker tiers verified.
+- [x] Step 2, delivery A (no behavior change apart from three fixes: `--full-freeze` is honored when writing, pasted cells carry the same content as written ones, and `--batch` on a missing directory is an error): option and result types (`results.py`), the `check`, `scan` and `snapshot` endpoints for a file or a directory (`endpoints.py`), formatting and exit codes (`cli.py`), and the parser and `main` moved into `cli.py`.
+- [x] Step 2, delivery B: the delta (`delta.py`), shown by scan and snapshot; partial writes with loud failure; the universal file's incomplete header; the 0/1/2 exit rule for scan and snapshot; usage errors all 2; a bare invocation prints usage.
+
+Remaining:
+
+- [ ] Delivery B: remove the Python major-version hard stop from Cell 2 (it becomes a warning).
+- [ ] Delivery B: `check` accepts a directory, with an aggregate result and exit code; fix `--format json` printing plain text when there is no manifest.
+- [ ] Run `run_suite.py` on Docker after delivery B.
+- [ ] Subcommands (`steady-py scan|snapshot|check`) replace the flags, as their own step: runner commands, subprocess tests, `run_suite.py` and docs change, and the old-versus-new comparison is rerun in the new syntax.
+- [ ] Step 3: extract the runtime installer and slim Cell 2 to a few lines that call a pinned `steady-py==<version>` (loud warning when that version is not released, override for development); add the `steady-py[check]` extra and fix pyproject's empty `dependencies`; add a manifest schema version and let the package version replace `TOOL_VERSION`; survey what Cell 2 does when an install fails; make the e2e runners install the package from the mounted repo.
+- [ ] Step 4: split `core.py` into modules, bottom-up, per the layering above.
+- [ ] Rewrite the README (its install steps are stale), update the GitHub URLs (`HELP_URL`, the core docstring, the README) to `steady-py`, then the first release.
+
+Small items waiting on a decision: whether a flags-only change counts in the delta; which of `tests/test_json_format.py` and `tests/test_steady_py.py` to keep (they hold the same 85 test names); removing the paste-era filter for cells containing the tool's own source; renaming the fixture package `notebook_env_test_fixture` (its wheels need rebuilding) and deleting the tracked temporary fixture notebook.

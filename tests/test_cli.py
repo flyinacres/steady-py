@@ -159,14 +159,35 @@ def _unreadable(tmp_path):
 
 
 class TestScanAndSnapshotExitCodes:
-    def test_success_is_0_and_an_unreadable_notebook_is_1(self):
-        report = spy.NotebookAnalysisReport(notebook_path="a.ipynb", is_python=True, lang_label="python")
-        good, bad = NotebookScan(path="a", report=report), NotebookScan(path="b", report=report, error="boom")
-        assert cli.scan_exit_code(ScanResult(target="a", notebooks=[good])) == 0
-        assert cli.scan_exit_code(ScanResult(target="b", notebooks=[bad])) == 1
-        good_s, bad_s = NotebookSnapshot(path="a", report=report), NotebookSnapshot(path="b", report=report, error="boom")
-        assert cli.snapshot_exit_code(SnapshotResult(target="a", notebooks=[good_s])) == 0
-        assert cli.snapshot_exit_code(SnapshotResult(target="b", notebooks=[bad_s])) == 1
+    """0 everything processed, 1 some of it, 2 nothing."""
+
+    REPORT = spy.NotebookAnalysisReport(notebook_path="a.ipynb", is_python=True, lang_label="python")
+
+    def _scan(self, *errors):
+        return ScanResult(target="t", notebooks=[NotebookScan(path=f"n{i}", report=self.REPORT, error=e) for i, e in enumerate(errors)])
+
+    def _snap(self, *errors, run_error=None):
+        return SnapshotResult(target="t", error=run_error,
+                              notebooks=[NotebookSnapshot(path=f"n{i}", report=self.REPORT, error=e) for i, e in enumerate(errors)])
+
+    def test_everything_processed_is_0(self):
+        assert cli.scan_exit_code(self._scan(None, None)) == 0
+        assert cli.snapshot_exit_code(self._snap(None, None)) == 0
+
+    def test_a_target_with_no_notebooks_is_0(self):
+        assert cli.scan_exit_code(self._scan()) == 0 and cli.snapshot_exit_code(self._snap()) == 0
+
+    def test_some_processed_and_some_not_is_1(self):
+        assert cli.scan_exit_code(self._scan(None, "boom")) == 1
+        assert cli.snapshot_exit_code(self._snap(None, "boom")) == 1
+
+    def test_nothing_processed_is_2_including_a_single_unreadable_file(self):
+        assert cli.scan_exit_code(self._scan("boom")) == 2
+        assert cli.snapshot_exit_code(self._snap("boom", "boom")) == 2
+
+    def test_a_failure_of_the_run_as_a_whole_counts_like_a_failed_notebook(self):
+        assert cli.snapshot_exit_code(self._snap(None, run_error="could not write the universal manifest")) == 1
+        assert cli.snapshot_exit_code(self._snap(run_error="could not write the universal manifest")) == 2
 
 
 class TestWriteModeFromFlags:
@@ -246,14 +267,14 @@ class TestRunSingleFile:
         assert f"directory: '{tmp_path / 'out'}', suffix: '_x'" in caplog.text
         assert "Writing updated notebook (in-place)..." in caplog.text
 
-    def test_an_unreadable_notebook_logs_the_error_and_returns_1(self, tmp_path, isolated, capsys, caplog):
+    def test_an_unreadable_notebook_logs_the_error_and_returns_2(self, tmp_path, isolated, capsys, caplog):
         with caplog.at_level(logging.INFO, logger="steady_py"):
-            assert cli.run_single_file(_args(notebook=_unreadable(tmp_path))) == 1
+            assert cli.run_single_file(_args(notebook=_unreadable(tmp_path))) == 2
         assert "❌ Error:" in caplog.text
         assert capsys.readouterr().out == ""
 
     def test_an_unreadable_notebook_in_json_mode_still_prints_a_report(self, tmp_path, isolated, capsys):
-        assert cli.run_single_file(_args(notebook=_unreadable(tmp_path), format="json")) == 1
+        assert cli.run_single_file(_args(notebook=_unreadable(tmp_path), format="json")) == 2
         assert json.loads(capsys.readouterr().out)["parse_error"]
 
     def test_no_target_outside_a_live_session_does_nothing(self, isolated, capsys, monkeypatch):
@@ -261,12 +282,12 @@ class TestRunSingleFile:
         assert cli.run_single_file(_args()) == 0
         assert capsys.readouterr().out == ""
 
-    def test_a_failed_write_logs_the_error_and_returns_1(self, tmp_path, isolated, caplog):
+    def test_a_failed_write_logs_the_error_and_returns_2(self, tmp_path, isolated, caplog):
         blocker = tmp_path / "blocker"
         blocker.write_text("a file", encoding="utf-8")
         with caplog.at_level(logging.INFO, logger="steady_py"):
             code = cli.run_single_file(_args(notebook=_write_notebook(tmp_path), output_dir=str(blocker / "out")))
-        assert code == 1 and "could not write" in caplog.text
+        assert code == 2 and "could not write" in caplog.text
 
     def test_diagnostics_are_logged_in_text_mode_only(self, tmp_path, isolated, caplog):
         path = _write_notebook(tmp_path, 'import importlib\nname = "requests"\nimportlib.import_module(name)\nimport requests')
@@ -337,26 +358,55 @@ class TestRunDirectory:
         assert (root / "all.txt").exists() and "Wrote universal repository manifest" in caplog.text
         assert not list(root.glob("*_merged.ipynb"))
 
-    def test_an_unreadable_notebook_aborts_every_write_after_the_report(self, tmp_path, capsys, caplog):
+    def test_an_unreadable_notebook_does_not_stop_the_rest_from_being_written(self, tmp_path, capsys, caplog):
         root = self._repo(tmp_path, corrupt=True)
         with caplog.at_level(logging.INFO, logger="steady_py"):
             assert self._run(root, output=True, universal="all.txt") == 1
-        assert "Execution aborted" in caplog.text
-        assert "bad.ipynb" in capsys.readouterr().out
-        assert not list(root.glob("*_merged.ipynb")) and not (root / "all.txt").exists()
+        assert sorted(p.name for p in root.glob("*_merged.ipynb")) == ["a_merged.ipynb", "b_merged.ipynb"]
+        assert (root / "all.txt").read_text(encoding="utf-8").startswith("# !!! INCOMPLETE: 1 notebook(s)")
+        assert "1 notebook(s) could not be processed and were skipped" in caplog.text and "bad.ipynb" in caplog.text
+        assert "Batch output complete." in caplog.text
 
-    def test_an_unreadable_notebook_in_json_mode_still_prints_the_batch_report(self, tmp_path, capsys):
-        assert self._run(self._repo(tmp_path, corrupt=True), output=True, format="json") == 1
-        assert "bad.ipynb" in capsys.readouterr().out
+    def test_json_still_reports_what_was_written_when_a_notebook_was_unreadable(self, tmp_path, capsys):
+        root = self._repo(tmp_path, corrupt=True)
+        assert self._run(root, output=True, format="json") == 1
+        report = json.loads(capsys.readouterr().out)
+        assert len(report["artifacts_written"]["locked_notebooks"]) == 2
+        assert [Path(e["path"]).name for e in report["summary"]["parse_errors"]] == ["bad.ipynb"]
 
-    def test_an_unreadable_notebook_does_not_fail_a_run_that_writes_nothing(self, tmp_path, capsys):
-        assert self._run(self._repo(tmp_path, corrupt=True)) == 0
-        assert "bad.ipynb" in capsys.readouterr().out
+    def test_nothing_is_written_and_the_exit_is_2_when_nothing_could_be_read(self, tmp_path, caplog):
+        root = tmp_path / "repo"
+        root.mkdir()
+        (root / "bad.ipynb").write_text("{ not json", encoding="utf-8")
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            assert self._run(root, output=True, universal="all.txt") == 2
+        assert sorted(p.name for p in root.iterdir()) == ["bad.ipynb"] and "bad.ipynb" in caplog.text
+
+    def test_a_scan_with_an_unreadable_notebook_prints_the_report_lists_it_and_exits_1(self, tmp_path, capsys, caplog):
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            assert self._run(self._repo(tmp_path, corrupt=True)) == 1
+        assert "bad.ipynb" in capsys.readouterr().out and "could not be processed and were skipped" in caplog.text
+
+    def test_a_write_that_fails_is_named_and_the_rest_are_written(self, tmp_path, monkeypatch, caplog):
+        root = self._repo(tmp_path)
+        original = spy.write_locked_notebook
+
+        def flaky(scan_res, *args, **kwargs):
+            if scan_res.path.name == "a.ipynb":
+                raise OSError("disk full")
+            return original(scan_res, *args, **kwargs)
+        monkeypatch.setattr(spy, "write_locked_notebook", flaky)
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            assert self._run(root, output=True) == 1
+        assert [p.name for p in root.glob("*_merged.ipynb")] == ["b_merged.ipynb"]
+        assert "a.ipynb: could not write the locked notebook: disk full" in caplog.text
 
     def test_a_universal_file_that_cannot_be_written_logs_the_error_and_returns_1(self, tmp_path, caplog):
+        root = self._repo(tmp_path)
         with caplog.at_level(logging.INFO, logger="steady_py"):
-            assert self._run(self._repo(tmp_path), universal="missing_dir/all.txt") == 1
+            assert self._run(root, output=True, universal="missing_dir/all.txt") == 1
         assert "could not write the universal manifest" in caplog.text
+        assert len(list(root.glob("*_merged.ipynb"))) == 2
 
     def test_a_directory_that_does_not_exist_is_an_error_not_an_empty_report(self, tmp_path, capsys, caplog):
         with caplog.at_level(logging.INFO, logger="steady_py"):
@@ -417,12 +467,15 @@ class TestMain:
 
     def test_write_flags_need_a_target(self, monkeypatch, caplog):
         with caplog.at_level(logging.INFO, logger="steady_py"):
-            assert self._exit_code(monkeypatch, "--output") == 1
+            assert self._exit_code(monkeypatch, "--output") == 2
         assert "requires a target notebook file path or --batch directory" in caplog.text
 
-    def test_no_target_outside_a_live_session_does_nothing(self, monkeypatch, capsys):
-        self._main(monkeypatch)
-        assert capsys.readouterr().out == ""
+    def test_no_target_outside_a_live_session_prints_usage_and_exits_2(self, monkeypatch, capsys, caplog):
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            assert self._exit_code(monkeypatch) == 2
+        captured = capsys.readouterr()
+        assert captured.out == "" and captured.err.startswith("usage: steady-py")
+        assert "a target notebook file, a directory, or --batch DIR is required" in caplog.text
 
     def test_a_live_session_returns_instead_of_exiting(self, monkeypatch, caplog):
         monkeypatch.setattr(sys, "argv", ["steady-py", "--output"])

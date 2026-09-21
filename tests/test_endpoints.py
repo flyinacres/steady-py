@@ -307,22 +307,54 @@ class TestDirectorySnapshot:
         _notebook(tmp_path / "repo", "import requests", "x_merged.ipynb")
         assert len(snapshot(root, SnapshotOptions(write_mode=WriteMode.IN_PLACE), ENV).notebooks) == 3
 
-    def test_for_now_one_unreadable_notebook_stops_every_write(self, tmp_path, isolated):
+    def test_an_unreadable_notebook_does_not_stop_the_rest_from_being_written(self, tmp_path, isolated):
         root = _repo(tmp_path, corrupt=["bad.ipynb"])
-        result = snapshot(root, SnapshotOptions(write_mode=WriteMode.COMPANION, universal="all.txt"), ENV)
-        assert not result.batch_summary.is_clean
-        assert all(n.written_path is None and n.cells is None for n in result.notebooks)
+        options = SnapshotOptions(write_mode=WriteMode.COMPANION, universal="all.txt")
+        result = snapshot(root, options, ENV)
+        assert [Path(n.path).name for n in result.failed] == ["bad.ipynb"]
+        assert sorted(Path(n.written_path).name for n in result.notebooks if n.written_path) == ["a_merged.ipynb", "b_merged.ipynb"]
+        assert result.validation.notebooks_checked == 2
+        universal = Path(result.universal_path).read_text(encoding="utf-8").splitlines()
+        assert universal[0].startswith("# !!! INCOMPLETE: 1 notebook(s)") and "bad.ipynb" in universal[1]
+        assert "requests==2.32.3" in "\n".join(universal)
+
+    def test_the_universal_file_is_not_marked_incomplete_when_everything_was_read(self, tmp_path, isolated):
+        result = snapshot(_repo(tmp_path), SnapshotOptions(universal="all.txt"), ENV)
+        assert "INCOMPLETE" not in Path(result.universal_path).read_text(encoding="utf-8")
+
+    def test_nothing_is_written_when_nothing_could_be_read(self, tmp_path, isolated):
+        root = tmp_path / "repo"
+        root.mkdir()
+        (root / "bad.ipynb").write_text("{ not json", encoding="utf-8")
+        result = snapshot(str(root), SnapshotOptions(write_mode=WriteMode.COMPANION, universal="all.txt"), ENV)
+        assert len(result.failed) == 1 and result.notebooks == result.failed
         assert result.universal_path is None and result.validation is None
-        assert not list((tmp_path / "repo").rglob("*_merged.ipynb")) and not (tmp_path / "repo" / "all.txt").exists()
+        assert sorted(p.name for p in root.iterdir()) == ["bad.ipynb"]
+
+    def test_a_write_that_fails_costs_only_that_notebook(self, tmp_path, isolated, monkeypatch):
+        root = _repo(tmp_path)
+        original = spy.write_locked_notebook
+
+        def flaky(scan_res, *args, **kwargs):
+            if scan_res.path.name == "a.ipynb":
+                raise OSError("disk full")
+            return original(scan_res, *args, **kwargs)
+        monkeypatch.setattr(spy, "write_locked_notebook", flaky)
+        result = snapshot(root, SnapshotOptions(write_mode=WriteMode.COMPANION), ENV)
+        assert [(Path(n.path).name, "disk full" in n.error) for n in result.failed] == [("a.ipynb", True)]
+        assert [Path(n.written_path).name for n in result.notebooks if n.written_path] == ["b_merged.ipynb"]
+        assert result.validation.notebooks_checked == 1
 
     def test_an_unreadable_notebook_does_not_stop_a_run_that_writes_nothing(self, tmp_path, isolated):
         result = snapshot(_repo(tmp_path, corrupt=["bad.ipynb"]), environment=ENV)
         assert len([n for n in result.notebooks if n.cells is not None]) == 2 and len(result.failed) == 1
 
-    def test_a_universal_file_that_cannot_be_written_is_a_result_level_error(self, tmp_path, isolated):
+    def test_a_universal_file_that_cannot_be_written_is_a_run_level_error_and_the_notebooks_are_still_written(self, tmp_path, isolated):
         root = _repo(tmp_path)
-        result = snapshot(root, SnapshotOptions(universal="missing_dir/all.txt"), ENV)
+        options = SnapshotOptions(write_mode=WriteMode.COMPANION, universal="missing_dir/all.txt")
+        result = snapshot(root, options, ENV)
         assert "universal" in result.error and result.universal_path is None
+        assert len([n for n in result.notebooks if n.written_path]) == 2
 
     def test_universal_is_only_for_directories(self, tmp_path, isolated):
         with pytest.raises(ValueError, match="universal"):

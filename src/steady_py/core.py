@@ -4319,10 +4319,21 @@ def generate_batch_analysis_report(
 
 
 def generate_universal_manifest(
-    repo_map: RepoEnvironmentMap, frozen_env: Dict[str, str], pkg_dist_map: Mapping[str, List[str]]
+    repo_map: RepoEnvironmentMap,
+    frozen_env: Dict[str, str],
+    pkg_dist_map: Mapping[str, List[str]],
+    skipped: Optional[Sequence[Tuple[str, str]]] = None,
 ) -> str:
-    """Generates content string for universal manifest."""
+    """Generates content string for universal manifest.
+
+    `skipped` is (path, reason) for each notebook that could not be read. They are not covered by
+    the file, so it opens with a comment naming them: anyone who opens it or diffs it sees the gap.
+    """
     lines = []
+    if skipped:
+        lines.append(f"# !!! INCOMPLETE: {len(skipped)} notebook(s) could not be read and are NOT covered by this file:")
+        for path, reason in skipped:
+            lines.append(f"#   {path}: {' '.join(str(reason).split())}")
     lines.append("# =====================================================================")
     lines.append("# REPOSITORY UNIVERSAL DEPENDENCY MANIFEST")
     lines.append(f"# Target Directory: {repo_map.target_dir}")
