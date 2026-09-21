@@ -10,17 +10,11 @@ You don't need to know anything about how that setup part of the notebook works.
 
 This is usually where you'll end up. That cell installs some packages your notebook needs before the rest of it can run.
 
-**"Error: Major Python version mismatch!"**
-
-This notebook needs a different major version of Python than what you're currently running (for example, Python 3 vs. an old Python 2, which is now rare). It stops here on purpose, because the rest of the notebook usually won't work at all otherwise.
-
-_What to do:_ you'll need to switch to a Python version that matches what the message says the notebook needs, then run the notebook again from the top. If you're not sure how to do that on whatever platform you're using (your own computer, Kaggle, Colab, etc.), that's worth a quick search for "how to change Python version" plus the platform's name.
-
 **"This code was created with Python 3.X. You are trying to run it with 3.Y."**
 
-A smaller mismatch, close enough that the notebook keeps going anyway. This is just a heads-up, not a stop.
+The notebook was made with a different version of Python than the one you're running (for example 3.10 vs. 3.11). The notebook keeps going anyway. This is just a heads-up, not a stop.
 
-_What to do:_ usually nothing. If something else fails further down in a way that doesn't match anything else on this page, come back and consider this the likely reason.
+_What to do:_ usually nothing. If something else fails further down in a way that doesn't match anything else on this page, come back and consider this the likely reason. If a package can't be installed, the error from pip will say so, and switching to the Python version named in the message is the first thing to try.
 
 **"Note: If you see 'Retrying...' messages below while offline, enable Internet access and re-run this cell."**
 

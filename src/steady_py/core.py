@@ -3651,16 +3651,8 @@ import importlib.metadata
 REQUIRED_PYTHON = ({py_major}, {py_minor})
 CURRENT_PYTHON = (sys.version_info.major, sys.version_info.minor)
 
-# Major version mismatch -> Clean hard stop
-if CURRENT_PYTHON[0] != REQUIRED_PYTHON[0]:
-    req_major = REQUIRED_PYTHON[0]
-    curr_major = CURRENT_PYTHON[0]
-    print(f"❌ Error: Major Python version mismatch!")
-    print(f"This notebook requires Python {{req_major}}.x, but your environment is running Python {{curr_major}}.x.\\n")
-    sys.exit("Execution stopped due to Python major version incompatibility.")
-
-# Minor version mismatch -> Non-blocking warning
-if CURRENT_PYTHON[1] != REQUIRED_PYTHON[1]:
+# Any Python version mismatch -> non-blocking warning
+if CURRENT_PYTHON != REQUIRED_PYTHON:
     req_ver = f"{{REQUIRED_PYTHON[0]}}.{{REQUIRED_PYTHON[1]}}"
     curr_ver = f"{{CURRENT_PYTHON[0]}}.{{CURRENT_PYTHON[1]}}"
     print(f"⚠️ This code was created with Python {{req_ver}}. You are trying to run it with {{curr_ver}}.")

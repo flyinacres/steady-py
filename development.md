@@ -357,7 +357,7 @@ Each user verb takes a file or a directory. A directory is a larger target, not 
 4. `--output`, `--output-dir` or `--in-place` with no target gives an error. Done: exit 2 (it was 1), as a usage error.
 5. No target and not in a live kernel used to do nothing, silently. Done: prints usage and exits 2.
 6. Usage errors exited 1 in some places and 2 in others. Done: all are 2, matching argparse, which already exits 2 on bad arguments.
-7. Generated Cell 2 hard-stops on a Python major-version mismatch, and only warns on a minor one. Decided: remove the hard stop, so a major mismatch becomes a warning like the minor one. The check is effectively dead code (Cell 2 uses f-strings, so Python 2 fails to compile it first, and the required major version is always 3), and pip reports an unusable pin with its own clear error.
+7. Generated Cell 2 hard-stopped on a Python major-version mismatch, and only warned on a minor one. Done: one non-blocking warning for any mismatch; Cell 2 goes on to the installs. The check is effectively dead code (Cell 2 uses f-strings, so Python 2 fails to compile it first, and the required major version is always 3), and pip reports an unusable pin with its own clear error.
 
 Cell 2's behavior when an install fails has not been surveyed; it gets covered when the installer is extracted.
 
@@ -369,11 +369,10 @@ Done:
 
 - [x] Step 1: rename to `steady_py`, `src` layout, Docker tiers verified.
 - [x] Step 2, delivery A (no behavior change apart from three fixes: `--full-freeze` is honored when writing, pasted cells carry the same content as written ones, and `--batch` on a missing directory is an error): option and result types (`results.py`), the `check`, `scan` and `snapshot` endpoints for a file or a directory (`endpoints.py`), formatting and exit codes (`cli.py`), and the parser and `main` moved into `cli.py`.
-- [x] Step 2, delivery B: the delta (`delta.py`), shown by scan and snapshot; partial writes with loud failure; the universal file's incomplete header; the 0/1/2 exit rule for scan and snapshot; usage errors all 2; a bare invocation prints usage.
+- [x] Step 2, delivery B: the delta (`delta.py`), shown by scan and snapshot; partial writes with loud failure; the universal file's incomplete header; the 0/1/2 exit rule for scan and snapshot; usage errors all 2; a bare invocation prints usage; Cell 2 warns on any Python mismatch and carries on (no hard stop).
 
 Remaining:
 
-- [ ] Delivery B: remove the Python major-version hard stop from Cell 2 (it becomes a warning).
 - [ ] Delivery B: `check` accepts a directory, with an aggregate result and exit code; fix `--format json` printing plain text when there is no manifest.
 - [ ] Run `run_suite.py` on Docker after delivery B.
 - [ ] Subcommands (`steady-py scan|snapshot|check`) replace the flags, as their own step: runner commands, subprocess tests, `run_suite.py` and docs change, and the old-versus-new comparison is rerun in the new syntax.
