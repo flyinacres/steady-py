@@ -6,7 +6,7 @@ import pytest
 
 import steady_py.core as spy
 from steady_py.endpoints import check, scan, snapshot
-from steady_py.results import CheckOptions, Environment, ScanOptions, SnapshotOptions, TargetKind, WriteMode
+from steady_py.results import CheckOptions, Environment, PackageChange, ScanOptions, SnapshotOptions, TargetKind, WriteMode
 
 DEPS = [spy.PinnedDependency("requests", "2.32.1")]
 
@@ -327,3 +327,110 @@ class TestDirectorySnapshot:
     def test_universal_is_only_for_directories(self, tmp_path, isolated):
         with pytest.raises(ValueError, match="universal"):
             snapshot(_source(tmp_path), SnapshotOptions(universal="all.txt"), ENV)
+
+
+# ---------------------------------------------------------------------------------------------
+# the delta: an existing manifest against what a snapshot would produce now
+
+ENV_NEWER = Environment(
+    frozen_env={"requests": "requests==2.32.4", "torch": "torch==2.1.0+cu118"},
+    pkg_dist_map={"requests": ["requests"], "torch": ["torch"]},
+    raw_full_freeze=["requests==2.32.4"],
+)
+
+
+def _locked_notebook(tmp_path, name="nb.ipynb", source="import requests", environment=ENV):
+    """A notebook that already carries a manifest, made by snapshotting it in place."""
+    path = _source(tmp_path, source, name)
+    snapshot(path, SnapshotOptions(write_mode=WriteMode.IN_PLACE), environment)
+    return path
+
+
+class TestScanDelta:
+    def test_a_notebook_without_a_manifest_has_none(self, tmp_path, isolated):
+        notebook, = scan(_source(tmp_path), environment=ENV).notebooks
+        assert (notebook.manifest, notebook.manifest_error, notebook.delta) == (None, None, None)
+
+    def test_an_unchanged_notebook_reports_no_changes(self, tmp_path, isolated):
+        path = _locked_notebook(tmp_path)
+        notebook, = scan(path, environment=ENV).notebooks
+        assert [d.name for d in notebook.manifest.dependencies] == ["requests"]
+        assert notebook.delta is not None and not notebook.delta.has_changes
+
+    def test_a_different_environment_shows_version_changes_apart_from_added_and_removed(self, tmp_path, isolated):
+        path = _locked_notebook(tmp_path)
+        notebook, = scan(path, environment=ENV_NEWER).notebooks
+        assert notebook.delta.version_changes == [PackageChange("requests", "2.32.3", "2.32.4")]
+        assert notebook.delta.added == [] and notebook.delta.removed == []
+
+    def test_a_changed_notebook_shows_added_and_removed_packages(self, tmp_path, isolated):
+        path = _locked_notebook(tmp_path)
+        edited = json.loads(open(path, encoding="utf-8").read())
+        edited["cells"][-1]["source"] = ["import torch"]      # the notebook's own cell, after the two setup cells
+        open(path, "w", encoding="utf-8").write(json.dumps(edited))
+        delta = scan(path, environment=ENV).notebooks[0].delta
+        assert [c.name for c in delta.added] == ["torch"] and [c.name for c in delta.removed] == ["requests"]
+
+    def test_it_never_compares_the_baseline_because_it_never_contacts_pypi(self, tmp_path, isolated):
+        assert scan(_locked_notebook(tmp_path), environment=ENV).notebooks[0].delta.baseline_compared is False
+
+    def test_an_unreadable_manifest_is_reported_without_failing_the_scan(self, tmp_path, isolated):
+        path = _source(tmp_path, "STEADY_PY_MANIFEST = {'python_version': 3}\nimport requests")
+        notebook, = scan(path, environment=ENV).notebooks
+        assert notebook.error is None and notebook.manifest is None and notebook.delta is None
+        assert notebook.manifest_error
+
+    def test_a_directory_scan_gives_each_notebook_its_own_delta(self, tmp_path, isolated):
+        root = tmp_path / "repo"
+        root.mkdir()
+        _locked_notebook(root, "locked.ipynb")
+        _source(root, "import requests", "plain.ipynb")
+        deltas = {Path(n.path).name: n.delta for n in scan(str(root), environment=ENV).notebooks}
+        assert deltas["plain.ipynb"] is None and deltas["locked.ipynb"] is not None
+
+    def test_the_live_session_has_no_delta(self, isolated, monkeypatch):
+        monkeypatch.setattr(spy, "is_running_in_ipython", lambda: True)
+        monkeypatch.setattr(spy, "extract_from_active_session", lambda: (["requests"], {}, ["import requests"], set(), []))
+        assert scan(None, environment=ENV).notebooks[0].delta is None
+
+
+class TestSnapshotDelta:
+    def test_a_notebook_without_a_manifest_has_none(self, tmp_path, isolated):
+        assert snapshot(_source(tmp_path), environment=ENV).notebooks[0].delta is None
+
+    def test_it_compares_the_baseline_because_it_validates_against_pypi(self, tmp_path, isolated):
+        delta = snapshot(_locked_notebook(tmp_path), environment=ENV).notebooks[0].delta
+        assert delta.baseline_compared is True and not delta.has_changes
+
+    def test_a_newer_environment_shows_what_replacing_the_manifest_changes(self, tmp_path, isolated):
+        path = _locked_notebook(tmp_path)
+        delta = snapshot(path, environment=ENV_NEWER).notebooks[0].delta
+        assert delta.version_changes == [PackageChange("requests", "2.32.3", "2.32.4")]
+
+    def test_an_in_place_snapshot_compares_against_the_manifest_it_is_about_to_replace(self, tmp_path, isolated):
+        path = _locked_notebook(tmp_path)
+        options = SnapshotOptions(write_mode=WriteMode.IN_PLACE)
+        first = snapshot(path, options, ENV_NEWER).notebooks[0]
+        assert first.delta.version_changes == [PackageChange("requests", "2.32.3", "2.32.4")]
+        second = snapshot(path, options, ENV_NEWER).notebooks[0]
+        assert not second.delta.has_changes   # the first run already replaced it
+
+    def test_a_companion_snapshot_leaves_the_source_manifest_in_place(self, tmp_path, isolated):
+        path = _locked_notebook(tmp_path)
+        delta = snapshot(path, SnapshotOptions(write_mode=WriteMode.COMPANION), ENV_NEWER).notebooks[0].delta
+        assert delta.version_changes and scan(path, environment=ENV).notebooks[0].delta.has_changes is False
+
+    def test_findings_that_appear_are_reported(self, tmp_path, isolated, monkeypatch):
+        path = _locked_notebook(tmp_path)
+        yanked = spy.DriftFinding("requests", "2.32.3", spy.Signal.YANKED, spy.Severity.CONFIRMED, "yanked")
+        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [yanked])
+        delta = snapshot(path, environment=ENV).notebooks[0].delta
+        assert delta.findings_appeared == [("yanked", "requests", "2.32.3")]
+
+    def test_a_directory_snapshot_gives_each_notebook_its_own_delta(self, tmp_path, isolated):
+        root = tmp_path / "repo"
+        root.mkdir()
+        _locked_notebook(root, "locked.ipynb")
+        _source(root, "import requests", "plain.ipynb")
+        deltas = {Path(n.path).name: n.delta for n in snapshot(str(root), environment=ENV).notebooks}
+        assert deltas["plain.ipynb"] is None and deltas["locked.ipynb"] is not None

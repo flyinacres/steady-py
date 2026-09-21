@@ -12,7 +12,7 @@ import steady_py.cli as cli
 import steady_py.core as spy
 import steady_py.endpoints as endpoints
 from steady_py.results import (
-    CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanResult, SetupCells,
+    CheckResult, Delta, Environment, PackageChange, NotebookCheck, NotebookScan, NotebookSnapshot, ScanResult, SetupCells,
     SnapshotResult, TargetKind, WriteMode,
 )
 
@@ -436,3 +436,102 @@ class TestMain:
         monkeypatch.setattr(cli, "run_single_file", lambda args: 0)
         self._main(monkeypatch, _write_notebook(tmp_path), flag)
         assert spy.logger.level == level
+
+
+# ---------------------------------------------------------------------------------------------
+# the delta
+
+class TestFormatDelta:
+    def test_no_changes_says_so(self):
+        assert cli.format_delta(Delta(), "nb.ipynb") == "No changes since the existing manifest in nb.ipynb."
+
+    def test_lists_added_removed_and_changed_packages(self):
+        delta = Delta(
+            added=[PackageChange("numpy", new_version="2.0.1")],
+            removed=[PackageChange("scipy", old_version="1.11.0")],
+            version_changes=[PackageChange("pandas", "2.1.0", "2.2.0")],
+        )
+        lines = cli.format_delta(delta, "nb.ipynb").splitlines()
+        assert lines[0] == "Changes since the existing manifest in nb.ipynb:"
+        assert lines[1:4] == ["  + numpy==2.0.1 (added)", "  - scipy==1.11.0 (removed)", "  ~ pandas 2.1.0 -> 2.2.0"]
+
+    def test_version_changes_carry_the_environment_caveat_and_other_changes_do_not(self):
+        with_versions = cli.format_delta(Delta(version_changes=[PackageChange("pandas", "2.1.0", "2.2.0")]), "nb.ipynb")
+        assert "come from the environment this ran in" in with_versions
+        assert "environment this ran in" not in cli.format_delta(Delta(added=[PackageChange("numpy", new_version="1")]), "nb.ipynb")
+
+    def test_python_and_accelerator_changes(self):
+        delta = Delta(python_version=("3.11", "3.12"), gpu=(None, {"has_gpu": True, "device_name": "A100"}))
+        text = cli.format_delta(delta, "nb.ipynb")
+        assert "  Python 3.11 -> 3.12" in text and "  Accelerator: none -> A100" in text
+
+    def test_findings_are_listed_when_the_baseline_was_compared(self):
+        delta = Delta(baseline_compared=True, findings_appeared=[("yanked", "requests", "2.32.3")], findings_resolved=[("stale", "numpy")])
+        text = cli.format_delta(delta, "nb.ipynb")
+        assert "  New findings: yanked:requests:2.32.3" in text and "  Resolved findings: stale:numpy" in text
+
+
+class TestDeltaInOutput:
+    """Where the delta shows up: only when the notebook already carried a manifest."""
+
+    @pytest.fixture(autouse=True)
+    def offline(self, monkeypatch):
+        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
+        monkeypatch.setattr(spy, "inspect_gpu_environment", lambda imports: None)
+
+    NEWER = Environment(frozen_env={"requests": "requests==2.32.4"}, pkg_dist_map={"requests": ["requests"]})
+
+    def _locked(self, tmp_path, name="nb.ipynb"):
+        path = _write_notebook(tmp_path, name=name)
+        endpoints.snapshot(path, __import__("steady_py.results", fromlist=["x"]).SnapshotOptions(write_mode=WriteMode.IN_PLACE), ENV)
+        return path
+
+    def test_unwritten_text_puts_the_delta_before_the_cells(self, tmp_path):
+        path = self._locked(tmp_path)
+        out = cli.format_snapshot_result(endpoints.snapshot(path, environment=self.NEWER))
+        assert out.startswith("Changes since the existing manifest in ") and "~ requests 2.32.3 -> 2.32.4" in out
+        assert out.index("Changes since") < out.index("STEP 1: PASTE INTO CELL 1")
+
+    def test_written_text_puts_the_delta_before_the_validation_report(self, tmp_path):
+        from steady_py.results import SnapshotOptions
+        path = self._locked(tmp_path)
+        result = endpoints.snapshot(path, SnapshotOptions(write_mode=WriteMode.COMPANION), self.NEWER)
+        out = cli.format_snapshot_result(result)
+        assert out.startswith("Changes since") and out.endswith(spy.format_console_drift_report(result.notebooks[0].drift_report))
+
+    def test_a_notebook_without_a_manifest_prints_no_delta(self, tmp_path):
+        path = _write_notebook(tmp_path)
+        assert "Changes since" not in cli.format_snapshot_result(endpoints.snapshot(path, environment=ENV))
+
+    def test_json_carries_the_delta_or_null(self, tmp_path):
+        locked = self._locked(tmp_path)
+        report = json.loads(cli.format_scan_result(endpoints.scan(locked, environment=self.NEWER)))
+        assert report["delta"]["version_changes"] == [{"name": "requests", "old_version": "2.32.3", "new_version": "2.32.4"}]
+        plain = json.loads(cli.format_scan_result(endpoints.scan(_write_notebook(tmp_path, name="plain.ipynb"), environment=ENV)))
+        assert plain["delta"] is None
+
+    def test_the_directory_report_lists_each_notebook_that_had_a_manifest(self, tmp_path, capsys, monkeypatch):
+        root = tmp_path / "repo"
+        root.mkdir()
+        self._locked(root, "locked.ipynb")
+        _write_notebook(root, name="plain.ipynb")
+        assert cli.run_directory(_args(batch=str(root)), self.NEWER) == 0
+        out = capsys.readouterr().out
+        assert "Changes since the existing manifest in locked.ipynb:" in out and "plain.ipynb: " not in out.split("Changes since")[-1]
+
+    def test_the_directory_json_keys_deltas_by_relative_path(self, tmp_path, capsys):
+        root = tmp_path / "repo"
+        root.mkdir()
+        self._locked(root, "locked.ipynb")
+        _write_notebook(root, name="plain.ipynb")
+        cli.run_directory(_args(batch=str(root), format="json"), self.NEWER)
+        report = json.loads(capsys.readouterr().out)
+        assert list(report["deltas"]) == ["locked.ipynb"]
+        assert report["deltas"]["locked.ipynb"]["version_changes"][0]["new_version"] == "2.32.4"
+
+    def test_the_directory_json_has_null_deltas_when_no_notebook_had_a_manifest(self, tmp_path, capsys):
+        root = tmp_path / "repo"
+        root.mkdir()
+        _write_notebook(root, name="plain.ipynb")
+        cli.run_directory(_args(batch=str(root), format="json"), ENV)
+        assert json.loads(capsys.readouterr().out)["deltas"] is None

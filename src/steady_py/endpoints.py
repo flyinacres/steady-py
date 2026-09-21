@@ -12,7 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+import sys
+
 from steady_py import core
+from steady_py.delta import compute_delta
 from steady_py.results import (
     CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SetupCells, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -26,6 +29,40 @@ def detect_environment() -> Environment:
     frozen_env, raw_full_freeze = core.get_installed_environment()
     pkg_dist_map = importlib.metadata.packages_distributions() if hasattr(importlib.metadata, "packages_distributions") else {}
     return Environment(frozen_env=frozen_env, pkg_dist_map=pkg_dist_map, raw_full_freeze=raw_full_freeze)
+
+
+def _read_manifest(path: object) -> Tuple[Optional[core.SteadyPyManifest], Optional[str]]:
+    """The manifest a notebook file already carries: (manifest, None), (None, None) when it has
+    none or is not a file, and (None, reason) when it has one that cannot be read."""
+    if not os.path.isfile(str(path)):
+        return None, None
+    manifest, error = core.extract_manifest_from_file(str(path))
+    return manifest, error or None
+
+
+def _provisional_manifest(
+    scan_result: core.NotebookScanResult, report: core.NotebookAnalysisReport, hardware: Optional[core.GpuInfo],
+) -> core.SteadyPyManifest:
+    """What a snapshot would record, as far as it can be known without contacting PyPI: the pins,
+    the Python version and the accelerator. It has no baseline, custom-sourced list or hash."""
+    gpu = core.resolve_notebook_gpu_info(scan_result.imports, hardware)
+    return core.SteadyPyManifest(
+        python_version={"major": sys.version_info.major, "minor": sys.version_info.minor},
+        dependencies=[dep.to_pin() for dep in report.dependencies if not dep.is_comment],
+        gpu=gpu.to_dict() if gpu else None,
+        generated_at="",
+    )
+
+
+def _scan_notebook(
+    scan_result: core.NotebookScanResult, report: core.NotebookAnalysisReport, hardware: Optional[core.GpuInfo],
+) -> NotebookScan:
+    """One analyzed notebook, compared with the manifest it already carries, if any."""
+    manifest, manifest_error = _read_manifest(scan_result.path)
+    delta = compute_delta(manifest, _provisional_manifest(scan_result, report, hardware)) if manifest else None
+    return NotebookScan(
+        path=str(scan_result.path), report=report, manifest=manifest, manifest_error=manifest_error, delta=delta,
+    )
 
 
 @dataclass
@@ -89,7 +126,10 @@ def scan(
     if target is not None and os.path.isdir(target):
         return _scan_directory(target, options, environment)
     analysis = _analyze(target, environment)
-    notebook = NotebookScan(path=analysis.path, report=analysis.report, error=analysis.error)
+    if analysis.scan_result is None:
+        notebook = NotebookScan(path=analysis.path, report=analysis.report, error=analysis.error)
+    else:
+        notebook = _scan_notebook(analysis.scan_result, analysis.report, analysis.hardware)
     return ScanResult(target=target if target is not None else analysis.path, kind=analysis.kind, notebooks=[notebook])
 
 
@@ -134,6 +174,7 @@ def _snapshot_notebook(
     root_dir: str,
 ) -> NotebookSnapshot:
     """The cells and manifest for one analyzed notebook, written as the options say."""
+    previous, _ = _read_manifest(scan_result.path)   # before any write: an in-place snapshot replaces it
     blueprint = core.build_blueprint_for_notebook(
         scan_result, report, hardware, install_timeout=options.install_timeout, full_freeze_lines=full_freeze_lines,
     )
@@ -142,6 +183,7 @@ def _snapshot_notebook(
         report=report,
         cells=SetupCells(markdown=blueprint["step1_markdown"], code=blueprint["step2_code"]),
         drift_report=blueprint["drift_report"],
+        delta=compute_delta(previous, blueprint["drift_report"].manifest) if previous else None,
     )
     if options.write_mode != WriteMode.NONE:
         try:
@@ -198,7 +240,7 @@ def _unreadable(repo_map: core.RepoEnvironmentMap) -> List[Tuple[str, core.Noteb
 def _scan_directory(target: str, options: ScanOptions, environment: Optional[Environment]) -> ScanResult:
     analysis = _analyze_directory(target, environment, _skip_suffix(options.suffix, in_place=False))
     notebooks = [
-        NotebookScan(path=str(res.path), report=report)
+        _scan_notebook(res, report, analysis.hardware)
         for res, report in zip(analysis.repo_map.scan_results, analysis.summary.notebooks)
     ]
     notebooks += [NotebookScan(path=path, report=report, error=cause) for path, report, cause in _unreadable(analysis.repo_map)]

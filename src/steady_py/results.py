@@ -98,6 +98,9 @@ class PackageChange:
     old_version: Optional[str] = None
     new_version: Optional[str] = None
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {"name": self.name, "old_version": self.old_version, "new_version": self.new_version}
+
 
 @dataclass
 class Delta:
@@ -113,7 +116,8 @@ class Delta:
     version_changes: List[PackageChange] = field(default_factory=list)
     python_version: Optional[Tuple[str, str]] = None     # (before, after), None when unchanged
     gpu: Optional[Tuple[GpuSetting, GpuSetting]] = None  # (before, after), None when unchanged
-    findings_appeared: List[core.FindingKey] = field(default_factory=list)  # baseline findings
+    baseline_compared: bool = False  # False when the fresh manifest has no baseline, as in scan, which never contacts PyPI
+    findings_appeared: List[core.FindingKey] = field(default_factory=list)  # baseline findings; empty unless baseline_compared
     findings_resolved: List[core.FindingKey] = field(default_factory=list)
 
     @property
@@ -123,6 +127,19 @@ class Delta:
             or self.python_version or self.gpu
             or self.findings_appeared or self.findings_resolved
         )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "has_changes": self.has_changes,
+            "added": [c.to_dict() for c in self.added],
+            "removed": [c.to_dict() for c in self.removed],
+            "version_changes": [c.to_dict() for c in self.version_changes],
+            "python_version": {"before": self.python_version[0], "after": self.python_version[1]} if self.python_version else None,
+            "gpu": {"before": self.gpu[0], "after": self.gpu[1]} if self.gpu else None,
+            "baseline_compared": self.baseline_compared,
+            "findings_appeared": [list(k) for k in self.findings_appeared],
+            "findings_resolved": [list(k) for k in self.findings_resolved],
+        }
 
 
 # =====================================================================

@@ -4248,6 +4248,7 @@ def format_json_batch_report(
     summary: BatchAnalysisSummary,
     artifacts_written: Optional[Dict[str, Any]] = None,
     validation: Optional["BatchValidation"] = None,
+    deltas: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Formats a BatchAnalysisSummary into valid machine-readable JSON."""
     payload = {
@@ -4277,6 +4278,7 @@ def format_json_batch_report(
         "notebooks": [nb.to_dict() for nb in summary.notebooks],
         "artifacts_written": artifacts_written,
         "validation": validation.to_dict() if validation else None,
+        "deltas": deltas,
     }
     return json.dumps(payload, indent=2)
 
@@ -4285,6 +4287,7 @@ def format_json_single_report(
     nb_report: NotebookAnalysisReport,
     artifacts_written: Optional[Dict[str, Any]] = None,
     drift_report: Optional["DriftCheckReport"] = None,
+    delta: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Formats a single NotebookAnalysisReport into valid machine-readable JSON."""
     payload = {
@@ -4298,6 +4301,7 @@ def format_json_single_report(
         **nb_report.to_dict(),
         "artifacts_written": artifacts_written,
         "drift_check": drift_report.to_dict() if drift_report else None,
+        "delta": delta,
     }
     return json.dumps(payload, indent=2)
 

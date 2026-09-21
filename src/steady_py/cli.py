@@ -9,11 +9,12 @@ import argparse
 import logging
 import os
 import sys
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
 from steady_py import core, endpoints
 from steady_py.results import (
-    CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
+    CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SnapshotOptions, SnapshotResult, WriteMode,
 )
 
@@ -87,15 +88,56 @@ def snapshot_exit_code(result: SnapshotResult) -> int:
     return EXIT_ATTENTION if result.failed else EXIT_OK
 
 
+def _gpu_label(setting: Optional[Dict[str, Any]]) -> str:
+    if not setting:
+        return "none"
+    return str(setting.get("device_name") or "GPU") if setting.get("has_gpu") else "no GPU"
+
+
+def format_delta(delta: Delta, label: str) -> str:
+    """What a snapshot would change (or did change) in the manifest a notebook already carried."""
+    if not delta.has_changes:
+        return f"No changes since the existing manifest in {label}."
+    lines = [f"Changes since the existing manifest in {label}:"]
+    lines += [f"  + {c.name}=={c.new_version} (added)" for c in delta.added]
+    lines += [f"  - {c.name}=={c.old_version} (removed)" for c in delta.removed]
+    lines += [f"  ~ {c.name} {c.old_version} -> {c.new_version}" for c in delta.version_changes]
+    if delta.python_version:
+        lines.append(f"  Python {delta.python_version[0]} -> {delta.python_version[1]}")
+    if delta.gpu:
+        lines.append(f"  Accelerator: {_gpu_label(delta.gpu[0])} -> {_gpu_label(delta.gpu[1])}")
+    if delta.findings_appeared:
+        lines.append("  New findings: " + ", ".join(":".join(key) for key in delta.findings_appeared))
+    if delta.findings_resolved:
+        lines.append("  Resolved findings: " + ", ".join(":".join(key) for key in delta.findings_resolved))
+    if delta.version_changes:
+        lines.append("  Versions come from the environment this ran in, so a different machine can show version changes the code did not cause.")
+    return "\n".join(lines)
+
+
+def _directory_deltas(result: Union[ScanResult, SnapshotResult]) -> Dict[str, Delta]:
+    """The delta of each notebook that already had a manifest, keyed by path relative to the target."""
+    return {
+        core.relative_notebook_path(Path(n.path), result.target): n.delta
+        for n in result.notebooks if n.delta is not None
+    }
+
+
+def format_directory_deltas(result: Union[ScanResult, SnapshotResult]) -> str:
+    return "\n\n".join(format_delta(delta, rel) for rel, delta in _directory_deltas(result).items())
+
+
 def format_scan_result(result: ScanResult) -> str:
     """The JSON report for a scanned notebook."""
-    return core.format_json_single_report(result.notebooks[0].report)
+    notebook = result.notebooks[0]
+    return core.format_json_single_report(notebook.report, delta=notebook.delta.to_dict() if notebook.delta else None)
 
 
 def format_snapshot_result(result: SnapshotResult, output_format: str = "text") -> str:
     """What snapshot prints on stdout. Text is the two cells to paste when nothing was written,
-    and the validation report otherwise; JSON is the analysis report, with the validation report
-    and the written path when something was written."""
+    and the validation report otherwise, each after the delta when the notebook already had a
+    manifest; JSON is the analysis report, with the delta, and with the validation report and
+    the written path when something was written."""
     notebook = result.notebooks[0]
     written = notebook.written_path is not None
     if output_format == "json":
@@ -103,13 +145,16 @@ def format_snapshot_result(result: SnapshotResult, output_format: str = "text") 
             notebook.report,
             artifacts_written={"locked_notebook": notebook.written_path} if written else None,
             drift_report=notebook.drift_report if written else None,
+            delta=notebook.delta.to_dict() if notebook.delta else None,
         )
     if notebook.cells is None or notebook.drift_report is None:
         return ""
+    delta_text = format_delta(notebook.delta, notebook.path) if notebook.delta else ""
     has_pins = bool(notebook.drift_report.manifest.dependencies)
     if written:
-        return core.format_console_drift_report(notebook.drift_report) if has_pins else ""
-    parts = [
+        report_text = core.format_console_drift_report(notebook.drift_report) if has_pins else ""
+        return "\n\n".join(part for part in (delta_text, report_text) if part)
+    parts = ([delta_text, ""] if delta_text else []) + [
         "--- [ STEP 1: PASTE INTO CELL 1 (MARKDOWN) ] ---\n",
         notebook.cells.markdown,
         "\n" + "=" * 80 + "\n",
@@ -255,7 +300,13 @@ def run_directory(args: argparse.Namespace, environment: Optional[Environment] =
         scanned = endpoints.scan(target, ScanOptions(suffix=args.suffix), environment)
         assert scanned.batch_summary is not None
         summary = scanned.batch_summary
-        print(core.format_json_batch_report(summary) if is_json else core.format_console_report(summary))
+        deltas = {rel: d.to_dict() for rel, d in _directory_deltas(scanned).items()} or None
+        if is_json:
+            print(core.format_json_batch_report(summary, deltas=deltas))
+        else:
+            print(core.format_console_report(summary))
+            if deltas:
+                print("\n" + format_directory_deltas(scanned))
         return EXIT_OK
 
     options = SnapshotOptions(
@@ -265,8 +316,11 @@ def run_directory(args: argparse.Namespace, environment: Optional[Environment] =
     result = endpoints.snapshot(target, options, environment)
     assert result.batch_summary is not None
     summary = result.batch_summary
+    deltas = {rel: d.to_dict() for rel, d in _directory_deltas(result).items()} or None
     if not is_json:
         print(core.format_console_report(summary))
+        if deltas:
+            print("\n" + format_directory_deltas(result))
 
     if not summary.is_clean:
         logger.error("\n❌ Execution aborted: Resolve file/parse errors before running --universal, --output, --output-dir, or --in-place.")
@@ -295,6 +349,7 @@ def run_directory(args: argparse.Namespace, environment: Optional[Environment] =
     if is_json:
         print(core.format_json_batch_report(
             summary, artifacts_written=artifacts_written if artifacts_written else None, validation=result.validation,
+            deltas=deltas,
         ))
     return EXIT_OK
 
