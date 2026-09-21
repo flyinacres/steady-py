@@ -128,8 +128,6 @@ Motivating problem: pins prevent breakage from the environment moving out from u
 
 **Manifest**: Cell 2's `STEADY_PY_MANIFEST` is a structured literal of type `SteadyPyManifest` (both names tied to the `steady-py` package name). No external file: avoids Kaggle/Colab/offline path ambiguity and multi-notebook directory collisions. Fields: `python_version`, `dependencies` (direct pins), `gpu`, `generated_at`, `tool_version`, `raw_installs` (non-PyPI sources; see "Non-PyPI sources"), `custom_sourced` (pins not found on PyPI), `local_modules` (see "Local-module resolution overhaul"), `baseline` (see "Baseline: new vs. known drift findings"), and `dependency_hash`. Stays aligned with the `--format json` schema rather than inventing a second shape.
 
-
-
 **`dependency_hash`**: covers the _entire_ manifest — content (deps, python version, GPU, baseline) and provenance (`generated_at`, `tool_version`) alike — via canonical serialization (sha256 over sorted-key JSON, `_manifest_payload_hash`), independent of how the literal is formatted in Cell 2. Purpose: detect hand-editing, including someone editing the timestamp to hide age or deleting a recorded finding to silence it. Verification (`SteadyPyManifest.from_literal`) hashes the fields exactly as persisted, not the current dataclass shape, so adding a field to the manifest never makes an older manifest look edited, and deleting a field from a newer one is still caught. The report carries the stored hash, not the recomputed one.
 
 **Two modes** — a middle "verify without changing pins" mode was considered and rejected: confirming pins still work requires actually running the code, and running the code means real installed versions now exist, which should simply become the new pins. There's no meaningful state between "unchanged, trusted" and "changed, replaced."
@@ -304,8 +302,6 @@ In write modes (`--output`, `--in-place`, `--output-dir`), each notebook's gener
 
 **Limits**: check-drift verifies nothing about raw installs (no reachability probe, no comparison over time), and their transitive dependencies are not walked. An install that doesn't write `direct_url.json` (legacy installers) looks like an ordinary pin. The generation-time console notice that a source must be shared fires only for install lines the notebook itself contains; an inferred URL is described in Cell 2's comment and runtime output.
 
-
-
 ## Module split: handoff notes
 
 **Done before the split**: named constants for signals, severities and statuses (`Signal`, `Severity`, `BaselineStatus`, `DependencyStatus`, `FetchStatus`, `ReportKind`, plain strings in the style of `StatusLabel`); typed `PinnedDependency`, `Baseline`, explicit `DriftFinding.latest_version`/`parent`, and `NotebookValidationCounts` in place of dicts; dead code removed; mypy clean. Importing the module no longer reconfigures the standard streams or attaches a stderr handler: `main()` calls `configure_console()`, and the logger is created non-propagating with a placeholder `NullHandler` (a host that configures logging, such as an IPython session or pytest, would otherwise see every message twice). The stderr handler replaces the placeholder rather than joining it, and the placeholder is only added when the logger has no handlers, so a live kernel that re-executes the pasted file never stacks handlers (`test_live_kernel_phase0_regressions.py` asserts exactly one). Best-effort probes that used to swallow every exception now stay quiet for the expected case and log at debug otherwise. One silent site is deliberate: the TensorFlow device-name lookup runs inside `silence_fd2_stderr()`, where a log line would be discarded.
@@ -319,12 +315,11 @@ In write modes (`--output`, `--in-place`, `--output-dir`), each notebook's gener
 
 **Test patch points**: tests replace `get_installed_environment`, `resolve_pypi_package_and_extras`, `_found_in_dir`, `resolve_opencv_variant`, `_fetch_pypi_json`, `is_running_in_ipython`, `check_yanked_or_removed`, `SteadyPyManifest.compute_and_set_hash`, `logger.warning`, and `subprocess.run` through the module, and call `.cache_clear()` on `build_manifest_entries`, `resolve_local_module`, `fetch_pypi_package_metadata`, `fetch_pypi_version_metadata` and `resolve_pypi_package_and_extras`. After a split, a patch only takes effect if callers look the function up through its defining module at call time (`module.function(...)`, not `from module import function`), otherwise a test passes while patching nothing. Give the PyPI functions and the environment reader one home each so each has a single patch point.
 
-**Entry point** (done in step 1): the tool runs as `python -m steady_py` or the `steady-py` console script, both calling `cli.main`. `e2e_harness.run_steady_py` puts `src` on PYTHONPATH, `run_suite.py` sets `PYTHONPATH=/workspace/src` in its containers, and pyproject gives pytest `pythonpath = ["src"]`. The tests that used to exec `core.py`'s source as if pasted into a kernel were redesigned in step 2: the live-kernel Phase 0 runner runs `import steady_py.cli as spy; spy.main()` in the kernel (the harness puts `src` on the kernel's PYTHONPATH), and `test_module_hygiene.py` reloads the module instead. The tool can no longer be pasted as a single file.
+**Entry point** (done): the tool runs as `python -m steady_py` or the `steady-py` console script, both calling `cli.main`. `e2e_harness.run_steady_py` puts `src` on PYTHONPATH, `run_suite.py` sets `PYTHONPATH=/workspace/src` in its containers, and pyproject gives pytest `pythonpath = ["src"]`. The tests that used to exec `core.py`'s source as if pasted into a kernel were redesigned when `main` moved into `cli.py`: the live-kernel Phase 0 runner runs `import steady_py.cli as spy; spy.main()` in the kernel (the harness puts `src` on the kernel's PYTHONPATH), and `test_module_hygiene.py` reloads the module instead. The tool can no longer be pasted as a single file.
 
 **Not done, and why**: pipelines that print and return exit codes (`run_single_file_pipeline`, `run_batch_pipeline`) should separate computing a report from presenting it. Done: `endpoints.check`, `endpoints.scan` and `endpoints.snapshot` compute and `cli.py` presents them, for a single file and, except check, for a directory. `run_single_file_pipeline` and `run_batch_pipeline` are gone. The custom-sourced classification loop in `generate_production_blueprint` repeats the name/version guard in `run_pin_checks`, and `analyze_batch_repository` has four near-identical dedupe loops; both are small wins. Public API (`__all__`, private naming) and a single home for `TOOL_VERSION`/`SCHEMA_VERSION` should be decided with the module list. The endpoint design for the pipeline separation is under "Package design" below.
 
 **Test hygiene lesson**: a test that executes generated code assigned `subprocess.run` on the real module and never restored it, which silently broke any later test using real subprocesses. Register such assignments with `monkeypatch.setattr` first so teardown restores them.
-
 
 ## Package design: verbs, results, exit codes
 
@@ -349,35 +344,47 @@ Each user verb takes a file or a directory. A directory is a larger target, not 
 
 **Exit codes** (Decided): one rule across all verbs, following the convention of grep, diff and mypy. 0 means everything was processed cleanly. 1 means the tool did its job but something needs attention: drift found by check, or some notebooks skipped in a directory run. 2 means the tool could not do the job: bad arguments, a missing path, a single file that cannot be parsed, a directory where nothing could be processed, or check unable to verify a pin or the manifest. Check keeps today's codes, which already fit: 1 is drift found (any confirmed finding, new or already known at generation, or a heuristic finding not already known), and 2 means a pin or the manifest could not be checked. Findings preconfirmed at generation still affect the return value; a heuristic finding already known at generation does not fail the check. Detail beyond the code belongs in `--format json`, where each result carries structured errors.
 
-**Refusals to produce output** (each needs a ruling; today's behavior first):
+**Refusals to produce output** (all resolved, or pending as noted; today's behavior first):
 
-1. A batch with any parse error wrote nothing and exited 1. Done: replaced by the write rule. A partial run exits 1, and a run where nothing could be processed exits 2. The skipped notebooks are listed on stderr, in the report and at the top of the universal file.
-2. A single file that cannot be parsed gives an error; JSON mode prints a report carrying the parse error. Done: exit 2 (it was 1), since the tool could not do the job, with the error carried in the result.
-3. `--check-drift` on anything other than an existing file gives an error and exit 2. A directory becomes valid because check takes directories; a missing path stays an error.
-4. `--output`, `--output-dir` or `--in-place` with no target gives an error. Done: exit 2 (it was 1), as a usage error.
-5. No target and not in a live kernel used to do nothing, silently. Done: prints usage and exits 2.
-6. Usage errors exited 1 in some places and 2 in others. Done: all are 2, matching argparse, which already exits 2 on bad arguments.
-7. Generated Cell 2 hard-stopped on a Python major-version mismatch, and only warned on a minor one. Done: one non-blocking warning for any mismatch; Cell 2 goes on to the installs. The check is effectively dead code (Cell 2 uses f-strings, so Python 2 fails to compile it first, and the required major version is always 3), and pip reports an unusable pin with its own clear error.
+- A batch with any parse error wrote nothing and exited 1. Done: replaced by the write rule. A partial run exits 1, and a run where nothing could be processed exits 2. The skipped notebooks are listed on stderr, in the report and at the top of the universal file.
+- A single file that cannot be parsed gives an error; JSON mode prints a report carrying the parse error. Done: exit 2 (it was 1), since the tool could not do the job, with the error carried in the result.
+- `--check-drift` on anything other than an existing file gives an error and exit 2. A directory becomes valid because check takes directories (pending: see the task list); a missing path stays an error.
+- `--output`, `--output-dir` or `--in-place` with no target gives an error. Done: exit 2 (it was 1), as a usage error.
+- No target and not in a live kernel used to do nothing, silently. Done: prints usage and exits 2.
+- Usage errors exited 1 in some places and 2 in others. Done: all are 2, matching argparse, which already exits 2 on bad arguments.
+- Generated Cell 2 hard-stopped on a Python major-version mismatch, and only warned on a minor one. Done: one non-blocking warning for any mismatch; Cell 2 goes on to the installs. The check is effectively dead code (Cell 2 uses f-strings, so Python 2 fails to compile it first, and the required major version is always 3), and pip reports an unusable pin with its own clear error.
 
 Cell 2's behavior when an install fails has not been surveyed; it gets covered when the installer is extracted.
 
 **Runtime helper** (Proposed): Cell 2 shrinks to a few lines that install and call a pinned helper, `steady-py==<generating version>`. Generation warns loudly when that version is not released, with an override (path or wheel) for tests and development. `packaging` and `resolvelib` move into an extra, `steady-py[check]`, and pyproject's empty `dependencies` gets fixed then (today `pip install` yields a tool that fails on import). The manifest gets an explicit schema version, and the package version replaces `TOOL_VERSION`. The manifest literal stays in the cell for check.
 
-**Order of work** (a checklist; update it as items land):
+**Task list.** One list, in order; each line is one deliverable. Update the status as items land.
 
-Done:
+1. DONE. Rename to `steady_py`, `src` layout, Docker tiers verified.
+2. DONE. Option and result types (`results.py`).
+3. DONE. `check` as an endpoint (`endpoints.check`), with formatting and exit codes in `cli.py`.
+4. DONE. `scan` and `snapshot` for one notebook or the live session.
+5. DONE. `scan` and `snapshot` for a directory; `run_batch_pipeline` removed.
+6. DONE. The parser and `main` moved into `cli.py`; `core.py` has no command line.
+7. DONE. The delta (`delta.py`), shown by `scan` and `snapshot`.
+8. DONE. Partial writes with loud failure, the universal file's incomplete header, the 0/1/2 exit rule, usage errors all 2, a bare invocation prints usage.
+9. DONE. Cell 2 warns on any Python mismatch and carries on; no hard stop.
+10. TODO. `check` accepts a directory, with an aggregate result and exit code; fix `--format json` printing plain text when there is no manifest.
+11. TODO. Run `run_suite.py` on Docker.
+12. TODO. Subcommands (`steady-py scan|snapshot|check`) replace the flags: runner commands, subprocess tests, `run_suite.py` and docs change, and the old-versus-new comparison is rerun in the new syntax.
+13. TODO. Extract the runtime installer; slim Cell 2 to a few lines that install and call a pinned `steady-py==<version>`, with a loud warning when that version is not released and an override for development.
+14. TODO. Add the `steady-py[check]` extra (`packaging`, `resolvelib`) and fix pyproject's empty `dependencies`.
+15. TODO. Add a manifest schema version; the package version replaces `TOOL_VERSION`.
+16. TODO. Survey what Cell 2 does when an install fails.
+17. TODO. The e2e runners install the package from the mounted repo.
+18. TODO. Split `core.py` into modules, bottom-up, per the layering above.
+19. TODO. Rewrite the README (its install steps are stale).
+20. TODO. Update the GitHub URLs (`HELP_URL`, the core docstring, the README) to `steady-py`.
+21. TODO. First release.
 
-- [x] Step 1: rename to `steady_py`, `src` layout, Docker tiers verified.
-- [x] Step 2, delivery A (no behavior change apart from three fixes: `--full-freeze` is honored when writing, pasted cells carry the same content as written ones, and `--batch` on a missing directory is an error): option and result types (`results.py`), the `check`, `scan` and `snapshot` endpoints for a file or a directory (`endpoints.py`), formatting and exit codes (`cli.py`), and the parser and `main` moved into `cli.py`.
-- [x] Step 2, delivery B: the delta (`delta.py`), shown by scan and snapshot; partial writes with loud failure; the universal file's incomplete header; the 0/1/2 exit rule for scan and snapshot; usage errors all 2; a bare invocation prints usage; Cell 2 warns on any Python mismatch and carries on (no hard stop).
+Decisions waiting (not tasks):
 
-Remaining:
-
-- [ ] Delivery B: `check` accepts a directory, with an aggregate result and exit code; fix `--format json` printing plain text when there is no manifest.
-- [ ] Run `run_suite.py` on Docker after delivery B.
-- [ ] Subcommands (`steady-py scan|snapshot|check`) replace the flags, as their own step: runner commands, subprocess tests, `run_suite.py` and docs change, and the old-versus-new comparison is rerun in the new syntax.
-- [ ] Step 3: extract the runtime installer and slim Cell 2 to a few lines that call a pinned `steady-py==<version>` (loud warning when that version is not released, override for development); add the `steady-py[check]` extra and fix pyproject's empty `dependencies`; add a manifest schema version and let the package version replace `TOOL_VERSION`; survey what Cell 2 does when an install fails; make the e2e runners install the package from the mounted repo.
-- [ ] Step 4: split `core.py` into modules, bottom-up, per the layering above.
-- [ ] Rewrite the README (its install steps are stale), update the GitHub URLs (`HELP_URL`, the core docstring, the README) to `steady-py`, then the first release.
-
-Small items waiting on a decision: whether a flags-only change counts in the delta; which of `tests/test_json_format.py` and `tests/test_steady_py.py` to keep (they hold the same 85 test names); removing the paste-era filter for cells containing the tool's own source; renaming the fixture package `notebook_env_test_fixture` (its wheels need rebuilding) and deleting the tracked temporary fixture notebook.
+- Does a change only in a pin's flags, such as a different index URL, count in the delta?
+- Which of `tests/test_json_format.py` and `tests/test_steady_py.py` to keep; they hold the same 85 test names.
+- Remove the paste-era filter for cells containing the tool's own source?
+- Rename the fixture package `notebook_env_test_fixture` (its wheels need rebuilding) and delete the tracked temporary fixture notebook?
