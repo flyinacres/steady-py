@@ -128,8 +128,6 @@ Motivating problem: pins prevent breakage from the environment moving out from u
 
 **Manifest**: Cell 2's `STEADY_PY_MANIFEST` is a structured literal of type `SteadyPyManifest` (both names tied to the `steady-py` package name). No external file: avoids Kaggle/Colab/offline path ambiguity and multi-notebook directory collisions. Fields: `python_version`, `dependencies` (direct pins), `gpu`, `generated_at`, `tool_version`, `raw_installs` (non-PyPI sources; see "Non-PyPI sources"), `custom_sourced` (pins not found on PyPI), `local_modules` (see "Local-module resolution overhaul"), `baseline` (see "Baseline: new vs. known drift findings"), and `dependency_hash`. Stays aligned with the `--format json` schema rather than inventing a second shape.
 
-
-
 **`dependency_hash`**: covers the _entire_ manifest — content (deps, python version, GPU, baseline) and provenance (`generated_at`, `tool_version`) alike — via canonical serialization (sha256 over sorted-key JSON, `_manifest_payload_hash`), independent of how the literal is formatted in Cell 2. Purpose: detect hand-editing, including someone editing the timestamp to hide age or deleting a recorded finding to silence it. Verification (`SteadyPyManifest.from_literal`) hashes the fields exactly as persisted, not the current dataclass shape, so adding a field to the manifest never makes an older manifest look edited, and deleting a field from a newer one is still caught. The report carries the stored hash, not the recomputed one.
 
 **Two modes** — a middle "verify without changing pins" mode was considered and rejected: confirming pins still work requires actually running the code, and running the code means real installed versions now exist, which should simply become the new pins. There's no meaningful state between "unchanged, trusted" and "changed, replaced."
@@ -304,8 +302,6 @@ In write modes (`--output`, `--in-place`, `--output-dir`), each notebook's gener
 
 **Limits**: check-drift verifies nothing about raw installs (no reachability probe, no comparison over time), and their transitive dependencies are not walked. An install that doesn't write `direct_url.json` (legacy installers) looks like an ordinary pin. The generation-time console notice that a source must be shared fires only for install lines the notebook itself contains; an inferred URL is described in Cell 2's comment and runtime output.
 
-
-
 ## Module split: handoff notes
 
 **Done before the split**: named constants for signals, severities and statuses (`Signal`, `Severity`, `BaselineStatus`, `DependencyStatus`, `FetchStatus`, `ReportKind`, plain strings in the style of `StatusLabel`); typed `PinnedDependency`, `Baseline`, explicit `DriftFinding.latest_version`/`parent`, and `NotebookValidationCounts` in place of dicts; dead code removed; mypy clean. Importing the module no longer reconfigures the standard streams or attaches a stderr handler: `main()` calls `_configure_console()`, and the logger is created non-propagating with a placeholder `NullHandler` (a host that configures logging, such as an IPython session or pytest, would otherwise see every message twice). The stderr handler replaces the placeholder rather than joining it, and the placeholder is only added when the logger has no handlers, so a live kernel that re-executes the pasted file never stacks handlers (`test_live_kernel_phase0_regressions.py` asserts exactly one). Best-effort probes that used to swallow every exception now stay quiet for the expected case and log at debug otherwise. One silent site is deliberate: the TensorFlow device-name lookup runs inside `silence_fd2_stderr()`, where a log line would be discarded.
@@ -325,10 +321,9 @@ In write modes (`--output`, `--in-place`, `--output-dir`), each notebook's gener
 
 **Test hygiene lesson**: a test that executes generated code assigned `subprocess.run` on the real module and never restored it, which silently broke any later test using real subprocesses. Register such assignments with `monkeypatch.setattr` first so teardown restores them.
 
-
 ## Package design: verbs, results, exit codes
 
-Status: items marked Decided were settled in review; items marked Proposed or Open are defaults awaiting review. Nothing here is implemented yet. Guiding principle: what is best for the users. "False success is worse than nothing" means the tool never hides a gap; it does not mean the tool refuses to produce output.
+Status: items marked Decided were settled in review; items marked Proposed or Open are defaults awaiting review. Nothing here is implemented yet. Guiding principle: what is best for the users. "False success is worse than nothing" means the tool never hides a gap; it does not mean the tool refuses to produce output. The tool stops only when it cannot proceed or when continuing would do harm; otherwise it continues and reports.
 
 **Names and layout** (Decided): package and PyPI name `steady-py`, import name `steady_py`, source under `src/steady_py/` with subpackages as needed, console script `steady-py`, and `python -m steady_py`. The old `notebook_env` name is retired with no shim, including persisted names (cell tag `metadata.steady_py`, logger `steady_py`). The version starts at 0.0.45 in pyproject, and the first release happens only after the split and packaging work. The GitHub URLs point at the old repo until the new one is live.
 
@@ -347,17 +342,17 @@ Each user verb takes a file or a directory. A directory is a larger target, not 
 
 **Results and CLI**: the CLI calls the same functions that can be called programmatically, including from a live notebook (Decided). Proposed: functions return typed result objects and never print or exit; options are a small dataclass, not an argparse namespace; the environment (installed packages, PyPI client) is injectable for tests; the CLI formats a result and maps it to an exit code through one pure function; tests split by layer, with computation on result objects, formatting on formatters, and the CLI on argument mapping and exit codes.
 
-**Exit codes**: check keeps today's codes (Decided). 0 is clean. 1 is drift found: any confirmed finding, new or already known at generation, or a heuristic finding not already known. 2 means a pin or the manifest could not be checked. Findings preconfirmed at generation still affect the return value; a heuristic finding already known at generation does not fail the check. Open: for scan and snapshot, proposed 0 when every target was processed and 1 when at least one could not be (parse error, skipped notebook).
+**Exit codes** (Decided): one rule across all verbs, following the convention of grep, diff and mypy. 0 means everything was processed cleanly. 1 means the tool did its job but something needs attention: drift found by check, or some notebooks skipped in a directory run. 2 means the tool could not do the job: bad arguments, a missing path, a single file that cannot be parsed, a directory where nothing could be processed, or check unable to verify a pin or the manifest. Check keeps today's codes, which already fit: 1 is drift found (any confirmed finding, new or already known at generation, or a heuristic finding not already known), and 2 means a pin or the manifest could not be checked. Findings preconfirmed at generation still affect the return value; a heuristic finding already known at generation does not fail the check. Detail beyond the code belongs in `--format json`, where each result carries structured errors.
 
 **Refusals to produce output** (each needs a ruling; today's behavior first):
 
-1. A batch with any parse error writes nothing and exits 1. Decided: replaced by the write rule.
-2. A single file that cannot be parsed gives an error and exit 1; JSON mode prints a report carrying the parse error. Proposed: keep, with the error carried in the result.
+1. A batch with any parse error writes nothing and exits 1. Decided: replaced by the write rule. A partial run exits 1, and a run where nothing could be processed exits 2.
+2. A single file that cannot be parsed gives an error and exit 1; JSON mode prints a report carrying the parse error. Decided: exit 2, since the tool could not do the job, with the error carried in the result.
 3. `--check-drift` on anything other than an existing file gives an error and exit 2. A directory becomes valid because check takes directories; a missing path stays an error.
-4. `--output`, `--output-dir` or `--in-place` with no target gives an error and exit 1. Proposed: keep, as a usage error.
+4. `--output`, `--output-dir` or `--in-place` with no target gives an error and exit 1. Decided: exit 2, as a usage error.
 5. No target and not in a live kernel: silently does nothing (`run_single_file_pipeline` just returns). Proposed: print usage and exit 2.
-6. Usage errors exit 1 in some places and 2 in others. Open: pick one code.
-7. Generated Cell 2 hard-stops on a Python major-version mismatch, and only warns on a minor one. Proposed: keep.
+6. Usage errors exit 1 in some places and 2 in others. Decided: all are 2, matching argparse, which already exits 2 on bad arguments.
+7. Generated Cell 2 hard-stops on a Python major-version mismatch, and only warns on a minor one. Decided: remove the hard stop, so a major mismatch becomes a warning like the minor one. The check is effectively dead code (Cell 2 uses f-strings, so Python 2 fails to compile it first, and the required major version is always 3), and pip reports an unusable pin with its own clear error.
 
 Cell 2's behavior when an install fails has not been surveyed; it gets covered when the installer is extracted.
 
