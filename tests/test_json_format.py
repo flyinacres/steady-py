@@ -44,8 +44,9 @@ class TestSingleFileJsonOutput:
         nb_path = tmp_path / "sample.ipynb"
         nb_path.write_text(json.dumps(nb_data), encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", str(nb_path), "--format", "json"])
-        cli.main()
+        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(nb_path), "--format", "json"])
+        with pytest.raises(SystemExit):
+            cli.main()
 
         captured = capsys.readouterr()
         # Ensure stdout is strictly valid JSON
@@ -81,8 +82,9 @@ class TestSingleFileJsonOutput:
         nb_path = tmp_path / "gpu_guarded.ipynb"
         nb_path.write_text(json.dumps(nb_data), encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", str(nb_path), "--format", "json"])
-        cli.main()
+        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(nb_path), "--format", "json"])
+        with pytest.raises(SystemExit):
+            cli.main()
 
         captured = capsys.readouterr()
         payload = json.loads(captured.out)
@@ -110,8 +112,9 @@ class TestSingleFileJsonOutput:
         nb_path = tmp_path / "write_test.ipynb"
         nb_path.write_text(json.dumps(nb_data), encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", str(nb_path), "--output", "--format", "json"])
-        cli.main()
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(nb_path), "--output", "--format", "json"])
+        with pytest.raises(SystemExit):
+            cli.main()
 
         captured = capsys.readouterr()
         payload = json.loads(captured.out)
@@ -141,8 +144,9 @@ class TestBatchJsonOutput:
         }
         (tmp_path / "02_r.ipynb").write_text(json.dumps(nb2), encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", "--batch", str(tmp_path), "--format", "json"])
-        cli.main()
+        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(tmp_path), "--format", "json"])
+        with pytest.raises(SystemExit):
+            cli.main()
 
         captured = capsys.readouterr()
         payload = json.loads(captured.out)
@@ -176,9 +180,10 @@ class TestBatchJsonOutput:
 
         monkeypatch.setattr(
             sys, "argv",
-            ["steady-py", "--batch", str(tmp_path), "--universal", "--output", "--format", "json"]
+            ["steady-py", "snapshot", str(tmp_path), "--universal", "--output", "--format", "json"]
         )
-        cli.main()
+        with pytest.raises(SystemExit):
+            cli.main()
 
         captured = capsys.readouterr()
         payload = json.loads(captured.out)
@@ -209,8 +214,9 @@ class TestStreamAndErrorHygiene:
         nb_path = tmp_path / "dynamic_test.ipynb"
         nb_path.write_text(json.dumps(nb_data), encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", str(nb_path), "--format", "json"])
-        cli.main()
+        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(nb_path), "--format", "json"])
+        with pytest.raises(SystemExit):
+            cli.main()
 
         captured = capsys.readouterr()
         # stdout must parse cleanly with zero trailing/leading text
@@ -222,7 +228,7 @@ class TestStreamAndErrorHygiene:
         bad_nb = tmp_path / "corrupted.ipynb"
         bad_nb.write_text("{not valid json", encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", "--batch", str(tmp_path), "--format", "json"])
+        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(tmp_path), "--format", "json"])
         with pytest.raises(SystemExit) as excinfo:  # nothing in the directory could be read
             cli.main()
         assert excinfo.value.code == 2
@@ -459,14 +465,16 @@ class TestConsoleJsonParity:
         import logging
         caplog.set_level(logging.WARNING, logger="steady_py")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", str(nb_path), "--format", "text"])
-        cli.main()
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(nb_path), "--format", "text"])
+        with pytest.raises(SystemExit):
+            cli.main()
         text_warning_lines = [r.message for r in caplog.records if r.message.strip().startswith("•")]
         capsys.readouterr()  # drain stdout from the text-mode run before the json-mode run below
 
         caplog.clear()
-        monkeypatch.setattr(sys, "argv", ["steady-py", str(nb_path), "--format", "json"])
-        cli.main()
+        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(nb_path), "--format", "json"])
+        with pytest.raises(SystemExit):
+            cli.main()
         json_payload = json.loads(capsys.readouterr().out)
 
         assert len(text_warning_lines) == len(json_payload["warnings"])
@@ -488,8 +496,9 @@ class TestConsoleJsonParity:
         nb_path = tmp_path / "hw_tag.ipynb"
         nb_path.write_text(json.dumps(nb_data), encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", str(nb_path), "--format", "json"])
-        cli.main()
+        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(nb_path), "--format", "json"])
+        with pytest.raises(SystemExit):
+            cli.main()
         payload = json.loads(capsys.readouterr().out)
 
         hw_warnings = [w for w in payload["warnings"] if w["type"] == "missing_hardware_index"]
