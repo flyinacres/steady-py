@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end test for the --check-drift CLI.
+"""End-to-end test for the `check` CLI subcommand.
 
 Executes real subprocesses against actual notebook files on disk to verify
 CLI argument handling, process exit codes, and manifest drift detection.
@@ -45,8 +45,8 @@ def run_generate_then_check_drift() -> None:
         )
 
     with temp_notebook(FIXTURE_PATH, [f"import {YANKED_PACKAGE}"]):
-        print("2. Generating (steady-py <fixture> --output)...")
-        gen = run_steady_py(str(FIXTURE_PATH), "--output")
+        print("2. Generating (steady-py snapshot <fixture> --output)...")
+        gen = run_steady_py("snapshot", str(FIXTURE_PATH), "--output")
         if not gen.ok:
             fail_test(
                 "Generate Manifest Subprocess",
@@ -61,8 +61,8 @@ def run_generate_then_check_drift() -> None:
         try:
             print("   PASS: generation succeeded, merged file written.")
 
-            print("3. Checking drift (steady-py <merged> --check-drift)...")
-            check = run_steady_py(str(MERGED_PATH), "--check-drift")
+            print("3. Checking drift (steady-py check <merged>)...")
+            check = run_steady_py("check", str(MERGED_PATH))
             if check.returncode != 1:
                 fail_test(
                     "Check Drift Status Code",
@@ -87,7 +87,7 @@ def run_generate_then_check_drift() -> None:
                 fail_test("Tampering Setup", "Replacement target not found in generated manifest.")
             MERGED_PATH.write_text(tampered, encoding="utf-8")
 
-            tamper_check = run_steady_py(str(MERGED_PATH), "--check-drift")
+            tamper_check = run_steady_py("check", str(MERGED_PATH))
             if tamper_check.returncode != 1:
                 fail_test(
                     "Tampering Detection Exit Code",
@@ -113,7 +113,7 @@ def run_check_drift_no_manifest() -> None:
     """Verifies that running check-drift on an unmanaged notebook exits cleanly."""
     print("4. Checking drift against a real file with no manifest present...")
     with temp_notebook(NO_MANIFEST_PATH, ["print('no manifest here')"]):
-        check = run_steady_py(str(NO_MANIFEST_PATH), "--check-drift")
+        check = run_steady_py("check", str(NO_MANIFEST_PATH))
         if not check.ok:
             fail_test(
                 "Unmanaged Notebook Check",

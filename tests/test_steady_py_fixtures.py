@@ -91,9 +91,10 @@ class TestKitchenSinkNotebook:
     def test_full_pipeline_manifest_content(self, kitchen_sink_notebook, mock_environment, monkeypatch, capsys):
         import subprocess
         monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
-        monkeypatch.setattr(sys, "argv", ["steady-py", str(kitchen_sink_notebook)])
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(kitchen_sink_notebook)])
 
-        cli.main()
+        with pytest.raises(SystemExit):
+            cli.main()
         out = capsys.readouterr().out
 
         assert "pillow" in out and "10.3.0" in out
@@ -133,7 +134,7 @@ class TestKitchenSinkNotebook:
         monkeypatch.setattr(spy, "get_installed_environment", lambda: (mock_frozen_env, mock_raw_freeze))
         monkeypatch.setattr(spy, "resolve_opencv_variant", lambda submodules=None: "opencv-python")
         monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
-        monkeypatch.setattr(sys, "argv", ["steady-py", str(kitchen_sink_notebook)])
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(kitchen_sink_notebook)])
 
         fake_packages_distributions = {
             "numpy": ["numpy"],
@@ -155,7 +156,8 @@ class TestKitchenSinkNotebook:
             raise importlib.metadata.PackageNotFoundError(pkg_name)
         monkeypatch.setattr(importlib.metadata, "distribution", fake_distribution)
 
-        cli.main()
+        with pytest.raises(SystemExit):
+            cli.main()
         out = capsys.readouterr().out
 
         assert "umap-learn" in out

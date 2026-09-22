@@ -38,7 +38,6 @@ import os
 import re
 import sys
 import uuid
-import argparse
 import contextlib
 import functools
 import logging
@@ -734,22 +733,6 @@ def is_running_in_ipython() -> bool:
         return get_ipython() is not None
     except ImportError:
         return False
-
-
-def sanitize_kernel_argv(args: argparse.Namespace) -> None:
-    """
-    Cleans up contaminated sys.argv from ipykernel launcher (e.g. ['-f', 'kernel-xxx.json']).
-    Prevents Path A from attempting to parse connection JSON files.
-    """
-    if not args.notebook:
-        return
-
-    nb_str = str(args.notebook)
-    if "kernel-" in nb_str and nb_str.endswith(".json"):
-        args.notebook = None
-    elif not nb_str.endswith(".ipynb") and is_running_in_ipython():
-        if not os.path.exists(nb_str) or not (os.path.isdir(nb_str) or nb_str.endswith(".ipynb")):
-            args.notebook = None
 
 
 @contextlib.contextmanager

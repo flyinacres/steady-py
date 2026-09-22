@@ -326,7 +326,7 @@ def test_inplace_keeps_user_cells_that_only_mention_the_manifest(sample_notebook
 
 def test_cli_single_file_inplace(sample_notebook_file):
     """CLI test for single-file --in-place execution without --output."""
-    cmd = [sys.executable, "-m", "steady_py", str(sample_notebook_file), "--in-place"]
+    cmd = [sys.executable, "-m", "steady_py", "snapshot", str(sample_notebook_file), "--in-place"]
     res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=SUBPROCESS_ENV)
 
     assert res.returncode == 0
@@ -340,7 +340,7 @@ def test_cli_single_file_inplace(sample_notebook_file):
 
 def test_cli_single_file_output_companion(sample_notebook_file):
     """CLI test for single-file --output companion execution."""
-    cmd = [sys.executable, "-m", "steady_py", str(sample_notebook_file), "--output"]
+    cmd = [sys.executable, "-m", "steady_py", "snapshot", str(sample_notebook_file), "--output"]
     res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=SUBPROCESS_ENV)
 
     assert res.returncode == 0
@@ -354,12 +354,12 @@ def test_cli_single_file_output_companion(sample_notebook_file):
 
 
 def test_cli_batch_inplace_alone(tmp_path, sample_notebook_data):
-    """CLI test asserting --batch with --in-place alone (no --output) performs in-place writes."""
+    """CLI test asserting snapshot with --in-place alone (no --output) performs in-place writes."""
     nb1 = tmp_path / "nb1.ipynb"
     with open(nb1, "w", encoding="utf-8") as f:
         json.dump(sample_notebook_data, f)
 
-    cmd = [sys.executable, "-m", "steady_py", "--batch", str(tmp_path), "--in-place"]
+    cmd = [sys.executable, "-m", "steady_py", "snapshot", str(tmp_path), "--in-place"]
     res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=SUBPROCESS_ENV)
 
     assert res.returncode == 0
@@ -380,7 +380,7 @@ def test_cli_batch_output_and_inplace(tmp_path, sample_notebook_data):
     with open(nb1, "w", encoding="utf-8") as f:
         json.dump(sample_notebook_data, f)
 
-    cmd = [sys.executable, "-m", "steady_py", "--batch", str(tmp_path), "--output", "--in-place"]
+    cmd = [sys.executable, "-m", "steady_py", "snapshot", str(tmp_path), "--output", "--in-place"]
     res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=SUBPROCESS_ENV)
 
     assert res.returncode == 0
@@ -394,8 +394,8 @@ def test_cli_batch_output_and_inplace(tmp_path, sample_notebook_data):
 
 
 def test_cli_single_file_flags_without_notebook_errors():
-    """CLI test asserting passing --in-place without a target notebook or --batch exits with error."""
-    cmd = [sys.executable, "-m", "steady_py", "--in-place"]
+    """CLI test asserting passing --in-place without a target exits with an argparse error."""
+    cmd = [sys.executable, "-m", "steady_py", "snapshot", "--in-place"]
     res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=SUBPROCESS_ENV)
 
     assert res.returncode != 0

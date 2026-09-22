@@ -125,7 +125,7 @@ def run_check(target: str, output_format: str = "text", root_dir: Optional[str] 
     return check_exit_code(result)
 
 
-# --- scan and snapshot, for one notebook file or the live session ------------------------------
+# --- scan and snapshot, for one notebook file or a directory ------------------------------------
 
 def _run_exit_code(result: Union[ScanResult, SnapshotResult]) -> int:
     """0 when everything was processed; 1 when some of it was and some was not (an unreadable
@@ -296,35 +296,33 @@ def _report_unreadable(notebook: Union[NotebookScan, NotebookSnapshot], is_json:
         print(core.format_json_single_report(notebook.report))
 
 
-def run_single_file(args: argparse.Namespace, environment: Optional[Environment] = None) -> int:
-    """One notebook file, or the live IPython session: runs scan or snapshot as the flags ask,
-    prints the result and returns the exit code.
+def run_scan_file(args: argparse.Namespace, environment: Optional[Environment] = None) -> int:
+    """One notebook file: runs scan (read-only, never contacts PyPI), prints the report and
+    returns the exit code. Text formatting for a single file is not yet implemented."""
+    if args.format == "text":
+        logger.error("❌ Error: --format text is not yet supported for scanning a single file; use --format json.")
+        return EXIT_FAILED
+    target = args.target
+    logger.info(f"🔍 Analyzing saved notebook file '{target}' via AST...")
+    logger.info(f"📌 Active Python Interpreter: {sys.executable}\n")
 
-    JSON without a write flag is a scan, which never contacts PyPI. Everything else is a snapshot.
-    """
-    in_live_ipython = core.is_running_in_ipython()
-    is_json = getattr(args, "format", "text") == "json"
-    target = args.notebook if (args.notebook and not os.path.isdir(args.notebook)) else None
-    if target is None and not in_live_ipython:
-        return EXIT_OK
-
-    if target is not None:
-        logger.info(f"🔍 [Path A] Analyzing saved notebook file '{target}' via AST...")
-        logger.info(f"📌 Active Python Interpreter: {sys.executable}\n")
+    scan_result = endpoints.scan(target, environment=environment)
+    scanned = scan_result.notebooks[0]
+    if scanned.report.parse_error is not None:
+        _report_unreadable(scanned, is_json=True)
     else:
-        logger.info("🔍 [Path B] Analyzing live IPython session kernel history via AST...")
+        print(format_scan_result(scan_result))
+    return scan_exit_code(scan_result)
+
+
+def run_snapshot_file(args: argparse.Namespace, environment: Optional[Environment] = None) -> int:
+    """One notebook file: runs snapshot, prints the result and returns the exit code."""
+    target = args.target
+    is_json = args.format == "json"
+    logger.info(f"🔍 Analyzing saved notebook file '{target}' via AST...")
+    logger.info(f"📌 Active Python Interpreter: {sys.executable}\n")
 
     write_mode, output_dir = _write_mode(args)
-
-    if is_json and write_mode == WriteMode.NONE:
-        scan_result = endpoints.scan(target, environment=environment)
-        scanned = scan_result.notebooks[0]
-        if scanned.report.parse_error is not None:
-            _report_unreadable(scanned, is_json)
-        else:
-            print(format_scan_result(scan_result))
-        return scan_exit_code(scan_result)
-
     options = SnapshotOptions(
         write_mode=write_mode, suffix=args.suffix, output_dir=output_dir,
         full_freeze=args.full_freeze, install_timeout=args.timeout,
@@ -352,36 +350,41 @@ def run_single_file(args: argparse.Namespace, environment: Optional[Environment]
 
 # --- a directory of notebooks ---------------------------------------------------------------------
 
-def run_directory(args: argparse.Namespace, environment: Optional[Environment] = None) -> int:
-    """A directory of notebooks: scan when nothing is to be written, snapshot otherwise. Prints
-    the result and returns the exit code.
-
-    Whatever could be read is processed and written. The notebooks that could not be are listed
-    on stderr and in the report, and the exit code says the run was partial (1) or that nothing
-    could be done (2).
-    """
-    target = args.batch or args.notebook
-    is_json = getattr(args, "format", "text") == "json"
-    write_mode, output_dir = _write_mode(args)
-    universal = args.universal or None
-    wants_output = bool(universal) or write_mode != WriteMode.NONE
-
+def run_scan_directory(args: argparse.Namespace, environment: Optional[Environment] = None) -> int:
+    """A directory of notebooks: read-only scan. Prints the result and returns the exit code."""
+    target = args.target
     if not os.path.isdir(target):
         logger.error(f"❌ Error: '{target}' is not a directory.")
         return EXIT_FAILED
 
-    if not wants_output:
-        scanned = endpoints.scan(target, ScanOptions(suffix=args.suffix), environment)
-        assert scanned.batch_summary is not None
-        deltas = {rel: d.to_dict() for rel, d in _directory_deltas(scanned).items()} or None
-        if is_json:
-            print(core.format_json_batch_report(scanned.batch_summary, deltas=deltas))
-        else:
-            print(core.format_console_report(scanned.batch_summary))
-            if deltas:
-                print("\n" + format_directory_deltas(scanned))
-            _log_failures(scanned)
-        return scan_exit_code(scanned)
+    is_json = args.format == "json"
+    scanned = endpoints.scan(target, ScanOptions(suffix=args.suffix), environment)
+    assert scanned.batch_summary is not None
+    deltas = {rel: d.to_dict() for rel, d in _directory_deltas(scanned).items()} or None
+    if is_json:
+        print(core.format_json_batch_report(scanned.batch_summary, deltas=deltas))
+    else:
+        print(core.format_console_report(scanned.batch_summary))
+        if deltas:
+            print("\n" + format_directory_deltas(scanned))
+        _log_failures(scanned)
+    return scan_exit_code(scanned)
+
+
+def run_snapshot_directory(args: argparse.Namespace, environment: Optional[Environment] = None) -> int:
+    """A directory of notebooks: runs snapshot across all of them. Whatever could be read is
+    processed and (if a write flag was given) written. The notebooks that could not be are listed
+    on stderr and in the report, and the exit code says the run was partial (1) or that nothing
+    could be done (2).
+    """
+    target = args.target
+    if not os.path.isdir(target):
+        logger.error(f"❌ Error: '{target}' is not a directory.")
+        return EXIT_FAILED
+
+    is_json = args.format == "json"
+    write_mode, output_dir = _write_mode(args)
+    universal = args.universal or None
 
     options = SnapshotOptions(
         write_mode=write_mode, suffix=args.suffix, output_dir=output_dir, universal=universal,
@@ -427,76 +430,73 @@ def run_directory(args: argparse.Namespace, environment: Optional[Environment] =
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="steady-py", description="Generate environment lockfiles for Jupyter Notebooks.")
-    parser.add_argument("notebook", nargs="?", help="Path to target .ipynb file or directory (when using --batch).")
-    parser.add_argument("--format", choices=["text", "json"], default="text", help="Output report format (default: 'text').")
-    parser.add_argument("--full-freeze", action="store_true", help="Append full environment pip freeze after targeted manifest.")
-    parser.add_argument("--timeout", type=int, default=120, metavar="SECONDS", help="Per-package pip install timeout in seconds, baked into the generated notebook's install cell (default: 120).")
-    parser.add_argument("--quiet", action="store_true", help="Suppress diagnostic and status logging outputs.")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose debug output.")
-    parser.add_argument("--check-drift", action="store_true", help="Read-only: check an existing notebook's pinned manifest for drift against live PyPI, instead of generating a new one.")
-    parser.add_argument("--root-dir", metavar="DIR", help="Root directory to re-verify root_dir-anchored local modules against during --check-drift; without it, those entries are reported as unverifiable, not silently skipped.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Batch / Output Flags
-    parser.add_argument("--batch", metavar="DIR", help="Run in batch mode across all notebooks in specified directory.")
-    parser.add_argument("--analyze", action="store_true", help="Run batch analysis mode (default when --batch is provided).")
-    parser.add_argument(
-        "--universal",
-        nargs="?",
-        const=core.DEFAULT_UNIVERSAL_MANIFEST_NAME,
-        default=None,
-        metavar="FILENAME",
-        help=f"Generate universal repository manifest (default: '{core.DEFAULT_UNIVERSAL_MANIFEST_NAME}' when flag is provided).",
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--quiet", action="store_true", help="Suppress diagnostic and status logging outputs.")
+    common.add_argument("--verbose", action="store_true", help="Enable verbose debug output.")
+
+    scan_parser = subparsers.add_parser(
+        "scan", parents=[common],
+        help="Read-only: report a notebook's or directory's dependencies without writing anything.",
     )
-    parser.add_argument("--output", action="store_true", help="Generate per-notebook merged lockfiles.")
-    parser.add_argument("--output-dir", metavar="DIR", help="Directory where generated locked notebooks should be written.")
-    parser.add_argument("--suffix", default=None, help="File suffix for merged notebook outputs (default: '_merged' alongside source, '' with --output-dir).")
-    parser.add_argument("--in-place", action="store_true", help="Overwrite original notebooks in-place instead of creating companion files.")
+    scan_parser.add_argument("target", help="Path to a .ipynb file or a directory.")
+    scan_parser.add_argument(
+        "--format", choices=["text", "json"], default="text",
+        help="Output report format (default: 'text'). A single-file target currently supports 'json' only.",
+    )
+    scan_parser.add_argument("--suffix", default=None, help="Skip files already carrying this suffix when scanning a directory.")
+
+    snapshot_parser = subparsers.add_parser(
+        "snapshot", parents=[common],
+        help="Analyze a notebook or directory and produce its setup cells and manifest.",
+    )
+    snapshot_parser.add_argument("target", help="Path to a .ipynb file or a directory.")
+    snapshot_parser.add_argument("--format", choices=["text", "json"], default="text", help="Output report format (default: 'text').")
+    snapshot_parser.add_argument("--full-freeze", action="store_true", help="Append full environment pip freeze after targeted manifest.")
+    snapshot_parser.add_argument("--timeout", type=int, default=120, metavar="SECONDS", help="Per-package pip install timeout in seconds, baked into the generated notebook's install cell (default: 120).")
+    snapshot_parser.add_argument(
+        "--universal", nargs="?", const=core.DEFAULT_UNIVERSAL_MANIFEST_NAME, default=None, metavar="FILENAME",
+        help=f"Generate universal repository manifest (default: '{core.DEFAULT_UNIVERSAL_MANIFEST_NAME}' when flag is provided). Directory targets only.",
+    )
+    snapshot_parser.add_argument("--output", action="store_true", help="Generate per-notebook merged lockfiles.")
+    snapshot_parser.add_argument("--output-dir", metavar="DIR", help="Directory where generated locked notebooks should be written.")
+    snapshot_parser.add_argument("--suffix", default=None, help="File suffix for merged notebook outputs (default: '_merged' alongside source, '' with --output-dir).")
+    snapshot_parser.add_argument("--in-place", action="store_true", help="Overwrite original notebooks in-place instead of creating companion files.")
+
+    check_parser = subparsers.add_parser(
+        "check", parents=[common],
+        help="Read-only: check an existing notebook's or directory's pinned manifest for drift against live PyPI.",
+    )
+    check_parser.add_argument("target", help="Path to a .ipynb file, a .py file, or a directory.")
+    check_parser.add_argument("--format", choices=["text", "json"], default="text", help="Output report format (default: 'text').")
+    check_parser.add_argument(
+        "--root-dir", metavar="DIR",
+        help="Root directory to re-verify root_dir-anchored local modules against; without it, those entries are reported as unverifiable, not silently skipped.",
+    )
+
     return parser
 
 
 def main() -> None:
-    """The entry point: parses the flags, runs the verb they ask for, and exits with its code (in a
-    live IPython session it returns instead, so the kernel is not killed)."""
+    """The entry point: parses the flags, runs the verb they ask for, and exits with its code."""
     core.configure_console()
     core.resolve_local_module.cache_clear()  # type: ignore[attr-defined]  # attached by _memoize_for_run
     core.build_manifest_entries.cache_clear()  # type: ignore[attr-defined]
 
     parser = build_parser()
-    args, _unknown = parser.parse_known_args()
-
-    in_live_ipython = core.is_running_in_ipython()
-    if in_live_ipython:
-        core.sanitize_kernel_argv(args)
+    args = parser.parse_args()
 
     if args.quiet:
         logger.setLevel(logging.ERROR)
     elif args.verbose:
         logger.setLevel(logging.DEBUG)
 
-    if args.check_drift:
-        if not args.notebook or not os.path.exists(args.notebook):
-            logger.error("❌ Error: --check-drift requires a target notebook, .py file or directory.")
-            if in_live_ipython:
-                return
-            sys.exit(EXIT_FAILED)
-        exit_code = run_check(args.notebook, output_format=args.format, root_dir=args.root_dir)
-        if in_live_ipython:
-            return
-        sys.exit(exit_code)
+    if args.command == "check":
+        exit_code = run_check(args.target, output_format=args.format, root_dir=args.root_dir)
+    elif args.command == "scan":
+        exit_code = run_scan_directory(args) if os.path.isdir(args.target) else run_scan_file(args)
+    else:  # "snapshot"
+        exit_code = run_snapshot_directory(args) if os.path.isdir(args.target) else run_snapshot_file(args)
 
-    target_batch_dir = args.batch or (args.notebook if args.notebook and os.path.isdir(args.notebook) else None)
-
-    if (args.output or args.in_place or args.output_dir) and not target_batch_dir and not (args.notebook and os.path.isfile(args.notebook)):
-        logger.error("❌ Error: --output, --output-dir, or --in-place requires a target notebook file path or --batch directory.")
-        if in_live_ipython:
-            return
-        sys.exit(EXIT_FAILED)
-
-    if not args.notebook and not target_batch_dir and not in_live_ipython:
-        parser.print_usage(sys.stderr)
-        logger.error("❌ Error: a target notebook file, a directory, or --batch DIR is required.")
-        sys.exit(EXIT_FAILED)
-
-    exit_code = run_directory(args) if target_batch_dir else run_single_file(args)
-    if exit_code and not in_live_ipython:
-        sys.exit(exit_code)
+    sys.exit(exit_code)

@@ -1084,10 +1084,14 @@ def _make_batch(tmp_path):
 
 def _run_batch(root, capsys, fmt="text", write=True, only=None):
     args = argparse.Namespace(
-        notebook=None, batch=str(root), suffix=None, in_place=False, universal=None, output=write, output_dir=None,
+        target=str(root), suffix=None, in_place=False, universal=None, output=write, output_dir=None,
         timeout=300, format=fmt, full_freeze=False,
     )
-    cli.run_directory(args, Environment(frozen_env=dict(FROZEN), pkg_dist_map={}))
+    env = Environment(frozen_env=dict(FROZEN), pkg_dist_map={})
+    if write:
+        cli.run_snapshot_directory(args, env)
+    else:
+        cli.run_scan_directory(args, env)
     return capsys.readouterr().out
 
 

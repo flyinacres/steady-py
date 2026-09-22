@@ -5,7 +5,7 @@ Phase 5b: Structural fixture tests, converted from build_test_structures.py
 Each case encodes a finding already confirmed by hand (see development.md):
   - Case 1: package-style local imports resolve correctly; sys.path.append-style
     dynamic imports do not (a known, deliberately deferred limitation).
-  - Case 2: local-module resolution is scoped to the --batch root's immediate
+  - Case 2: local-module resolution is scoped to the target directory's immediate
     contents, not recursive -- an asymmetry with notebook discovery.
   - Case 3: --output-dir avoids collisions between same-stem notebooks in
     sibling directories.
@@ -136,14 +136,14 @@ def assert_case1(out: str, **_) -> None:
 
 def assert_case2_narrow_batch(out: str, **_) -> None:
     assert "common" in _missing_block(out), (
-        "pointing --batch at the parent of repo/ should NOT resolve 'common' "
+        "pointing the target at the parent of repo/ should NOT resolve 'common' "
         "(local-module resolution is not recursive)"
     )
 
 
 def assert_case2_repo_batch(out: str, **_) -> None:
     assert "common" not in _missing_block(out), (
-        "pointing --batch directly at repo/ should resolve 'common' as local"
+        "pointing the target directly at repo/ should resolve 'common' as local"
     )
 
 
@@ -182,27 +182,27 @@ def _missing_block(out: str) -> str:
 SCENARIOS = {
     "case1_subdir_helper": (
         build_case1,
-        lambda built, out_dir: ["--batch", str(built), "--analyze"],
+        lambda built, out_dir: ["scan", str(built)],
         assert_case1,
     ),
     "case2_narrow_batch": (
         build_case2,
-        lambda built, out_dir: ["--batch", str(built), "--analyze"],
+        lambda built, out_dir: ["scan", str(built)],
         assert_case2_narrow_batch,
     ),
     "case2_repo_batch": (
         build_case2,
-        lambda built, out_dir: ["--batch", str(built / "repo"), "--analyze"],
+        lambda built, out_dir: ["scan", str(built / "repo")],
         assert_case2_repo_batch,
     ),
     "case3_duplicate_stems": (
         build_case3,
-        lambda built, out_dir: ["--batch", str(built), "--output-dir", str(out_dir)],
+        lambda built, out_dir: ["snapshot", str(built), "--output-dir", str(out_dir)],
         assert_case3,
     ),
     "case4_relative_assets": (
         build_case4,
-        lambda built, out_dir: ["--batch", str(built), "--output-dir", str(out_dir)],
+        lambda built, out_dir: ["snapshot", str(built), "--output-dir", str(out_dir)],
         assert_case4,
     ),
 }

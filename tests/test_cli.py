@@ -142,10 +142,9 @@ ENV = Environment(frozen_env={"requests": "requests==2.32.3"}, pkg_dist_map={"re
 
 
 def _args(**overrides):
-    """The namespace main() builds, with every flag at its default."""
-    values = dict(notebook=None, format="text", full_freeze=False, timeout=120, quiet=False, verbose=False,
-                  check_drift=False, root_dir=None, batch=None, analyze=False, universal=None, output=False,
-                  output_dir=None, suffix=None, in_place=False)
+    """The namespace argparse builds for scan/snapshot, with every flag at its default."""
+    values = dict(target=None, format="text", full_freeze=False, timeout=120, quiet=False, verbose=False,
+                  universal=None, output=False, output_dir=None, suffix=None, in_place=False)
     values.update(overrides)
     return argparse.Namespace(**values)
 
@@ -248,24 +247,34 @@ class TestFormatSnapshotResult:
         assert cli.format_scan_result(scanned) == spy.format_json_single_report(scanned.notebooks[0].report)
 
 
-class TestRunSingleFile:
-    def test_text_prints_the_cells_and_returns_0(self, tmp_path, isolated, capsys):
-        assert cli.run_single_file(_args(notebook=_write_notebook(tmp_path))) == 0
-        out = capsys.readouterr().out
-        assert "STEP 1: PASTE INTO CELL 1" in out and "STEADY_PY_MANIFEST" in out
-
-    def test_json_without_a_write_flag_is_a_scan_and_never_contacts_pypi(self, tmp_path, isolated, capsys, monkeypatch):
+class TestRunScanFile:
+    def test_json_returns_the_scan_report_and_never_contacts_pypi(self, tmp_path, isolated, capsys, monkeypatch):
         def refuse(*args, **kwargs):
             raise AssertionError("a scan must not check pins")
         monkeypatch.setattr(spy, "run_pin_checks", refuse)
-        assert cli.run_single_file(_args(notebook=_write_notebook(tmp_path), format="json")) == 0
+        assert cli.run_scan_file(_args(target=_write_notebook(tmp_path), format="json")) == 0
         report = json.loads(capsys.readouterr().out)
         assert [d["name"] for d in report["dependencies"]] == ["requests"]
+
+    def test_text_format_is_not_yet_supported_and_fails_clearly(self, tmp_path, isolated, capsys):
+        assert cli.run_scan_file(_args(target=_write_notebook(tmp_path), format="text")) == 2
+        assert capsys.readouterr().out == ""
+
+    def test_an_unreadable_notebook_still_prints_a_json_report(self, tmp_path, isolated, capsys):
+        assert cli.run_scan_file(_args(target=_unreadable(tmp_path), format="json")) == 2
+        assert json.loads(capsys.readouterr().out)["parse_error"]
+
+
+class TestRunSnapshotFile:
+    def test_text_prints_the_cells_and_returns_0(self, tmp_path, isolated, capsys):
+        assert cli.run_snapshot_file(_args(target=_write_notebook(tmp_path))) == 0
+        out = capsys.readouterr().out
+        assert "STEP 1: PASTE INTO CELL 1" in out and "STEADY_PY_MANIFEST" in out
 
     def test_output_writes_the_companion_and_says_so(self, tmp_path, isolated, capsys, caplog):
         path = _write_notebook(tmp_path)
         with caplog.at_level(logging.INFO, logger="steady_py"):
-            assert cli.run_single_file(_args(notebook=path, output=True)) == 0
+            assert cli.run_snapshot_file(_args(target=path, output=True)) == 0
         assert (tmp_path / "nb_merged.ipynb").exists()
         assert "Writing updated notebook (suffix: '_merged')..." in caplog.text
         assert f"Updated '{tmp_path / 'nb_merged.ipynb'}'" in caplog.text
@@ -274,47 +283,40 @@ class TestRunSingleFile:
     def test_output_dir_and_in_place_are_described_as_they_were(self, tmp_path, isolated, caplog):
         path = _write_notebook(tmp_path)
         with caplog.at_level(logging.INFO, logger="steady_py"):
-            cli.run_single_file(_args(notebook=path, output_dir=str(tmp_path / "out"), suffix="_x"))
-            cli.run_single_file(_args(notebook=path, in_place=True))
+            cli.run_snapshot_file(_args(target=path, output_dir=str(tmp_path / "out"), suffix="_x"))
+            cli.run_snapshot_file(_args(target=path, in_place=True))
         assert f"directory: '{tmp_path / 'out'}', suffix: '_x'" in caplog.text
         assert "Writing updated notebook (in-place)..." in caplog.text
 
     def test_an_unreadable_notebook_logs_the_error_and_returns_2(self, tmp_path, isolated, capsys, caplog):
         with caplog.at_level(logging.INFO, logger="steady_py"):
-            assert cli.run_single_file(_args(notebook=_unreadable(tmp_path))) == 2
+            assert cli.run_snapshot_file(_args(target=_unreadable(tmp_path))) == 2
         assert "❌ Error:" in caplog.text
         assert capsys.readouterr().out == ""
 
     def test_an_unreadable_notebook_in_json_mode_still_prints_a_report(self, tmp_path, isolated, capsys):
-        assert cli.run_single_file(_args(notebook=_unreadable(tmp_path), format="json")) == 2
+        assert cli.run_snapshot_file(_args(target=_unreadable(tmp_path), format="json")) == 2
         assert json.loads(capsys.readouterr().out)["parse_error"]
-
-    def test_no_target_outside_a_live_session_does_nothing(self, isolated, capsys, monkeypatch):
-        monkeypatch.setattr(spy, "is_running_in_ipython", lambda: False)
-        assert cli.run_single_file(_args()) == 0
-        assert capsys.readouterr().out == ""
 
     def test_a_failed_write_logs_the_error_and_returns_2(self, tmp_path, isolated, caplog):
         blocker = tmp_path / "blocker"
         blocker.write_text("a file", encoding="utf-8")
         with caplog.at_level(logging.INFO, logger="steady_py"):
-            code = cli.run_single_file(_args(notebook=_write_notebook(tmp_path), output_dir=str(blocker / "out")))
+            code = cli.run_snapshot_file(_args(target=_write_notebook(tmp_path), output_dir=str(blocker / "out")))
         assert code == 2 and "could not write" in caplog.text
 
     def test_diagnostics_are_logged_in_text_mode_only(self, tmp_path, isolated, caplog):
         path = _write_notebook(tmp_path, 'import importlib\nname = "requests"\nimportlib.import_module(name)\nimport requests')
         with caplog.at_level(logging.INFO, logger="steady_py"):
-            cli.run_single_file(_args(notebook=path, format="json"))
+            cli.run_snapshot_file(_args(target=path, format="json"))
         assert "DIAGNOSTIC WARNINGS" not in caplog.text
         caplog.clear()
         with caplog.at_level(logging.INFO, logger="steady_py"):
-            cli.run_single_file(_args(notebook=path))
+            cli.run_snapshot_file(_args(target=path))
         assert "DIAGNOSTIC WARNINGS" in caplog.text and "Dynamic import detected" in caplog.text
 
 
-class TestRunDirectory:
-    """A directory of notebooks: scan when nothing is written, snapshot when something is."""
-
+class TestRunScanDirectory:
     @pytest.fixture(autouse=True)
     def offline(self, monkeypatch):
         monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
@@ -330,22 +332,47 @@ class TestRunDirectory:
         return root
 
     def _run(self, root, **flags):
-        return cli.run_directory(_args(batch=str(root), **flags), ENV)
+        return cli.run_scan_directory(_args(target=str(root), **flags), ENV)
 
-    def test_without_a_write_flag_it_prints_the_analysis_and_never_contacts_pypi(self, tmp_path, capsys, monkeypatch):
+    def test_it_prints_the_analysis_and_never_contacts_pypi(self, tmp_path, capsys, monkeypatch):
         monkeypatch.setattr(spy, "run_pin_checks", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no PyPI")))
         assert self._run(self._repo(tmp_path)) == 0
         assert "requests" in capsys.readouterr().out
 
-    def test_json_without_a_write_flag_is_the_batch_report(self, tmp_path, capsys):
+    def test_json_is_the_batch_report(self, tmp_path, capsys):
         assert self._run(self._repo(tmp_path), format="json") == 0
         report = json.loads(capsys.readouterr().out)
         assert report["mode"] == "batch" and report["summary"]["total_python_notebooks"] == 2
         assert not report["validation"] and not report["artifacts_written"]
 
-    def test_the_positional_directory_works_like_batch(self, tmp_path, capsys):
-        assert cli.run_directory(_args(notebook=str(self._repo(tmp_path))), ENV) == 0
-        assert "requests" in capsys.readouterr().out
+    def test_an_unreadable_notebook_prints_the_report_lists_it_and_exits_1(self, tmp_path, capsys, caplog):
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            assert self._run(self._repo(tmp_path, corrupt=True)) == 1
+        assert "bad.ipynb" in capsys.readouterr().out and "could not be processed and were skipped" in caplog.text
+
+    def test_a_directory_that_does_not_exist_is_an_error_not_an_empty_report(self, tmp_path, capsys, caplog):
+        with caplog.at_level(logging.INFO, logger="steady_py"):
+            assert self._run(tmp_path / "nowhere") == 2
+        assert "is not a directory" in caplog.text and capsys.readouterr().out == ""
+
+
+class TestRunSnapshotDirectory:
+    @pytest.fixture(autouse=True)
+    def offline(self, monkeypatch):
+        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
+        monkeypatch.setattr(spy, "inspect_gpu_environment", lambda imports: None)
+
+    def _repo(self, tmp_path, corrupt=False):
+        root = tmp_path / "repo"
+        root.mkdir()
+        _write_notebook(root, "import requests", "a.ipynb")
+        _write_notebook(root, "import requests", "b.ipynb")
+        if corrupt:
+            (root / "bad.ipynb").write_text("{ not json", encoding="utf-8")
+        return root
+
+    def _run(self, root, **flags):
+        return cli.run_snapshot_directory(_args(target=str(root), **flags), ENV)
 
     def test_output_writes_companions_logs_each_and_prints_the_validation_section(self, tmp_path, capsys, caplog):
         root = self._repo(tmp_path)
@@ -394,11 +421,6 @@ class TestRunDirectory:
             assert self._run(root, output=True, universal="all.txt") == 2
         assert sorted(p.name for p in root.iterdir()) == ["bad.ipynb"] and "bad.ipynb" in caplog.text
 
-    def test_a_scan_with_an_unreadable_notebook_prints_the_report_lists_it_and_exits_1(self, tmp_path, capsys, caplog):
-        with caplog.at_level(logging.INFO, logger="steady_py"):
-            assert self._run(self._repo(tmp_path, corrupt=True)) == 1
-        assert "bad.ipynb" in capsys.readouterr().out and "could not be processed and were skipped" in caplog.text
-
     def test_a_write_that_fails_is_named_and_the_rest_are_written(self, tmp_path, monkeypatch, caplog):
         root = self._repo(tmp_path)
         original = spy.write_locked_notebook
@@ -435,77 +457,77 @@ class TestMain:
         yield
         spy.logger.setLevel(level)
 
-    def _main(self, monkeypatch, *argv):
-        monkeypatch.setattr(sys, "argv", ["steady-py", *argv])
-        monkeypatch.setattr(spy, "is_running_in_ipython", lambda: False)
-        cli.main()
-
     def _exit_code(self, monkeypatch, *argv):
+        monkeypatch.setattr(sys, "argv", ["steady-py", *argv])
         with pytest.raises(SystemExit) as excinfo:
-            self._main(monkeypatch, *argv)
+            cli.main()
         return excinfo.value.code
 
-    def test_a_file_goes_to_the_single_file_runner_and_its_code_is_the_exit_code(self, tmp_path, monkeypatch):
+    def test_a_file_with_snapshot_goes_to_the_snapshot_file_runner(self, tmp_path, monkeypatch):
         calls = []
-        monkeypatch.setattr(cli, "run_single_file", lambda args: calls.append(args.notebook) or 1)
+        monkeypatch.setattr(cli, "run_snapshot_file", lambda args: calls.append(args.target) or 1)
         path = _write_notebook(tmp_path)
-        assert self._exit_code(monkeypatch, path) == 1 and calls == [path]
+        assert self._exit_code(monkeypatch, "snapshot", path) == 1 and calls == [path]
 
-    def test_a_clean_run_returns_without_exiting(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(cli, "run_single_file", lambda args: 0)
-        self._main(monkeypatch, _write_notebook(tmp_path))
+    def test_a_file_with_scan_goes_to_the_scan_file_runner(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(cli, "run_scan_file", lambda args: calls.append(args.target) or 1)
+        path = _write_notebook(tmp_path)
+        assert self._exit_code(monkeypatch, "scan", path) == 1 and calls == [path]
 
-    @pytest.mark.parametrize("via_flag", [True, False])
-    def test_a_directory_goes_to_the_directory_runner(self, tmp_path, monkeypatch, via_flag):
+    def test_a_clean_run_exits_with_code_0(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(cli, "run_snapshot_file", lambda args: 0)
+        assert self._exit_code(monkeypatch, "snapshot", _write_notebook(tmp_path)) == 0
+
+    def test_a_directory_with_snapshot_goes_to_the_snapshot_directory_runner(self, tmp_path, monkeypatch):
         seen = []
-        monkeypatch.setattr(cli, "run_directory", lambda args: seen.append((args.batch, args.notebook)) or 0)
-        monkeypatch.setattr(cli, "run_single_file", lambda args: pytest.fail("a directory is not a single file"))
-        self._main(monkeypatch, *(["--batch", str(tmp_path)] if via_flag else [str(tmp_path)]))
-        expected = [(str(tmp_path), None)] if via_flag else [(None, str(tmp_path))]
-        assert seen == expected
+        monkeypatch.setattr(cli, "run_snapshot_directory", lambda args: seen.append(args.target) or 0)
+        monkeypatch.setattr(cli, "run_snapshot_file", lambda args: pytest.fail("a directory is not a single file"))
+        self._exit_code(monkeypatch, "snapshot", str(tmp_path))
+        assert seen == [str(tmp_path)]
 
-    def test_check_drift_runs_check_with_the_format_and_root_dir(self, tmp_path, monkeypatch):
+    def test_a_directory_with_scan_goes_to_the_scan_directory_runner(self, tmp_path, monkeypatch):
+        seen = []
+        monkeypatch.setattr(cli, "run_scan_directory", lambda args: seen.append(args.target) or 0)
+        monkeypatch.setattr(cli, "run_scan_file", lambda args: pytest.fail("a directory is not a single file"))
+        self._exit_code(monkeypatch, "scan", str(tmp_path))
+        assert seen == [str(tmp_path)]
+
+    def test_check_runs_with_the_format_and_root_dir(self, tmp_path, monkeypatch):
         seen = []
         monkeypatch.setattr(cli, "run_check", lambda target, output_format, root_dir: seen.append((target, output_format, root_dir)) or 1)
         path = _write_notebook(tmp_path)
-        assert self._exit_code(monkeypatch, "--check-drift", path, "--format", "json", "--root-dir", "/repo") == 1
+        assert self._exit_code(monkeypatch, "check", path, "--format", "json", "--root-dir", "/repo") == 1
         assert seen == [(path, "json", "/repo")]
 
-    def test_check_drift_needs_an_existing_file_or_directory(self, tmp_path, monkeypatch, caplog):
-        with caplog.at_level(logging.INFO, logger="steady_py"):
-            assert self._exit_code(monkeypatch, "--check-drift") == 2
-            assert self._exit_code(monkeypatch, "--check-drift", str(tmp_path / "missing.ipynb")) == 2
-        assert "requires a target notebook, .py file or directory" in caplog.text
-
-    def test_check_drift_accepts_a_directory(self, tmp_path, monkeypatch):
+    def test_check_accepts_a_directory(self, tmp_path, monkeypatch):
         seen = []
         monkeypatch.setattr(cli, "run_check", lambda target, output_format, root_dir: seen.append(target) or 0)
-        assert self._exit_code(monkeypatch, "--check-drift", str(tmp_path)) == 0
+        assert self._exit_code(monkeypatch, "check", str(tmp_path)) == 0
         assert seen == [str(tmp_path)]
 
-    def test_write_flags_need_a_target(self, monkeypatch, caplog):
-        with caplog.at_level(logging.INFO, logger="steady_py"):
-            assert self._exit_code(monkeypatch, "--output") == 2
-        assert "requires a target notebook file path or --batch directory" in caplog.text
+    def test_check_on_a_missing_file_is_left_to_the_endpoint_to_report(self, tmp_path, monkeypatch):
+        # No CLI-level existence guard any more: endpoints.check reports the missing file itself.
+        assert self._exit_code(monkeypatch, "check", str(tmp_path / "missing.ipynb")) == 2
 
-    def test_no_target_outside_a_live_session_prints_usage_and_exits_2(self, monkeypatch, capsys, caplog):
-        with caplog.at_level(logging.INFO, logger="steady_py"):
-            assert self._exit_code(monkeypatch) == 2
+    def test_check_with_no_target_is_an_argparse_error(self, monkeypatch, capsys):
+        assert self._exit_code(monkeypatch, "check") == 2
+        assert "the following arguments are required" in capsys.readouterr().err
+
+    def test_snapshot_with_no_target_is_an_argparse_error(self, monkeypatch, capsys):
+        assert self._exit_code(monkeypatch, "snapshot", "--output") == 2
+        assert "the following arguments are required" in capsys.readouterr().err
+
+    def test_no_subcommand_prints_usage_and_exits_2(self, monkeypatch, capsys):
+        assert self._exit_code(monkeypatch) == 2
         captured = capsys.readouterr()
         assert captured.out == "" and captured.err.startswith("usage: steady-py")
-        assert "a target notebook file, a directory, or --batch DIR is required" in caplog.text
-
-    def test_a_live_session_returns_instead_of_exiting(self, monkeypatch, caplog):
-        monkeypatch.setattr(sys, "argv", ["steady-py", "--output"])
-        monkeypatch.setattr(spy, "is_running_in_ipython", lambda: True)
-        with caplog.at_level(logging.INFO, logger="steady_py"):
-            cli.main()
-        assert "requires a target" in caplog.text
+        assert "the following arguments are required: command" in captured.err
 
     @pytest.mark.parametrize("flag, level", [("--quiet", logging.ERROR), ("--verbose", logging.DEBUG)])
     def test_quiet_and_verbose_set_the_log_level(self, tmp_path, monkeypatch, flag, level):
-        monkeypatch.setattr(cli, "run_single_file", lambda args: 0)
-        self._main(monkeypatch, _write_notebook(tmp_path), flag)
+        monkeypatch.setattr(cli, "run_snapshot_file", lambda args: 0)
+        self._exit_code(monkeypatch, "snapshot", _write_notebook(tmp_path), flag)
         assert spy.logger.level == level
 
 
@@ -586,7 +608,7 @@ class TestDeltaInOutput:
         root.mkdir()
         self._locked(root, "locked.ipynb")
         _write_notebook(root, name="plain.ipynb")
-        assert cli.run_directory(_args(batch=str(root)), self.NEWER) == 0
+        assert cli.run_scan_directory(_args(target=str(root)), self.NEWER) == 0
         out = capsys.readouterr().out
         assert "Changes since the existing manifest in locked.ipynb:" in out and "plain.ipynb: " not in out.split("Changes since")[-1]
 
@@ -595,7 +617,7 @@ class TestDeltaInOutput:
         root.mkdir()
         self._locked(root, "locked.ipynb")
         _write_notebook(root, name="plain.ipynb")
-        cli.run_directory(_args(batch=str(root), format="json"), self.NEWER)
+        cli.run_scan_directory(_args(target=str(root), format="json"), self.NEWER)
         report = json.loads(capsys.readouterr().out)
         assert list(report["deltas"]) == ["locked.ipynb"]
         assert report["deltas"]["locked.ipynb"]["version_changes"][0]["new_version"] == "2.32.4"
@@ -604,7 +626,7 @@ class TestDeltaInOutput:
         root = tmp_path / "repo"
         root.mkdir()
         _write_notebook(root, name="plain.ipynb")
-        cli.run_directory(_args(batch=str(root), format="json"), ENV)
+        cli.run_scan_directory(_args(target=str(root), format="json"), ENV)
         assert json.loads(capsys.readouterr().out)["deltas"] is None
 
 

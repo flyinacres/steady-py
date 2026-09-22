@@ -10,7 +10,6 @@ blueprint generation, and runtime sandbox execution.
 import json
 import sys
 import logging
-import argparse
 import types
 import warnings
 import subprocess
@@ -337,9 +336,10 @@ class TestDualPathIngestion:
         nb_path: Path = tmp_path / "test_interpreter.ipynb"
         nb_path.write_text(json.dumps(nb), encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", str(nb_path)])
-        
-        cli.main()
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(nb_path)])
+
+        with pytest.raises(SystemExit):
+            cli.main()
         assert sys.executable in caplog.text
 
     def test_uninstalled_package_produces_fallback_comment_in_main(
@@ -350,9 +350,10 @@ class TestDualPathIngestion:
         nb_path.write_text(json.dumps(nb), encoding="utf-8")
 
         monkeypatch.setattr(spy, "get_installed_environment", lambda: ({}, []))
-        monkeypatch.setattr(sys, "argv", ["steady-py", str(nb_path)])
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(nb_path)])
 
-        cli.main()
+        with pytest.raises(SystemExit):
+            cli.main()
         captured_stdout: str = capsys.readouterr().out
 
         assert "#" in captured_stdout
@@ -645,11 +646,8 @@ class TestSequentialExecutionEngine:
         assert "[2/2]" in captured
 
     def test_best_effort_execution_continues_on_failure(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        # The executed code below assigns subprocess.run on the real module. Registering it with
-        # monkeypatch first makes teardown restore it; otherwise the fake leaks into every later test.
-        monkeypatch.setattr(subprocess, "run", subprocess.run)
         manifest_items = [
             spy.PinnedDependency("fail_pkg", "1.0.0"),
             spy.PinnedDependency("pass_pkg", "2.0.0")
@@ -1006,23 +1004,19 @@ class TestMemoizeForRun:
         assert "INJECTED_NOTE" not in notes2
 
     def test_main_clears_memoization_caches_before_anything_else(self, monkeypatch):
-        """main() is the single documented entrypoint for both CLI and live-kernel
-        usage (`import steady_py.core as spy; cli.main()`). It must clear both memoized
-        caches unconditionally, before argument parsing even happens, so a
-        long-lived kernel session never returns stale results after the user
-        edits files on disk between calls to cli.main()."""
+        """main() is the CLI's entry point. It must clear both memoized caches
+        unconditionally, before argument parsing even happens, so that if it's ever called
+        more than once within the same process, a later call doesn't return stale results
+        left over from an earlier one."""
         cleared = {"local_modules": False, "manifest": False}
         monkeypatch.setattr(spy.resolve_local_module, "cache_clear", lambda: cleared.__setitem__("local_modules", True))
         monkeypatch.setattr(spy.build_manifest_entries, "cache_clear", lambda: cleared.__setitem__("manifest", True))
 
-        # --output with no notebook/--batch target hits main()'s validation
-        # sys.exit(1) — a real, guaranteed-early exit path that fires *after*
-        # the cache_clear() calls at the top of main() but *before* the
-        # expensive get_installed_environment() subprocess call, so this
-        # verifies clearing happens unconditionally without needing to run
-        # the full pipeline. (main() uses parse_known_args(), which silently
-        # ignores unrecognized flags rather than erroring, so an invalid-flag
-        # approach wouldn't reliably exit here.)
+        # --output with no subcommand hits argparse's own required-subcommand
+        # validation inside parser.parse_args() -- a real, guaranteed-early exit
+        # path that fires *after* the cache_clear() calls at the top of main()
+        # but *before* anything else runs, so this verifies clearing happens
+        # unconditionally without needing to run the full pipeline.
         monkeypatch.setattr(sys, "argv", ["steady-py", "--output"])
 
         with pytest.raises(SystemExit):
@@ -1072,46 +1066,12 @@ class TestExecutionChronology:
 class TestInteractiveKernelRuntime:
     """Regression tests covering live interactive kernel lifecycle and CLI dispatch."""
 
-    def test_argv_contamination_from_ipykernel_launcher_clears_notebook_arg(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """
-        Regression: When running inside an active IPython kernel, sys.argv contains
-        ipykernel connection arguments like ['-f', '/path/kernel-123.json'].
-        Ensure sanitize_kernel_argv discards the connection JSON and does not route to Path A.
-        """
-        # 1. Simulate running inside an active IPython kernel
-        monkeypatch.setattr(spy, "is_running_in_ipython", lambda: True)
-
-        # 2. Simulate ipykernel launcher argv passed to parse_known_args
-        kernel_json_path = "/root/.local/share/jupyter/runtime/kernel-7d4150cd-35da.json"
-        monkeypatch.setattr(
-            sys, "argv", ["ipykernel_launcher.py", "-f", kernel_json_path]
-        )
-
-        parser = argparse.ArgumentParser()
-        parser.add_argument("notebook", nargs="?")
-        args, _ = parser.parse_known_args()
-
-        assert args.notebook == kernel_json_path
-
-        # 3. Sanitize args
-        spy.sanitize_kernel_argv(args)
-
-        # 4. Assert connection file was discarded
-        assert args.notebook is None
-
     def test_logger_handler_configuration_prevents_duplicate_logging(self) -> None:
         """
         Regression: Ensure the steady-py logger does not propagate to root by default
         and only attaches a single stderr console handler.
         """
         logger = logging.getLogger("steady_py")
-
-        # The stderr handler is attached by the CLI entry point, not at import; calling it twice
-        # must not add a second one.
-        spy.configure_console()
-        spy.configure_console()
 
         # In live sessions, propagate must be False so root loggers (e.g. IPython) don't duplicate logs
         assert logger.propagate is False

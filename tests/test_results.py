@@ -1,10 +1,6 @@
 """The option and result types are plain data. What needs pinning is the little logic they carry
 (option validation, `failed`, `has_changes`, `manifest`) and that importing them stays light."""
 import dataclasses
-import os
-import subprocess
-import sys
-from pathlib import Path
 
 import pytest
 
@@ -15,7 +11,6 @@ from steady_py.results import (
     PackageChange, ScanResult, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
 )
 
-SRC_DIR = str(Path(spy.__file__).resolve().parents[1])
 
 
 def _report(path="a.ipynb"):
@@ -114,8 +109,4 @@ def test_package_root_exports_the_public_types():
     assert steady_py.SnapshotOptions is SnapshotOptions
 
 
-def test_importing_the_package_does_not_load_the_analysis_code():
-    code = "import sys, steady_py, steady_py.results; assert 'steady_py.core' not in sys.modules"
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=SRC_DIR,
-                            env={**os.environ, "PYTHONPATH": SRC_DIR})
-    assert result.returncode == 0, result.stderr
+

@@ -118,7 +118,7 @@ def build_docker_cmd(tier: str, notebook_path: str, merged_path: str, output_pat
             "pip install --no-cache-dir ipykernel nbconvert==7.17.1 humanize==4.16.0 "
             "tabulate==0.9.0 numpy==1.23.5 packaging resolvelib && "
             "python -m ipykernel install --user --name python3 && "
-            f'python -m steady_py "{notebook_path}" --output && '
+            f'python -m steady_py snapshot "{notebook_path}" --output && '
             f'jupyter nbconvert --to notebook --execute "{merged_path}" --output "{output_path}" '
             "--ExecutePreprocessor.timeout=300 --ExecutePreprocessor.kernel_name=python3"
         )
@@ -126,14 +126,14 @@ def build_docker_cmd(tier: str, notebook_path: str, merged_path: str, output_pat
         return (
             "pip install --quiet packaging resolvelib && "
             "python3 -m venv --system-site-packages --without-pip --clear /tmp/run_env && "
-            f'/tmp/run_env/bin/python -m steady_py "{notebook_path}" --output && '
+            f'/tmp/run_env/bin/python -m steady_py snapshot "{notebook_path}" --output && '
             f'/tmp/run_env/bin/python -m jupyter nbconvert --to notebook --execute "{merged_path}" '
             f'--output "{output_path}" --ExecutePreprocessor.timeout=300'
         )
     if tier == "colab":
         return (
             "pip install --quiet packaging resolvelib && "
-            f'python3 -m steady_py "{notebook_path}" --output && '
+            f'python3 -m steady_py snapshot "{notebook_path}" --output && '
             f'jupyter nbconvert --to notebook --execute "{merged_path}" --output "{output_path}" '
             "--ExecutePreprocessor.timeout=300 --ExecutePreprocessor.kernel_name=python3"
         )
@@ -146,7 +146,7 @@ def build_docker_cmd(tier: str, notebook_path: str, merged_path: str, output_pat
             f'SEED_VER=$(grep -oE "local_test_pkg==[0-9.]+" "{notebook_path}" | head -1 | cut -d= -f3) && '
             "PIP_NO_INDEX=1 PIP_FIND_LINKS=/workspace/tests/fixtures/local_test_pkg/seed_dist "
             'pip install --no-cache-dir local_test_pkg=="$SEED_VER" && '
-            f'python -m steady_py "{notebook_path}" --output --timeout 2 && '
+            f'python -m steady_py snapshot "{notebook_path}" --output --timeout 2 && '
             "pip uninstall -y local_test_pkg && "
             "PIP_NO_INDEX=1 PIP_FIND_LINKS=/workspace/tests/fixtures/local_test_pkg/dist "
             "PIP_NO_BUILD_ISOLATION=1 PIP_NO_CACHE_DIR=1 "
@@ -426,7 +426,7 @@ def run_common_tests() -> None:
         "PIP_NO_INDEX=1 PIP_FIND_LINKS=/workspace/tests/fixtures/local_test_pkg/dist "
         "pip install --no-cache-dir local_test_pkg==1.0.0 && "
         f"PIP_NO_INDEX=1 PIP_FIND_LINKS=/workspace/tests/fixtures/local_test_pkg/dist "
-        f'python -m steady_py "{repin_nb.as_posix()}" --output && '
+        f'python -m steady_py snapshot "{repin_nb.as_posix()}" --output && '
         "pip uninstall -y local_test_pkg && "
         "PIP_NO_INDEX=1 PIP_FIND_LINKS=/workspace/tests/fixtures/local_test_pkg/dist "
         f'jupyter nbconvert --to notebook --execute "{repin_merged.as_posix()}" '
@@ -435,7 +435,7 @@ def run_common_tests() -> None:
         "PIP_NO_INDEX=1 PIP_FIND_LINKS=/workspace/tests/fixtures/local_test_pkg/dist "
         "pip install --no-cache-dir local_test_pkg==2.0.0 && "
         f"PIP_NO_INDEX=1 PIP_FIND_LINKS=/workspace/tests/fixtures/local_test_pkg/dist "
-        f'python -m steady_py "{repin_nb.as_posix()}" --output && '
+        f'python -m steady_py snapshot "{repin_nb.as_posix()}" --output && '
         "pip uninstall -y local_test_pkg && "
         "PIP_NO_INDEX=1 PIP_FIND_LINKS=/workspace/tests/fixtures/local_test_pkg/dist "
         f'jupyter nbconvert --to notebook --execute "{repin_merged.as_posix()}" '

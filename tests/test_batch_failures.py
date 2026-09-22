@@ -144,10 +144,10 @@ class TestBatchFailureModes:
         tmp_path: Path, 
         monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Calling --batch --universal on a directory where nothing parses must exit with code 2 and
+        """Calling snapshot --universal on a directory where nothing parses must exit with code 2 and
         write nothing."""
         (tmp_path / "broken.ipynb").write_text("{ invalid json ", encoding="utf-8")
-        monkeypatch.setattr(sys, "argv", ["steady-py", "--batch", str(tmp_path), "--universal"])
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(tmp_path), "--universal"])
 
         with pytest.raises(SystemExit) as excinfo:
             cli.main()
