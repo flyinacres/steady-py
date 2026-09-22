@@ -28,7 +28,7 @@ def main() -> None:
 
     with temp_notebook(fixture_path, initial_cells):
         print("1. Running steady-py to generate the setup cell...")
-        res = run_steady_py(str(fixture_path), "--in-place")
+        res = run_steady_py("snapshot", str(fixture_path), "--in-place")
         if not res.ok:
             fail_test(
                 "Generate Setup Cell",

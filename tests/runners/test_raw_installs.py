@@ -113,13 +113,13 @@ def remove_package(step: str, verify: bool = False) -> None:
 
 
 def generate(step: str, code_cells: list[str], name: str):
-    """Runs steady-py --output on a temporary notebook. Returns (merged_path, manifest, cell2_source, raw_text)."""
+    """Runs steady-py snapshot --output on a temporary notebook. Returns (merged_path, manifest, cell2_source, raw_text)."""
     nb_path = FIXTURES_DIR / f"temp_raw_installs_{name}.ipynb"
     merged_path = nb_path.with_name(nb_path.stem + "_merged.ipynb")
     with temp_notebook(nb_path, code_cells, metadata={"language_info": {"name": "python"}}):
-        result = run_steady_py(str(nb_path), "--output")
+        result = run_steady_py("snapshot", str(nb_path), "--output")
         if not result.ok:
-            fail_test(step, "steady-py --output failed", stdout=result.stdout, stderr=result.stderr)
+            fail_test(step, "steady-py snapshot --output failed", stdout=result.stdout, stderr=result.stderr)
         if not merged_path.exists():
             fail_test(step, f"merged notebook was not written: {merged_path}", stdout=result.stdout)
     manifest, error = spy.extract_manifest_from_file(str(merged_path))

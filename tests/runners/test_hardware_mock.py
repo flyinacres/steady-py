@@ -55,7 +55,7 @@ def main() -> None:
 
         with temp_notebook(fixture_path, ["import torch"]):
             env_override = {"PYTHONPATH": f"{mock_base}:{os.environ.get('PYTHONPATH', '')}"}
-            result = run_steady_py(str(fixture_path), "--in-place", env=env_override)
+            result = run_steady_py("snapshot", str(fixture_path), "--in-place", env=env_override)
 
             if not result.ok:
                 fail_test(

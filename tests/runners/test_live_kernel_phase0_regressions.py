@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Phase 0: Live-Kernel Regressions Test.
 
-Simulates an interactive session: executes regular user cells, runs steady-py
-directly inside the active kernel (import steady_py.cli as spy; spy.main()), and
-verifies sys.argv isolation, duplicate log handler prevention, and cell execution
-history introspection.
+Simulates an interactive session: executes regular user cells, then calls steady_py.snapshot()
+directly inside the active kernel (the correct live-kernel entry point -- the CLI's argument
+parser is never invoked from inside a kernel, so there is no sys.argv to contaminate and no
+console log handler to duplicate; both of those only exist on the cli.main() path). Verifies
+live-session history introspection: a prior cell's import is picked up with no target given.
 """
 
 from __future__ import annotations
@@ -19,7 +20,11 @@ from e2e_harness import (
 
 
 def main() -> None:
-    run_tool = "import steady_py.cli as spy\nspy.main()"
+    run_tool = (
+        "import steady_py\n"
+        "result = steady_py.snapshot()\n"
+        "print([d.name for d in result.notebooks[0].report.dependencies])"
+    )
 
     print("Starting interactive kernel...")
     with interactive_kernel("python3") as kernel:
@@ -28,16 +33,16 @@ def main() -> None:
         if not res1.ok:
             fail_test("Setup Dummy Imports", "Execution failed", stderr="\n".join(res1.errors))
 
-        print("\n2. Running steady-py in the kernel (first run)...")
+        print("\n2. Running steady_py.snapshot() in the kernel...")
         res2 = kernel.execute(run_tool)
         if not res2.ok:
             fail_test(
                 "Execute Tool in Kernel",
-                "Execution raised errors (probable sys.argv contamination)",
+                "steady_py.snapshot() raised an error when called with no target inside a live kernel",
                 stderr="\n".join(res2.errors),
                 stdout=res2.stdout,
             )
-        print("   PASS: sys.argv contamination avoided (tool did not crash).")
+        print("   PASS: steady_py.snapshot() ran cleanly inside the live kernel.")
 
         print("\n3. Verifying History Introspection...")
         if "ipykernel" not in res2.stdout.lower():
@@ -48,29 +53,6 @@ def main() -> None:
                 details={"stdout_preview": preview},
             )
         print("   PASS: History introspection correctly captured prior cells.")
-
-        print("\n4. Running steady-py in the kernel again (for log handlers)...")
-        res3 = kernel.execute(run_tool)
-        if not res3.ok:
-            fail_test("Repeat Execution in Kernel", "Second execution crashed", stderr="\n".join(res3.errors))
-
-        print("\n5. Checking active log handlers...")
-        handler_check = "import logging\nprint(len(logging.getLogger('steady_py').handlers))"
-        res4 = kernel.execute(handler_check)
-        if not res4.ok:
-            fail_test("Check Log Handlers", "Handler query script failed", stderr="\n".join(res4.errors))
-
-        try:
-            handler_count = int(res4.stdout.strip())
-        except ValueError:
-            fail_test("Parse Log Handlers Output", f"Expected integer count, received: {res4.stdout}")
-
-        if handler_count > 1:
-            fail_test(
-                "Assert Single Handler",
-                f"Duplicate log handlers detected ({handler_count} handlers active).",
-            )
-        print("   PASS: Duplicate log handlers successfully prevented.")
 
 
 if __name__ == "__main__":
