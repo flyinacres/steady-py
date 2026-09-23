@@ -358,7 +358,7 @@ Each user verb takes a file or a directory. A directory is a larger target, not 
 
 Cell 2's behavior when an install fails has not been surveyed; it gets covered when the installer is extracted.
 
-**Runtime helper** (Proposed): Cell 2 shrinks to a few lines that install and call a pinned helper, `steady-py==<generating version>`. Generation warns loudly when that version is not released, with an override (path or wheel) for tests and development. `packaging` and `resolvelib` move into an extra, `steady-py[check]`, and pyproject's empty `dependencies` gets fixed then (today `pip install` yields a tool that fails on import). The manifest gets an explicit schema version, and the package version replaces `TOOL_VERSION`. The manifest literal stays in the cell for check.
+**Runtime helper** (Decided): Cell 2 shrinks to a few lines that unconditionally run `pip install steady-py==<generating version>`, then call `steady_py.install(STEADY_PY_MANIFEST)`. Generation warns loudly when that pinned version fails to install (not yet released, or otherwise unreachable). No override code is needed in Cell 2 itself for local development or testing: `pip install` already honors the standard `PIP_NO_INDEX`/`PIP_FIND_LINKS` environment variables, so a harness that sets them before running the unmodified generated cell transparently resolves the pin from a local wheel instead of PyPI — the same mechanism `run_suite.py`'s `local_pkg` tier already uses for a different package (task 17's concern, not Cell 2's). `packaging` and `resolvelib` move into an extra, `steady-py[check]`, and pyproject's empty `dependencies` gets fixed then (today `pip install` yields a tool that fails on import). The manifest gets an explicit schema version, and the package version replaces `TOOL_VERSION`. The manifest literal stays in the cell for check.
 
 **Task list.** One list, in order; each line is one deliverable. Update the status as items land.
 
@@ -372,8 +372,8 @@ Cell 2's behavior when an install fails has not been surveyed; it gets covered w
 8. DONE. Partial writes with loud failure, the universal file's incomplete header, the 0/1/2 exit rule, usage errors all 2, a bare invocation prints usage.
 9. DONE. Cell 2 warns on any Python mismatch and carries on; no hard stop.
 10. DONE. `check` accepts a directory, with an aggregate result and exit code; `--format json` prints JSON when there is no manifest or it cannot be read.
-11. TODO. Run `run_suite.py` on Docker.
-12. TODO. Subcommands (`steady-py scan|snapshot|check`) replace the flags: runner commands, subprocess tests, `run_suite.py` and docs change, and the old-versus-new comparison is rerun in the new syntax.
+11. DONE. Run `run_suite.py` on Docker.
+12. DONE. Subcommands (`steady-py scan|snapshot|check`) replace the flags: runner commands, subprocess tests, `run_suite.py` and docs change, and the old-versus-new comparison is rerun in the new syntax.
 13. TODO. Extract the runtime installer; slim Cell 2 to a few lines that install and call a pinned `steady-py==<version>`, with a loud warning when that version is not released and an override for development.
 14. TODO. Add the `steady-py[check]` extra (`packaging`, `resolvelib`) and fix pyproject's empty `dependencies`.
 15. TODO. Add a manifest schema version; the package version replaces `TOOL_VERSION`.
