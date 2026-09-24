@@ -1,2 +1,0 @@
-packaging>=23
-resolvelib>=1.0

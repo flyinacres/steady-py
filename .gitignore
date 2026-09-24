@@ -11,6 +11,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.egg-info/
 
 # Execution outputs / temporary files
 pinned_requirements.txt

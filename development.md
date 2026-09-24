@@ -375,19 +375,22 @@ Each user verb takes a file or a directory. A directory is a larger target, not 
 11. DONE. Run `run_suite.py` on Docker.
 12. DONE. Subcommands (`steady-py scan|snapshot|check`) replace the flags: runner commands, subprocess tests, `run_suite.py` and docs change, and the old-versus-new comparison is rerun in the new syntax.
 13. DONE. Extract the runtime installer (`steady_py.install`); Cell 2 slimmed to a pinned install and a call.
-14. TODO. Add the `steady-py[check]` extra (`packaging`, `resolvelib`) and fix pyproject's empty `dependencies`.
-15. TODO. Add a manifest schema version; the package version replaces `TOOL_VERSION`.
+14. DONE. Add the `steady-py[check]` extra (`packaging`, `resolvelib`) and fix pyproject's empty `dependencies`.
+15. DONE. Add a manifest schema version; the package version replaces `TOOL_VERSION`.
 16. DONE. Survey what Cell 2 does when an install fails.
-17. TODO. The e2e runners install the package from the mounted repo.
+17. DONE. The e2e runners install the package from the mounted repo.
 18. TODO. Split `core.py` into modules, bottom-up, per the layering above.
-19. TODO. Rewrite the README (its install steps are stale).
+19. TODO. Handle guarded imports and installs better. There are many gaps and problems identified in a particular chat thread.
 20. TODO. Update the GitHub URLs (`HELP_URL`, the core docstring, the README) to `steady-py`.
-21. TODO. First release.
+21. TODO. Review all of the tests and test coverage. What is missing, what is duplicated
+22. TODO. Review all user messaging. Is it helpful, useful, and appropriate
+23. TODO. Perform extensive hand testing of all modes to ensure there aren't roadblocks or silly LLM misses
+24. TODO. Rewrite the README (its install steps are stale).
+25. TODO. First release.
 
 Decisions waiting (not tasks):
 
 - Does a change only in a pin's flags, such as a different index URL, count in the delta?
-- Which of `tests/test_json_format.py` and `tests/test_steady_py.py` to keep; they hold the same 85 test names.
 - Remove the paste-era filter for cells containing the tool's own source?
 - Rename the fixture package `notebook_env_test_fixture` (its wheels need rebuilding) and delete the tracked temporary fixture notebook?
 
