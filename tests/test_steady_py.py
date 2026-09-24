@@ -543,7 +543,7 @@ class TestBlueprintGeneration:
     def test_python_version_guard_matches_runtime(self) -> None:
         manifest_items = [spy.PinnedDependency("numpy", "1.26.0")]
         blueprint: BlueprintResult = spy.generate_production_blueprint(manifest_items)
-        expected_guard: str = f"REQUIRED_PYTHON = ({sys.version_info.major}, {sys.version_info.minor})"
+        expected_guard: str = f"'major': {sys.version_info.major}, 'minor': {sys.version_info.minor}"
         assert expected_guard in blueprint["step2_code"]
 
     def test_gpu_section_included_when_gpu_present(self) -> None:
@@ -594,85 +594,99 @@ class TestSequentialExecutionEngine:
         assert "2.3.1+cu121" in code
         assert "https://download.pytorch.org/whl/cu121" in code
 
-    def test_failure_diagnostics_contain_verified_version(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """When a package install fails, Cell 2 prints author-verified version and captures stderr."""
-        manifest_items = [
-            spy.PinnedDependency("broken_pkg", "1.0.0")
-        ]
+    def test_cell2_is_a_slim_pinned_install_wrapper(self) -> None:
+        """Task 13: Cell 2 installs the exact pinned steady-py helper and calls install() --
+        the actual installer loop lives in core.py now, not duplicated into the generated cell."""
+        manifest_items = [spy.PinnedDependency("numpy", "1.26.0")]
         blueprint = spy.generate_production_blueprint(manifest_items)
-        
+        code = blueprint["step2_code"]
+
+        assert f"steady-py=={spy.TOOL_VERSION}" in code
+        assert "import steady_py" in code
+        assert "steady_py.install(STEADY_PY_MANIFEST" in code
+        # The extracted loop internals must not be duplicated into the generated cell.
+        assert "_run_pip_subprocess" not in code
+        assert "installed_baseline" not in code
+        assert code.count("\n") < 30, "Cell 2 should be a few lines, not the old ~140-line loop"
+
+    def test_failure_diagnostics_contain_verified_version(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """When a package install fails, install() prints the author-verified version and captures stderr."""
+        manifest = {
+            "dependencies": [{"name": "broken_pkg", "version": "1.0.0", "flags": []}],
+            "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
+        }
+
         def fake_run(*args, **kwargs):
             kwargs["stdout"].write("Mocked pip error: Could not find wheel")
             return types.SimpleNamespace(returncode=1)
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        
-        exec_scope: Dict[str, Any] = {"__builtins__": __builtins__}
-        compiled_code = compile(blueprint["step2_code"], "<string>", "exec")
-        exec(compiled_code, exec_scope)
-        
+        spy.install(manifest)
+
         captured = capsys.readouterr().out
         assert "❌" in captured
         assert "broken_pkg==1.0.0" in captured
         assert "Mocked pip error" in captured
 
     def test_best_effort_execution_continues_on_failure(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A failure on package 1 does not abort execution for package 2."""
-        manifest_items = [
-            spy.PinnedDependency("fail_pkg", "1.0.0"),
-            spy.PinnedDependency("pass_pkg", "2.0.0")
-        ]
-        blueprint = spy.generate_production_blueprint(manifest_items)
-        
+        manifest = {
+            "dependencies": [
+                {"name": "fail_pkg", "version": "1.0.0", "flags": []},
+                {"name": "pass_pkg", "version": "2.0.0", "flags": []},
+            ],
+            "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
+        }
+
         def mock_run(cmd, *args, **kwargs):
             if "fail_pkg" in " ".join(cmd):
                 return types.SimpleNamespace(returncode=1, stderr="Failed", stdout="")
             return types.SimpleNamespace(returncode=0, stderr="", stdout="")
-            
+
         monkeypatch.setattr(subprocess, "run", mock_run)
-        
-        exec_scope: Dict[str, Any] = {"__builtins__": __builtins__}
-        compiled_code = compile(blueprint["step2_code"], "<string>", "exec")
-        exec(compiled_code, exec_scope)
-        
+        spy.install(manifest)
+
         captured = capsys.readouterr().out
         assert "❌" in captured and "fail_pkg" in captured
         assert "✅" in captured and "pass_pkg" in captured
         assert "[1/2]" in captured
         assert "[2/2]" in captured
 
-    def test_best_effort_execution_continues_on_failure(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        manifest_items = [
-            spy.PinnedDependency("fail_pkg", "1.0.0"),
-            spy.PinnedDependency("pass_pkg", "2.0.0")
-        ]
-        blueprint = spy.generate_production_blueprint(manifest_items)
-        
-        fake_runner = (
-            "import subprocess\n"
-            "import types\n"
-            "def mock_run(cmd, *args, **kwargs):\n"
-            "    if 'fail_pkg' in ' '.join(cmd):\n"
-            "        return types.SimpleNamespace(returncode=1, stderr='Failed', stdout='')\n"
-            "    return types.SimpleNamespace(returncode=0, stderr='', stdout='')\n"
-            "subprocess.run = mock_run\n"
-        )
-        
-        exec_scope: Dict[str, Any] = {"__builtins__": __builtins__}
-        compiled_code = compile(fake_runner + blueprint["step2_code"], "<string>", "exec")
-        exec(compiled_code, exec_scope)
-        
-        captured = capsys.readouterr().out
-        assert "❌" in captured and "fail_pkg" in captured
-        assert "✅" in captured and "pass_pkg" in captured
-        assert "[1/2]" in captured
-        assert "[2/2]" in captured
+    def test_install_returns_a_result_a_caller_can_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """install() returns something a caller can check, instead of always None."""
+        manifest = {
+            "dependencies": [
+                {"name": "fail_pkg", "version": "1.0.0", "flags": []},
+                {"name": "pass_pkg", "version": "2.0.0", "flags": []},
+            ],
+            "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
+        }
+
+        def mock_run(cmd, *args, **kwargs):
+            if "fail_pkg" in " ".join(cmd):
+                return types.SimpleNamespace(returncode=1, stderr="Failed", stdout="")
+            return types.SimpleNamespace(returncode=0, stderr="", stdout="")
+
+        monkeypatch.setattr(subprocess, "run", mock_run)
+        result = spy.install(manifest)
+
+        assert result.total == 2
+        assert result.installed == 1
+        assert result.failed == ["fail_pkg==1.0.0"]
+        assert result.ok is False
+
+    def test_install_result_ok_when_everything_installs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        manifest = {
+            "dependencies": [{"name": "pass_pkg", "version": "2.0.0", "flags": []}],
+            "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
+        }
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0, stderr="", stdout=""))
+        result = spy.install(manifest)
+        assert result.total == 1 and result.installed == 1 and result.failed == [] and result.ok is True
 
     def test_explicit_install_anchors_position_over_earlier_bare_import(self) -> None:
         """An explicit pip install at cell 2 anchors timeline position over a bare import at cell 0."""
@@ -821,17 +835,17 @@ def test_resolve_local_module_top_level(tmp_path):
     assert spy.resolve_local_module("root_script", str(tmp_path)) == "notebook_dir"
     assert spy.resolve_local_module("helpers", str(tmp_path)) is None
 
-def test_production_blueprint_failure_message_dynamic():
-    """Verify Cell 2 failure advice adaptively includes user troubleshooting steps and HELP_URL link."""
-    # Standard manifest without local tags
-    std_blueprint = spy.generate_production_blueprint(["pandas==2.1.0", "numpy==1.25.0"])
-    assert "Internet Access" in std_blueprint["step2_code"]
-    assert spy.HELP_URL in std_blueprint["step2_code"]
-
-    # Manifest containing local tag build
-    tagged_blueprint = spy.generate_production_blueprint(["torch==2.1.0+cu121"])
-    assert "Troubleshooting Steps:" in tagged_blueprint["step2_code"]
-    assert spy.HELP_URL in tagged_blueprint["step2_code"]
+def test_install_failure_prints_troubleshooting_steps(monkeypatch, capsys):
+    """When any install fails, install() prints troubleshooting steps including HELP_URL."""
+    manifest = {
+        "dependencies": [{"name": "pandas", "version": "2.1.0", "flags": []}],
+        "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
+    }
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=1))
+    spy.install(manifest)
+    out = capsys.readouterr().out
+    assert "Internet Access" in out
+    assert spy.HELP_URL in out
 
 
 class TestMemoizeForRun:

@@ -334,7 +334,7 @@ Status: items marked Decided were settled in review; items marked Proposed or Op
 - `scan`: read-only. Analyzes the code and the running environment and reports what the notebook needs, with warnings and notices. If the file already has a manifest, it also reports the delta between that manifest and what a snapshot would produce now.
 - `snapshot`: always runs the same analysis and produces the manifest and the two setup cells. It returns the cells (live kernel, paste) or writes them: `--output` (companion file), `--output-dir`, `--in-place`. An existing manifest is replaced only with `--in-place`; otherwise the source file is untouched. With an existing manifest it reports the same delta as scan, so people see what changed.
 - `check`: read-only. Compares the manifest's pins with live PyPI (today's `--check-drift`). No manifest means "nothing to check", exit 0, unchanged.
-- `install` (internal): the runtime installer in generated Cell 2, the only endpoint that runs at notebook run time. Standard library only. It needs internet; internet-off runs are unsupported.
+- `install` (internal): the runtime installer in generated Cell 2, the only endpoint that runs at notebook run time. It needs internet; internet-off runs are unsupported.
 
 Each user verb takes a file or a directory. A directory is a larger target, not a separate function: results always hold a list of per-notebook results plus an aggregate section, with one entry for a single file. The one directory-only option is `--universal`, the combined requirements file, on snapshot.
 
@@ -356,7 +356,7 @@ Each user verb takes a file or a directory. A directory is a larger target, not 
 - Usage errors exited 1 in some places and 2 in others. Done: all are 2, matching argparse, which already exits 2 on bad arguments.
 - Generated Cell 2 hard-stopped on a Python major-version mismatch, and only warned on a minor one. Done: one non-blocking warning for any mismatch; Cell 2 goes on to the installs. The check is effectively dead code (Cell 2 uses f-strings, so Python 2 fails to compile it first, and the required major version is always 3), and pip reports an unusable pin with its own clear error.
 
-Cell 2's behavior when an install fails has not been surveyed; it gets covered when the installer is extracted.
+**Install-failure survey** (task 16, done): `install()` never raises or returns anything on failure — even total loss (0 of N packages) just prints the warning block and returns `None`; the notebook's execution is never interrupted, and there's no way for a caller to check success programmatically. Every failure (no network, a bad wheel, a real timeout, a wrong Python) funnels into the same generic message that always suggests checking internet access, regardless of the actual cause; cause-specific diagnosis would need its own design pass and isn't scoped yet. Separately, if the pinned `steady-py==<version>` helper itself fails to install, Cell 2 warns and then unconditionally still runs `import steady_py` — if some other, mismatched version happens to already be importable (a stale leftover, an earlier notebook's setup in the same persistent session), it silently proceeds using that version's `install()`, with nothing but the earlier warning text as any trace the pin wasn't honored; fixing this properly means comparing the imported version against the pin, which needs a real version to compare against (see task 15, `TOOL_VERSION` is a placeholder).
 
 **Runtime helper** (Decided): Cell 2 shrinks to a few lines that unconditionally run `pip install steady-py==<generating version>`, then call `steady_py.install(STEADY_PY_MANIFEST)`. Generation warns loudly when that pinned version fails to install (not yet released, or otherwise unreachable). No override code is needed in Cell 2 itself for local development or testing: `pip install` already honors the standard `PIP_NO_INDEX`/`PIP_FIND_LINKS` environment variables, so a harness that sets them before running the unmodified generated cell transparently resolves the pin from a local wheel instead of PyPI — the same mechanism `run_suite.py`'s `local_pkg` tier already uses for a different package (task 17's concern, not Cell 2's). `packaging` and `resolvelib` move into an extra, `steady-py[check]`, and pyproject's empty `dependencies` gets fixed then (today `pip install` yields a tool that fails on import). The manifest gets an explicit schema version, and the package version replaces `TOOL_VERSION`. The manifest literal stays in the cell for check.
 
@@ -374,10 +374,10 @@ Cell 2's behavior when an install fails has not been surveyed; it gets covered w
 10. DONE. `check` accepts a directory, with an aggregate result and exit code; `--format json` prints JSON when there is no manifest or it cannot be read.
 11. DONE. Run `run_suite.py` on Docker.
 12. DONE. Subcommands (`steady-py scan|snapshot|check`) replace the flags: runner commands, subprocess tests, `run_suite.py` and docs change, and the old-versus-new comparison is rerun in the new syntax.
-13. TODO. Extract the runtime installer; slim Cell 2 to a few lines that install and call a pinned `steady-py==<version>`, with a loud warning when that version is not released and an override for development.
+13. DONE. Extract the runtime installer (`steady_py.install`); Cell 2 slimmed to a pinned install and a call.
 14. TODO. Add the `steady-py[check]` extra (`packaging`, `resolvelib`) and fix pyproject's empty `dependencies`.
 15. TODO. Add a manifest schema version; the package version replaces `TOOL_VERSION`.
-16. TODO. Survey what Cell 2 does when an install fails.
+16. DONE. Survey what Cell 2 does when an install fails.
 17. TODO. The e2e runners install the package from the mounted repo.
 18. TODO. Split `core.py` into modules, bottom-up, per the layering above.
 19. TODO. Rewrite the README (its install steps are stale).

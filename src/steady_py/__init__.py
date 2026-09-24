@@ -1,4 +1,5 @@
 """steady-py: reproducible environment setup and drift checking for notebooks and Python projects."""
+from steady_py.core import install, InstallResult
 from steady_py.endpoints import check, scan, snapshot
 from steady_py.results import (
     CheckOptions,
@@ -19,7 +20,7 @@ from steady_py.results import (
 )
 
 __all__ = [
-    "check", "CheckOptions", "CheckResult", "Delta", "Environment", "NotebookCheck", "NotebookScan",
-    "NotebookSnapshot", "PackageChange", "scan", "ScanOptions", "ScanResult", "SetupCells", "snapshot",
-    "SnapshotOptions", "SnapshotResult", "TargetKind", "WriteMode",
+    "check", "CheckOptions", "CheckResult", "Delta", "Environment", "install", "InstallResult", "NotebookCheck",
+    "NotebookScan", "NotebookSnapshot", "PackageChange", "scan", "ScanOptions", "ScanResult", "SetupCells",
+    "snapshot", "SnapshotOptions", "SnapshotResult", "TargetKind", "WriteMode",
 ]
