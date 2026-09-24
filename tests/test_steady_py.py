@@ -609,6 +609,26 @@ class TestSequentialExecutionEngine:
         assert "installed_baseline" not in code
         assert code.count("\n") < 30, "Cell 2 should be a few lines, not the old ~140-line loop"
 
+    def test_tool_version_reflects_the_installed_package(self) -> None:
+        """Task 15: TOOL_VERSION is no longer a hardcoded placeholder -- it's the real
+        installed package version (falling back only when steady-py isn't an installed
+        distribution at all, e.g. running straight from source)."""
+        try:
+            expected = importlib.metadata.version("steady-py")
+        except importlib.metadata.PackageNotFoundError:
+            expected = "0.0.0+unknown"
+        assert spy.TOOL_VERSION == expected
+        assert spy.TOOL_VERSION != "44", "TOOL_VERSION must not be the old hardcoded placeholder"
+
+    def test_manifest_has_its_own_schema_version_distinct_from_the_report_schema(self) -> None:
+        """Task 15: the manifest gets its own schema_version, separate from SCHEMA_VERSION
+        (which versions the CLI's --format json report structure, a different concern)."""
+        manifest_items = [spy.PinnedDependency("numpy", "1.26.0")]
+        blueprint = spy.generate_production_blueprint(manifest_items)
+        manifest = blueprint["drift_report"].manifest
+        assert manifest.schema_version == spy.MANIFEST_SCHEMA_VERSION
+        assert "'schema_version':" in blueprint["step2_code"]
+
     def test_failure_diagnostics_contain_verified_version(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:

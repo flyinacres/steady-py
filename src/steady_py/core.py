@@ -60,8 +60,13 @@ from packaging.markers import default_environment
 from resolvelib import AbstractProvider, BaseReporter, Resolver
 from resolvelib.resolvers import ResolutionImpossible
 
-TOOL_VERSION: str = "44"
+TOOL_VERSION: str
+try:
+    TOOL_VERSION = importlib.metadata.version("steady-py")
+except importlib.metadata.PackageNotFoundError:
+    TOOL_VERSION = "0.0.0+unknown"
 SCHEMA_VERSION: str = "1.0"
+MANIFEST_SCHEMA_VERSION: str = "1.0"
 
 # Diagnostics go through this logger. Importing the module must not touch process-global state
 # (the standard streams, other loggers' handlers), so the logger itself is only given a NullHandler;
@@ -469,6 +474,7 @@ class SteadyPyManifest:
     gpu: Optional[Dict[str, Any]]
     generated_at: str
     tool_version: str = TOOL_VERSION
+    schema_version: str = MANIFEST_SCHEMA_VERSION
     dependency_hash: str = ""
     raw_installs: List[str] = field(default_factory=list)
     custom_sourced: List[str] = field(default_factory=list)
@@ -506,6 +512,7 @@ class SteadyPyManifest:
             "gpu": self.gpu,
             "generated_at": self.generated_at,
             "tool_version": self.tool_version,
+            "schema_version": self.schema_version,
             "dependency_hash": self.dependency_hash,
             "raw_installs": self.raw_installs,
             "custom_sourced": self.custom_sourced,

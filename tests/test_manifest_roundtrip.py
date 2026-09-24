@@ -60,6 +60,7 @@ class TestManifestRoundTrip:
         assert extracted.dependencies == original.dependencies
         assert extracted.dependency_hash == original.dependency_hash
         assert extracted.tool_version == original.tool_version
+        assert extracted.schema_version == original.schema_version
         assert extracted.generated_at == original.generated_at
 
     def test_raw_installs_round_trip(self, tmp_path):

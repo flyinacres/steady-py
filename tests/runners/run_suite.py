@@ -115,8 +115,9 @@ def build_docker_cmd(tier: str, notebook_path: str, merged_path: str, output_pat
     """Build the internal bash shell commands for each tier environment."""
     if tier == "python3.11":
         return (
+            "pip install -e /workspace -q && "
             "pip install --no-cache-dir ipykernel nbconvert==7.17.1 humanize==4.16.0 "
-            "tabulate==0.9.0 numpy==1.23.5 packaging resolvelib && "
+            "tabulate==0.9.0 numpy==1.23.5 && "
             "python -m ipykernel install --user --name python3 && "
             f'python -m steady_py snapshot "{notebook_path}" --output && '
             f'jupyter nbconvert --to notebook --execute "{merged_path}" --output "{output_path}" '
@@ -124,7 +125,7 @@ def build_docker_cmd(tier: str, notebook_path: str, merged_path: str, output_pat
         )
     if tier == "kaggle":
         return (
-            "pip install --quiet packaging resolvelib && "
+            "pip install -e /workspace -q && "
             "python3 -m venv --system-site-packages --without-pip --clear /tmp/run_env && "
             f'/tmp/run_env/bin/python -m steady_py snapshot "{notebook_path}" --output && '
             f'/tmp/run_env/bin/python -m jupyter nbconvert --to notebook --execute "{merged_path}" '
@@ -132,14 +133,15 @@ def build_docker_cmd(tier: str, notebook_path: str, merged_path: str, output_pat
         )
     if tier == "colab":
         return (
-            "pip install --quiet packaging resolvelib && "
+            "pip install -e /workspace -q && "
             f'python3 -m steady_py snapshot "{notebook_path}" --output && '
             f'jupyter nbconvert --to notebook --execute "{merged_path}" --output "{output_path}" '
             "--ExecutePreprocessor.timeout=300 --ExecutePreprocessor.kernel_name=python3"
         )
     if tier == "local_pkg":
         return (
-            "pip install --no-cache-dir ipykernel nbconvert==7.17.1 packaging resolvelib -q && "
+            "pip install -e /workspace -q && "
+            "pip install --no-cache-dir ipykernel nbconvert==7.17.1 -q && "
             "python -m ipykernel install --user --name python3 && "
             "PIP_NO_INDEX=1 PIP_FIND_LINKS=/workspace/tests/fixtures/local_test_pkg/bootstrap "
             "pip install --no-cache-dir setuptools wheel && "
@@ -172,8 +174,6 @@ def run_docker(
         f"{REPO_ROOT}:/workspace",
         "-w",
         "/workspace",
-        "-e",
-        "PYTHONPATH=/workspace/src",
         "-e",
         "PYTHONUNBUFFERED=1",
         "-e",
@@ -344,7 +344,7 @@ def run_common_tests() -> None:
     print("\033[96mRunning Check-Drift E2E Test (generate + check-drift subprocesses)...\033[0m")
     exit_code, _ = run_docker(
         "python:3.11-slim",
-        "pip install --no-cache-dir packaging resolvelib -q && python tests/runners/test_check_drift.py",
+        "pip install -e /workspace -q && python tests/runners/test_check_drift.py",
     )
     if exit_code != 0:
         raise RuntimeError("Check-drift e2e test failed.")
@@ -353,7 +353,8 @@ def run_common_tests() -> None:
     print("\033[96mRunning raw_installs E2E (explicit path, inferred URL, unreachable source, inferred local path)...\033[0m")
     exit_code, _ = run_docker(
         "python:3.11-slim",
-        "pip install --no-cache-dir packaging resolvelib jupyter_client ipykernel -q && "
+        "pip install -e /workspace -q && "
+        "pip install --no-cache-dir jupyter_client ipykernel -q && "
         "python -m ipykernel install --user --name python3 && "
         "python tests/runners/test_raw_installs.py",
     )
@@ -364,7 +365,8 @@ def run_common_tests() -> None:
     print("\033[96mRunning Phase 5g: Live-Kernel Stale Module Test...\033[0m")
     exit_code, _ = run_docker(
         "python:3.11-slim",
-        "pip install --no-cache-dir packaging resolvelib jupyter_client ipykernel numpy==1.26.4 -q && "
+        "pip install -e /workspace -q && "
+        "pip install --no-cache-dir jupyter_client ipykernel numpy==1.26.4 -q && "
         "python -m ipykernel install --user --name python3 && "
         "python tests/runners/test_live_kernel_stale_repin.py",
     )
@@ -375,7 +377,8 @@ def run_common_tests() -> None:
     print("\033[96mRunning Phase 5g: Live-Kernel Phase 0 Regressions...\033[0m")
     exit_code, _ = run_docker(
         "python:3.11-slim",
-        "pip install --no-cache-dir packaging resolvelib jupyter_client ipykernel packaging resolvelib -q && "
+        "pip install -e /workspace -q && "
+        "pip install --no-cache-dir jupyter_client ipykernel -q && "
         "python -m ipykernel install --user --name python3 && "
         "python tests/runners/test_live_kernel_phase0_regressions.py",
     )
@@ -386,9 +389,9 @@ def run_common_tests() -> None:
     print("\033[96mRunning Phase 5f: Hardware Mocking (CUDA)...\033[0m")
     exit_code, _ = run_docker(
         "python:3.11-slim",
-        "pip install --no-cache-dir packaging resolvelib -q && python tests/runners/test_hardware_mock.py",
+        "pip install -e /workspace -q && python tests/runners/test_hardware_mock.py",
         env={
-            "PYTHONPATH": "/workspace/tests/fixtures/mock_pkgs:/workspace/src",
+            "PYTHONPATH": "/workspace/tests/fixtures/mock_pkgs",
             "TEST_HW_MODE": "cuda",
             "MOCK_CUDA_AVAILABLE": "1",
             "MOCK_MPS_AVAILABLE": "0",
@@ -400,9 +403,9 @@ def run_common_tests() -> None:
     print("\033[96mRunning Phase 5f: Hardware Mocking (MPS)...\033[0m")
     exit_code, _ = run_docker(
         "python:3.11-slim",
-        "pip install --no-cache-dir packaging resolvelib -q && python tests/runners/test_hardware_mock.py",
+        "pip install -e /workspace -q && python tests/runners/test_hardware_mock.py",
         env={
-            "PYTHONPATH": "/workspace/tests/fixtures/mock_pkgs:/workspace/src",
+            "PYTHONPATH": "/workspace/tests/fixtures/mock_pkgs",
             "TEST_HW_MODE": "mps",
             "MOCK_CUDA_AVAILABLE": "0",
             "MOCK_MPS_AVAILABLE": "1",
@@ -421,7 +424,8 @@ def run_common_tests() -> None:
     SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
 
     repin_cmd = (
-        "pip install --no-cache-dir ipykernel nbconvert==7.17.1 packaging resolvelib -q && "
+        "pip install -e /workspace -q && "
+        "pip install --no-cache-dir ipykernel nbconvert==7.17.1 -q && "
         "python -m ipykernel install --user --name python3 && "
         "PIP_NO_INDEX=1 PIP_FIND_LINKS=/workspace/tests/fixtures/local_test_pkg/dist "
         "pip install --no-cache-dir local_test_pkg==1.0.0 && "
