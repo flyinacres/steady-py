@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import steady_py.core as spy
-from steady_py import constants, installed, models, util
+from steady_py import constants, installed, models, scanning, util
 from steady_py.endpoints import check, scan, snapshot
 from steady_py.results import CheckOptions, Environment, PackageChange, ScanOptions, SnapshotOptions, TargetKind, WriteMode
 
@@ -208,7 +208,7 @@ class TestScan:
 
     def test_the_live_session_is_a_target_when_none_is_given(self, isolated, monkeypatch):
         monkeypatch.setattr(util, "is_running_in_ipython", lambda: True)
-        monkeypatch.setattr(spy, "extract_from_active_session", lambda: (["requests"], {}, ["import requests"], set(), []))
+        monkeypatch.setattr(scanning, "extract_from_active_session", lambda: (["requests"], {}, ["import requests"], set(), []))
         result = scan(None, environment=ENV)
         assert (result.kind, result.notebooks[0].path) == (TargetKind.SESSION, "session.ipynb")
         assert [d.name for d in result.notebooks[0].report.dependencies] == ["requests"]
@@ -489,7 +489,7 @@ class TestScanDelta:
 
     def test_the_live_session_has_no_delta(self, isolated, monkeypatch):
         monkeypatch.setattr(util, "is_running_in_ipython", lambda: True)
-        monkeypatch.setattr(spy, "extract_from_active_session", lambda: (["requests"], {}, ["import requests"], set(), []))
+        monkeypatch.setattr(scanning, "extract_from_active_session", lambda: (["requests"], {}, ["import requests"], set(), []))
         assert scan(None, environment=ENV).notebooks[0].delta is None
 
 

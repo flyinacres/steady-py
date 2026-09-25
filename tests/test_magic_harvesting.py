@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-import steady_py.core as spy
+from steady_py import magics, scanning
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -41,45 +41,45 @@ def magic_sink_notebook():
 
 class TestPackageHarvesting:
     def test_plain_multi_package_pip_magic(self) -> None:
-        pkgs, _, _, _, _ = spy.harvest_cell_magics_and_commands(
+        pkgs, _, _, _, _ = magics.harvest_cell_magics_and_commands(
             ["%pip install gdown awscli"]
         )
         assert pkgs == {"gdown", "awscli"}
 
     def test_quoted_version_specifier_and_ignorable_flag(self) -> None:
-        pkgs, _, _, _, _ = spy.harvest_cell_magics_and_commands(
+        pkgs, _, _, _, _ = magics.harvest_cell_magics_and_commands(
             ['!pip install "spacy>=3.0" -q']
         )
         assert pkgs == {"spacy"}
 
     def test_requirements_file_reference_warns_not_silently_followed(self) -> None:
-        pkgs, _, _, warnings, _ = spy.harvest_cell_magics_and_commands(
+        pkgs, _, _, warnings, _ = magics.harvest_cell_magics_and_commands(
             ["%pip install -r requirements.txt"]
         )
         assert pkgs == set()
         assert any("requirements.txt" in w for w in warnings)
 
     def test_requirement_long_flag_also_warns(self) -> None:
-        pkgs, _, _, warnings, _ = spy.harvest_cell_magics_and_commands(
+        pkgs, _, _, warnings, _ = magics.harvest_cell_magics_and_commands(
             ["!pip install --requirement requirements.txt"]
         )
         assert pkgs == set()
         assert len(warnings) == 1
 
     def test_commented_out_pip_line_not_harvested(self) -> None:
-        pkgs, _, _, _, _ = spy.harvest_cell_magics_and_commands(
+        pkgs, _, _, _, _ = magics.harvest_cell_magics_and_commands(
             ["# !pip install should-not-be-harvested"]
         )
         assert pkgs == set()
 
     def test_bare_pip_inside_bash_cell_chained_with_apt_get(self) -> None:
         source = "%%bash\napt-get update && apt-get install -y graphviz\npip install kaggle-environments"
-        pkgs, _, _, _, notices = spy.harvest_cell_magics_and_commands([source])
+        pkgs, _, _, _, notices = magics.harvest_cell_magics_and_commands([source])
         assert pkgs == {"kaggle-environments"}
         assert any("apt-get" in n for n in notices)
 
     def test_conda_install_produces_notice_not_a_package(self) -> None:
-        pkgs, _, _, _, notices = spy.harvest_cell_magics_and_commands(
+        pkgs, _, _, _, notices = magics.harvest_cell_magics_and_commands(
             ["%conda install -c conda-forge lightgbm"]
         )
         # conda packages are intentionally NOT correlated against pip freeze,
@@ -88,20 +88,20 @@ class TestPackageHarvesting:
         assert any("conda" in n.lower() for n in notices)
 
     def test_system_package_manager_call_outside_bash_cell(self) -> None:
-        pkgs, _, _, _, notices = spy.harvest_cell_magics_and_commands(
+        pkgs, _, _, _, notices = magics.harvest_cell_magics_and_commands(
             ["!yum install -y some-system-lib"]
         )
         assert pkgs == set()
         assert any("some-system-lib" in n for n in notices)
 
     def test_editable_local_path_install_not_treated_as_a_package(self) -> None:
-        pkgs, _, _, _, _ = spy.harvest_cell_magics_and_commands(
+        pkgs, _, _, _, _ = magics.harvest_cell_magics_and_commands(
             ["!pip install -e ./local_package"]
         )
         assert "./local_package" not in pkgs
 
     def test_editable_vcs_install_not_treated_as_a_package(self) -> None:
-        pkgs, _, _, _, _ = spy.harvest_cell_magics_and_commands(
+        pkgs, _, _, _, _ = magics.harvest_cell_magics_and_commands(
             ["!pip install -e git+https://github.com/fake-org/fake-repo.git#egg=fakerepo"]
         )
         assert not any(p.startswith("git+") for p in pkgs)
@@ -109,27 +109,27 @@ class TestPackageHarvesting:
 
 class TestIndexUrlSeparation:
     def test_extra_index_url_only(self) -> None:
-        _, base, extra, _, _ = spy.harvest_cell_magics_and_commands(
+        _, base, extra, _, _ = magics.harvest_cell_magics_and_commands(
             ["!pip install torch --extra-index-url https://download.pytorch.org/whl/cu121"]
         )
         assert extra == {"https://download.pytorch.org/whl/cu121"}
         assert base == set()
 
     def test_base_index_url_only(self) -> None:
-        _, base, extra, _, _ = spy.harvest_cell_magics_and_commands(
+        _, base, extra, _, _ = magics.harvest_cell_magics_and_commands(
             ["!pip install torch --index-url https://custom.internal/simple"]
         )
         assert base == {"https://custom.internal/simple"}
         assert extra == set()
 
     def test_short_flag_base_index(self) -> None:
-        _, base, extra, _, _ = spy.harvest_cell_magics_and_commands(
+        _, base, extra, _, _ = magics.harvest_cell_magics_and_commands(
             ["!pip install foo -i https://custom.internal/simple"]
         )
         assert base == {"https://custom.internal/simple"}
 
     def test_base_and_extra_index_url_on_same_line_both_captured(self) -> None:
-        _, base, extra, _, _ = spy.harvest_cell_magics_and_commands(
+        _, base, extra, _, _ = magics.harvest_cell_magics_and_commands(
             ["!pip install onnxruntime --index-url https://custom.internal/simple "
              "--extra-index-url https://download.pytorch.org/whl/cu121"]
         )
@@ -151,7 +151,7 @@ class TestScopedFlagAssociation:
             "import numpy as np\n"
         ]
         # v38 Contract: harvest returns packages paired with scoped flags
-        pkg_flags_map = spy.harvest_scoped_cell_flags(sources)
+        pkg_flags_map = magics.harvest_scoped_cell_flags(sources)
 
         assert "torch" in pkg_flags_map
         assert "--extra-index-url" in pkg_flags_map["torch"]
@@ -168,7 +168,7 @@ class TestScopedFlagAssociation:
             "import astroid\n",
             "import pandas\n"
         ]
-        imports, _, _, _ = spy.extract_imports_from_sources(sources)
+        imports, _, _, _ = scanning.extract_imports_from_sources(sources)
         
         # v38 Contract: imports must preserve ['zstandard', 'astroid', 'pandas'] rather than sorting alphabetically
         assert list(imports) == ["zstandard", "astroid", "pandas"]
@@ -179,7 +179,7 @@ class TestScopedFlagAssociation:
             "!pip install torch --extra-index-url https://download.pytorch.org/whl/cu121\n",
             "!pip install torch --extra-index-url https://download.pytorch.org/whl/cu121\n"
         ]
-        scoped = spy.harvest_scoped_cell_flags(sources)
+        scoped = magics.harvest_scoped_cell_flags(sources)
         assert scoped["torch"] == ["--extra-index-url", "https://download.pytorch.org/whl/cu121"]
 
     def test_conflicting_base_index_url_last_wins(self) -> None:
@@ -188,7 +188,7 @@ class TestScopedFlagAssociation:
             "!pip install pkg --index-url https://first.index/simple\n",
             "!pip install pkg --index-url https://second.index/simple\n"
         ]
-        scoped = spy.harvest_scoped_cell_flags(sources)
+        scoped = magics.harvest_scoped_cell_flags(sources)
         assert scoped["pkg"] == ["--index-url", "https://second.index/simple"]
 
     def test_distinct_packages_maintain_independent_urls(self) -> None:
@@ -197,7 +197,7 @@ class TestScopedFlagAssociation:
             "!pip install torch --extra-index-url https://download.pytorch.org/whl/cu121\n",
             "!pip install torchvision --extra-index-url https://vision.example.org/whl\n"
         ]
-        scoped = spy.harvest_scoped_cell_flags(sources)
+        scoped = magics.harvest_scoped_cell_flags(sources)
         assert scoped["torch"] == ["--extra-index-url", "https://download.pytorch.org/whl/cu121"]
         assert scoped["torchvision"] == ["--extra-index-url", "https://vision.example.org/whl"]
 
@@ -206,7 +206,7 @@ class TestScopedFlagAssociation:
         sources = [
             "!pip install torch==2.3.1+cu121 --extra-index-url https://download.pytorch.org/whl/cu121\n"
         ]
-        occurrences, _ = spy.harvest_pip_install_occurrences(sources)
+        occurrences, _ = magics.harvest_pip_install_occurrences(sources)
         assert len(occurrences) == 1
         occ = occurrences[0]
         assert occ.name == "torch"
@@ -220,8 +220,8 @@ class TestScopedFlagAssociation:
         cell_0 = "!pip install foo==1.0 --index-url https://custom.repo/simple\n"
         cell_1 = "!pip install foo==2.0\n"  # No index url!
         
-        occurrences, _ = spy.harvest_pip_install_occurrences([cell_0, cell_1])
-        resolved_map, conflict_warnings = spy.resolve_pip_occurrences(
+        occurrences, _ = magics.harvest_pip_install_occurrences([cell_0, cell_1])
+        resolved_map, conflict_warnings = magics.resolve_pip_occurrences(
             occurrences, is_execution_ordered=True
         )
         
@@ -240,8 +240,8 @@ class TestScopedFlagAssociation:
             "!pip install torch --index-url https://download.pytorch.org/whl/cu118\n",
             "!pip install torch --index-url https://download.pytorch.org/whl/cu121\n"
         ]
-        occurrences, _ = spy.harvest_pip_install_occurrences(sources)
-        resolved_map, conflict_warnings = spy.resolve_pip_occurrences(
+        occurrences, _ = magics.harvest_pip_install_occurrences(sources)
+        resolved_map, conflict_warnings = magics.resolve_pip_occurrences(
             occurrences, is_execution_ordered=True
         )
         assert len(conflict_warnings) == 1
@@ -256,7 +256,7 @@ class TestScopedFlagAssociation:
             "print('See --index-url https://fake-index.org/simple')\n",
             "!pip install torch --extra-index-url https://download.pytorch.org/whl/cu121\n"
         ]
-        h_res = spy.harvest_cell_magics_and_commands(sources)
+        h_res = magics.harvest_cell_magics_and_commands(sources)
         assert "https://old-index.org/whl" not in h_res.extra_index_urls
         assert "https://fake-index.org/simple" not in h_res.base_index_urls
         assert h_res.extra_index_urls == {"https://download.pytorch.org/whl/cu121"}
@@ -270,19 +270,19 @@ class TestIndexUrlWrapperCompatibility:
     """
 
     def test_extra_index_url_passes_through(self) -> None:
-        urls = spy.harvest_index_urls_from_sources(
+        urls = magics.harvest_index_urls_from_sources(
             ["!pip install torch --extra-index-url https://download.pytorch.org/whl/cu121"]
         )
         assert urls == {"https://download.pytorch.org/whl/cu121"}
 
     def test_base_index_url_alone_is_not_silently_dropped(self) -> None:
-        urls = spy.harvest_index_urls_from_sources(
+        urls = magics.harvest_index_urls_from_sources(
             ["!pip install foo --index-url https://custom.internal/simple"]
         )
         assert urls == {"https://custom.internal/simple"}
 
     def test_both_present_wrapper_should_not_drop_base(self) -> None:
-        urls = spy.harvest_index_urls_from_sources(
+        urls = magics.harvest_index_urls_from_sources(
             ["!pip install onnxruntime --index-url https://custom.internal/simple "
              "--extra-index-url https://download.pytorch.org/whl/cu121"]
         )
@@ -292,24 +292,24 @@ class TestIndexUrlWrapperCompatibility:
 
 class TestCellClassification:
     def test_plain_python_cell(self) -> None:
-        cell_type, clean = spy.classify_cell_source("import pandas as pd\n")
+        cell_type, clean = scanning.classify_cell_source("import pandas as pd\n")
         assert cell_type == "PYTHON"
         assert "import pandas" in clean
 
     def test_bash_cell_header_stripped(self) -> None:
-        cell_type, clean = spy.classify_cell_source("%%bash\napt-get install -y graphviz")
+        cell_type, clean = scanning.classify_cell_source("%%bash\napt-get install -y graphviz")
         assert cell_type == "SHELL_SCRIPT"
         assert "%%bash" not in clean
         assert "apt-get install" in clean
 
     def test_writefile_cell_header_stripped(self) -> None:
-        cell_type, clean = spy.classify_cell_source("%%writefile helper.py\nimport requests")
+        cell_type, clean = scanning.classify_cell_source("%%writefile helper.py\nimport requests")
         assert cell_type == "WRITEFILE"
         assert "%%writefile" not in clean
         assert "import requests" in clean
 
     def test_empty_source(self) -> None:
-        cell_type, clean = spy.classify_cell_source("")
+        cell_type, clean = scanning.classify_cell_source("")
         assert cell_type == "PYTHON"
         assert clean == ""
 
@@ -319,7 +319,7 @@ class TestCellClassification:
             "%%writefile setup.py\n# Setup script\npip install dummy-pkg --extra-index-url https://writefile.example.com\n",
             "import pandas as pd\n"
         ]
-        h_res = spy.harvest_cell_magics_and_commands(sources)
+        h_res = magics.harvest_cell_magics_and_commands(sources)
         assert "dummy-pkg" not in h_res.harvested_packages
         assert "https://writefile.example.com" not in h_res.extra_index_urls
         assert "dummy-pkg" not in h_res.scoped_flags
@@ -332,7 +332,7 @@ class TestCellClassification:
             "# Another comment (line 2)\n"
             "import torch\n"                 # line 3 (import)
         )
-        import_occs = spy.extract_import_occurrences_from_source(cell_source, cell_idx=0)
+        import_occs = scanning.extract_import_occurrences_from_source(cell_source, cell_idx=0)
         assert len(import_occs) == 1
         assert import_occs[0].module == "torch"
         assert import_occs[0].line_idx == 3
@@ -345,11 +345,11 @@ class TestCellClassification:
 class TestMagicSinkNotebook:
     def test_harvested_packages_from_full_notebook(self, magic_sink_notebook) -> None:
         success, imports, submodules, code_sources, err, lang, guarded, dyn_warns = (
-            spy.extract_from_file(str(magic_sink_notebook))
+            scanning.extract_from_file(str(magic_sink_notebook))
         )
         assert success is True
 
-        pkgs, base_urls, extra_urls, warnings, notices = spy.harvest_cell_magics_and_commands(
+        pkgs, base_urls, extra_urls, warnings, notices = magics.harvest_cell_magics_and_commands(
             code_sources
         )
 
@@ -371,7 +371,7 @@ class TestMagicSinkNotebook:
         imports and extracted separately via extract_writefile_imports_from_sources.
         """
         success, imports, submodules, code_sources, err, lang, guarded, dyn_warns = (
-            spy.extract_from_file(str(magic_sink_notebook))
+            scanning.extract_from_file(str(magic_sink_notebook))
         )
         assert success is True
 
@@ -379,7 +379,7 @@ class TestMagicSinkNotebook:
         assert "requests" not in imports
 
         # requests SHOULD be captured via the writefile extraction helper
-        writefile_imports = spy.extract_writefile_imports_from_sources(code_sources)
+        writefile_imports = scanning.extract_writefile_imports_from_sources(code_sources)
         assert "requests" in writefile_imports
 
 
@@ -396,6 +396,6 @@ class TestCellConsumingMagics:
 
         # Ensure classify_cell_source handles or AST parser skips them without SyntaxError
         for src in sources:
-            cell_type, clean_body = spy.classify_cell_source(src)
-            imports, submodules, guarded, warnings = spy.extract_imports_from_sources([src])
+            cell_type, clean_body = scanning.classify_cell_source(src)
+            imports, submodules, guarded, warnings = scanning.extract_imports_from_sources([src])
             assert imports == []

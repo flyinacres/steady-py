@@ -148,3 +148,8 @@ STD_LIB: Set[str] = set(sys.stdlib_module_names) if hasattr(sys, 'stdlib_module_
     "os", "sys", "re", "json", "ast", "subprocess", "datetime", "math", "random", 
     "time", "pathlib", "typing", "collections", "itertools", "functools", "shutil"
 }
+
+SHELL_CELL_MAGICS: Set[str] = {
+    "%%bash", "%%sh", "%%zsh", "%%script", "%%cmd", "%%powershell"
+}
+

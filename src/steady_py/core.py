@@ -35,11 +35,9 @@ Execution Modes:
 import ast
 import json
 import os
-import re
 import sys
 import uuid
 import logging
-import warnings
 import subprocess
 import tempfile
 import importlib.metadata
@@ -85,16 +83,14 @@ from steady_py.models import (
     ExtractionResult,
     FindingKey,
     GpuInfo,
-    HarvestResult,
     ImportOccurrence,
     NotebookAnalysisReport,
     PinnedDependency,
-    PipInstallOccurrence,
     PromotionDetail,
     SteadyPyManifest,
     TimelineResult,
 )
-from steady_py import installed, models, pypi, util
+from steady_py import installed, magics, models, pypi, scanning, util
 
 
 # Diagnostics go through this logger. Importing the module must not touch process-global state
@@ -156,41 +152,9 @@ class NotebookScanResult:
     def __post_init__(self):
         if self.harvested_urls is None:
             if self.code_sources:
-                self.harvested_urls = harvest_index_urls_from_sources(self.code_sources)
+                self.harvested_urls = magics.harvest_index_urls_from_sources(self.code_sources)
             else:
                 self.harvested_urls = set()
-
-
-def get_timeline_context_label(is_execution_ordered: bool) -> str:
-    """Returns the standardized authority qualifier for timeline-dependent diagnostics."""
-    if is_execution_ordered:
-        return "in execution sequence"
-    return "in document order (execution counts unavailable or inconsistent)"
-
-
-def get_ordered_code_cells(cells: List[Dict[str, Any]]) -> Tuple[List[Tuple[int, Dict[str, Any]]], bool]:
-    """
-    Evaluates execution_count across all code cells.
-    If 100% of code cells have valid, unique positive integer execution counts,
-    orders cells strictly by execution_count ascending.
-    Otherwise, falls back 100% to document index order.
-    """
-    code_cells = [(idx, c) for idx, c in enumerate(cells) if c.get("cell_type") == "code"]
-    if not code_cells:
-        return [], False
-
-    counts = [c.get("execution_count") for _, c in code_cells]
-    
-    is_fully_ordered = (
-        all(isinstance(cnt, int) and cnt > 0 for cnt in counts)
-        and len(set(counts)) == len(counts)
-    )
-
-    if is_fully_ordered:
-        ordered = sorted(code_cells, key=lambda pair: pair[1]["execution_count"])
-        return ordered, True
-
-    return code_cells, False
 
 
 class LocalModuleContext(NamedTuple):
@@ -255,618 +219,6 @@ def resolve_local_module(name: str, notebook_dir: Optional[str], root_dir: Optio
 
 
 # =====================================================================
-# CELL CLASSIFICATION & SOURCE PIPELINE
-# =====================================================================
-
-def detect_notebook_language(nb_data: Dict[str, Any], strict: bool = False) -> Tuple[bool, str]:
-    """Inspects kernelspec and language_info metadata."""
-    metadata = nb_data.get("metadata", {})
-    ks_lang = metadata.get("kernelspec", {}).get("language", "").lower()
-    li_lang = metadata.get("language_info", {}).get("name", "").lower()
-
-    if ks_lang and li_lang:
-        if ks_lang == li_lang:
-            return (ks_lang == StatusLabel.PYTHON), ks_lang
-        else:
-            return False, f"conflict ({ks_lang}/{li_lang})"
-    
-    active_lang = ks_lang or li_lang
-    if active_lang:
-        return (active_lang == StatusLabel.PYTHON), active_lang
-        
-    return True, "unspecified (assuming python)"
-
-
-def extract_from_file(
-    notebook_path: str, strict: bool = False
-) -> ExtractionResult:
-    """Reads a Jupyter Notebook JSON file and extracts code sources, imports, guarded state, and dynamic warnings."""
-    if not os.path.exists(notebook_path):
-        return ExtractionResult(
-            success=False,
-            lang_label=StatusLabel.UNKNOWN,
-            error_msg=f"File '{notebook_path}' not found."
-        )
-
-    try:
-        with open(notebook_path, 'r', encoding='utf-8') as f:
-            nb_data = json.load(f)
-    except json.JSONDecodeError:
-        return ExtractionResult(
-            success=False,
-            lang_label=StatusLabel.CORRUPTED,
-            error_msg="File is not valid JSON. Ensure the file was not truncated or saved mid-write."
-        )
-    except Exception as e:
-        return ExtractionResult(
-            success=False,
-            lang_label=StatusLabel.ERROR,
-            error_msg=f"Unable to read file ({type(e).__name__}). Check file permissions and path location."
-        )
-
-    if not isinstance(nb_data, dict) or "cells" not in nb_data or not isinstance(nb_data.get("cells"), list):
-        return ExtractionResult(
-            success=False,
-            lang_label=StatusLabel.CORRUPTED,
-            error_msg="Unparseable notebook structure (Missing or invalid 'cells' array)"
-        )
-
-    is_py, lang_label = detect_notebook_language(nb_data, strict=strict)
-    if not is_py:
-        return ExtractionResult(
-            success=False,
-            lang_label=lang_label,
-            error_msg=f"Skipped non-Python notebook (Language: {lang_label})"
-        )
-
-    cells = nb_data.get("cells", [])
-    ordered_cells, _ = get_ordered_code_cells(cells)
-    code_sources = ["".join(c.get("source", [])) for _, c in ordered_cells]
-    imports, submodules, guarded_imports, dyn_warnings, writefile_imports = extract_imports_from_sources_full(code_sources)
-
-    return ExtractionResult(
-        success=True,
-        lang_label=lang_label,
-        imports=imports,
-        submodules=submodules,
-        code_sources=code_sources,
-        guarded_imports=guarded_imports,
-        dynamic_warnings=dyn_warnings,
-        writefile_imports=writefile_imports
-    )
-
-
-def extract_from_active_session() -> Tuple[List[str], Dict[str, Set[str]], List[str], Set[str], List[DiagnosticEvent]]:
-    """
-    Path B (Live Kernel): Reads IPython execution history in chronological order.
-    Filters out self-referential steady_py execution cells and invocation commands.
-    """
-    import __main__
-    raw_sources = [src for src in getattr(__main__, 'In', []) if src and isinstance(src, str)]
-    
-    clean_sources: List[str] = []
-    for src in raw_sources:
-        if "NotebookImportVisitor" in src or "def extract_from_active_session" in src:
-            continue
-        stripped = src.strip()
-        if re.search(r'\b(?:spy|steady_py|steady_py\.cli)\.main\s*\(', stripped) or stripped in ("import steady_py", "import steady_py.cli") or stripped.startswith(("import steady_py as", "import steady_py.cli as")):
-            continue
-        clean_sources.append(src)
-
-    imports, submodules, guarded_imports, dyn_warnings = extract_imports_from_sources_typed(clean_sources)
-    return imports, submodules, clean_sources, guarded_imports, dyn_warnings
-
-
-# =====================================================================
-# AST VISITOR & DYNAMIC IMPORT PARSER
-# =====================================================================
-
-class NotebookImportVisitor(ast.NodeVisitor):
-    """AST visitor traversing Python code to record imports, guarded states, and dynamic calls in order."""
-    def __init__(self, cell_idx: int = 0) -> None:
-        self.cell_idx: int = cell_idx
-        self.imports: List[str] = []
-        self.writefile_imports: List[str] = []
-        self.submodules: Dict[str, Set[str]] = {}
-        self.unconditional_imports: Set[str] = set()
-        self.raw_guarded_imports: Set[str] = set()
-        self.dynamic_import_warnings: List[DiagnosticEvent] = []
-        self.occurrences: List[ImportOccurrence] = []
-        self._guarded_depth: int = 0
-        self._in_writefile: bool = False
-
-        self._importlib_aliases: Set[str] = {"importlib"}
-        self._import_module_bindings: Set[str] = set()
-
-    @property
-    def guarded_imports(self) -> Set[str]:
-        return self.raw_guarded_imports - self.unconditional_imports
-
-    def _record_import(self, base_pkg: str, full_name: Optional[str] = None, lineno: int = 1) -> None:
-        line_idx = max(0, lineno - 1)
-        if self._in_writefile:
-            if base_pkg not in self.writefile_imports:
-                self.writefile_imports.append(base_pkg)
-            return
-
-        if base_pkg not in self.imports:
-            self.imports.append(base_pkg)
-
-        is_guarded = self._guarded_depth > 0
-        if is_guarded:
-            self.raw_guarded_imports.add(base_pkg)
-        else:
-            self.unconditional_imports.add(base_pkg)
-
-        if full_name and '.' in full_name:
-            self.submodules.setdefault(base_pkg, set()).add(full_name)
-
-        self.occurrences.append(
-            ImportOccurrence(
-                cell_idx=self.cell_idx,
-                line_idx=line_idx,
-                module=base_pkg,
-                full_name=full_name or base_pkg,
-                is_guarded=is_guarded
-            )
-        )
-
-    def visit_Try(self, node: ast.Try) -> None:
-        self._guarded_depth += 1
-        self.generic_visit(node)
-        self._guarded_depth -= 1
-
-    def visit_If(self, node: ast.If) -> None:
-        self._guarded_depth += 1
-        self.generic_visit(node)
-        self._guarded_depth -= 1
-
-    def visit_Import(self, node: ast.Import) -> None:
-        for alias in node.names:
-            base_pkg = alias.name.split('.')[0]
-            if alias.name == "importlib":
-                self._importlib_aliases.add(alias.asname or "importlib")
-            self._record_import(base_pkg, full_name=alias.name, lineno=node.lineno)
-        self.generic_visit(node)
-
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        if node.module:
-            base_pkg = node.module.split('.')[0]
-            if node.module == "importlib":
-                for alias in node.names:
-                    if alias.name == "import_module":
-                        self._import_module_bindings.add(alias.asname or "import_module")
-            self._record_import(base_pkg, full_name=node.module, lineno=node.lineno)
-        self.generic_visit(node)
-
-    def visit_Call(self, node: ast.Call) -> None:
-        is_dynamic_import = False
-
-        if isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name) and node.func.value.id in self._importlib_aliases:
-                if node.func.attr == "import_module":
-                    is_dynamic_import = True
-
-        elif isinstance(node.func, ast.Name):
-            if node.func.id == "__import__" or node.func.id in self._import_module_bindings:
-                is_dynamic_import = True
-
-        if is_dynamic_import and node.args:
-            first_arg = node.args[0]
-
-            if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
-                imported_pkg = first_arg.value
-                base_pkg = imported_pkg.split('.')[0]
-                self._record_import(base_pkg, full_name=imported_pkg, lineno=node.lineno)
-            else:
-                expr_repr = ast.unparse(first_arg) if hasattr(ast, "unparse") else "expression"
-                self.dynamic_import_warnings.append(
-                    DiagnosticEvent(
-                        type="dynamic_import",
-                        detail=f"Dynamic import detected via variable '{expr_repr}'. Check that this package is installed if execution fails.",
-                        cell_idx=self.cell_idx,
-                        line_idx=getattr(node, "lineno", 1) - 1,
-                        level="warning"
-                    )
-                )
-
-        self.generic_visit(node)
-
-
-def extract_import_occurrences_from_source(source: str, cell_idx: int = 0) -> List[ImportOccurrence]:
-    """
-    Parses an individual cell source using blank-line padding for stripped magics
-    so that AST lineno perfectly matches raw cell line numbers.
-    """
-    cell_type, clean_body = classify_cell_source(source)
-    if cell_type in {"SHELL_SCRIPT", "WRITEFILE"}:
-        return []
-
-    clean_lines = [
-        "" if (line.strip().startswith('%') or line.strip().startswith('!')) else line
-        for line in clean_body.splitlines()
-    ]
-    clean_source = "\n".join(clean_lines)
-
-    visitor = NotebookImportVisitor(cell_idx=cell_idx)
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=SyntaxWarning)
-            tree = ast.parse(clean_source)
-        visitor.visit(tree)
-    except SyntaxError:
-        return []
-
-    return visitor.occurrences
-
-
-def extract_imports_from_sources_full(
-    code_sources: List[str]
-) -> Tuple[List[str], Dict[str, Set[str]], Set[str], List[DiagnosticEvent], List[str]]:
-    """Executes single-pass AST traversal returning primary and writefile imports with typed diagnostics."""
-    visitor = NotebookImportVisitor()
-    for cell_idx, source in enumerate(code_sources):
-        visitor.cell_idx = cell_idx
-        cell_type, clean_body = classify_cell_source(source)
-
-        if cell_type == "SHELL_SCRIPT":
-            continue
-
-        visitor._in_writefile = (cell_type == "WRITEFILE")
-
-        clean_lines = [
-            "" if (line.strip().startswith('%') or line.strip().startswith('!')) else line
-            for line in clean_body.splitlines()
-        ]
-        clean_source = "\n".join(clean_lines)
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=SyntaxWarning)
-                tree = ast.parse(clean_source)
-            visitor.visit(tree)
-        except SyntaxError:
-            continue
-
-    primary_imports = [imp for imp in visitor.imports if imp not in visitor.writefile_imports]
-    return (
-        primary_imports, 
-        visitor.submodules, 
-        visitor.guarded_imports, 
-        visitor.dynamic_import_warnings,
-        visitor.writefile_imports
-    )
-
-
-def extract_imports_from_sources(
-    code_sources: List[str]
-) -> Tuple[List[str], Dict[str, Set[str]], Set[str], List[str]]:
-    """Legacy 4-tuple extractor for primary imports with formatted strings."""
-    primary_imports, submodules, guarded, dyn_warns, _ = extract_imports_from_sources_full(code_sources)
-    return primary_imports, submodules, guarded, [w.format_console() for w in dyn_warns]
-
-
-def extract_imports_from_sources_typed(
-    code_sources: List[str]
-) -> Tuple[List[str], Dict[str, Set[str]], Set[str], List[DiagnosticEvent]]:
-    """Typed 4-tuple extractor for primary imports returning DiagnosticEvent objects."""
-    primary_imports, submodules, guarded, dyn_warns, _ = extract_imports_from_sources_full(code_sources)
-    return primary_imports, submodules, guarded, dyn_warns
-
-
-def extract_writefile_imports_from_sources(code_sources: List[str]) -> List[str]:
-    """Extracts writefile script imports."""
-    _, _, _, _, writefile_imports = extract_imports_from_sources_full(code_sources)
-    return writefile_imports
-
-
-# =====================================================================
-# CELL MAGIC & OCCURRENCE HARVESTER
-# =====================================================================
-
-PIP_SINGLE_FLAGS: Set[str] = {
-    "-u", "--upgrade", "-q", "--quiet", "--user", "--no-cache-dir",
-    "--force-reinstall", "--no-deps", "--pre", "--break-system-packages"
-}
-
-PIP_VALUE_FLAGS: Set[str] = {
-    "--extra-index-url", "--index-url", "-i", "-f", "--find-links", 
-    "-t", "--target", "-e", "--editable", "-r", "--requirement"
-}
-
-SHELL_CELL_MAGICS: Set[str] = {
-    "%%bash", "%%sh", "%%zsh", "%%script", "%%cmd", "%%powershell"
-}
-
-SHELL_SPLIT_PATTERN = re.compile(r'\s*(?:&&|;|\||\|\|)\s*')
-PIP_INSTALL_PATTERN = re.compile(r'^\s*(?:%pip|!pip|pip3?)\s+install\s+(.+)$')
-SYSTEM_PKG_PATTERN = re.compile(r'^\s*(?:!|%%bash|%%sh)?\s*(?:apt-get|brew|yum)\s+install\s+(.+)$')
-CONDA_INSTALL_PATTERN = re.compile(r'^\s*(?:%conda|!conda|conda)\s+install\s+(.+)$')
-
-VCS_OR_PATH_PREFIXES: Tuple[str, ...] = (
-    ".", "/", "\\", "git+", "hg+", "svn+", "bzr+", "http://", "https://"
-)
-
-
-def classify_cell_source(source: str) -> Tuple[str, str]:
-    """Classifies cell source into (cell_type, clean_source)."""
-    lines = source.splitlines()
-    if not lines:
-        return "PYTHON", ""
-
-    first_line = lines[0].strip()
-    first_token = first_line.split()[0] if first_line.split() else ""
-
-    if first_token in SHELL_CELL_MAGICS:
-        return "SHELL_SCRIPT", "\n".join(lines[1:])
-
-    if first_token == "%%writefile":
-        return "WRITEFILE", "\n".join(lines[1:])
-
-    return "PYTHON", source
-
-def harvest_pip_install_occurrences(code_sources: List[str]) -> Tuple[List[PipInstallOccurrence], List[str]]:
-    """
-    Walks all cell lines and extracts structured PipInstallOccurrence records.
-    Filters out %%writefile cells completely.
-
-    Also returns raw_installs: the exact original text of any token that's a
-    VCS/URL/local-path install (git+, http(s)://, ./path, etc). These can't be
-    decomposed into a name+version pin without actually running pip -- a bare
-    git URL has no name until cloned -- so they're preserved verbatim instead
-    of being forced into the wrong shape. Previously these were silently
-    dropped entirely, meaning the generated Cell 2 would never attempt to
-    install them at all.
-    """
-    occurrences: List[PipInstallOccurrence] = []
-    raw_installs: List[str] = []
-
-    for cell_idx, source in enumerate(code_sources):
-        cell_type, clean_body = classify_cell_source(source)
-        if cell_type == "WRITEFILE":
-            continue
-
-        for line_idx, line in enumerate(clean_body.splitlines()):
-            clean_line = line.strip()
-            if not clean_line or clean_line.startswith('#') or clean_line in SHELL_CELL_MAGICS:
-                continue
-
-            command_segments = SHELL_SPLIT_PATTERN.split(clean_line)
-            for segment in command_segments:
-                seg = segment.strip()
-                pip_match = PIP_INSTALL_PATTERN.match(seg)
-                if not pip_match:
-                    continue
-
-                args_str = pip_match.group(1)
-                tokens = args_str.split()
-                line_flags: List[str] = []
-                token_specs: List[Tuple[str, str, str]] = []
-
-                # Pass 1: Harvest all flags across the command segment first
-                i = 0
-                while i < len(tokens):
-                    token = tokens[i]
-                    if token in {"--extra-index-url", "--index-url", "-i", "-f", "--find-links"}:
-                        if i + 1 < len(tokens):
-                            line_flags.extend([token, tokens[i+1].strip("'\"")])
-                            i += 2
-                            continue
-                    elif token in PIP_VALUE_FLAGS:
-                        i += 2
-                        continue
-                    i += 1
-
-                # Pass 2: Extract package names and specs
-                i = 0
-                while i < len(tokens):
-                    token = tokens[i]
-                    if token in {"--extra-index-url", "--index-url", "-i", "-f", "--find-links"} or token in PIP_VALUE_FLAGS:
-                        i += 2
-                        continue
-                    elif token.startswith('-') or token.lower() in PIP_SINGLE_FLAGS:
-                        i += 1
-                        continue
-                    elif any(token.lower().startswith(p) for p in VCS_OR_PATH_PREFIXES):
-                        raw_installs.append(token.strip("'\""))
-                        i += 1
-                        continue
-
-                    match = re.search(r'[<>=!~;\[#]', token)
-                    if match:
-                        split_idx = match.start()
-                        pkg_name = token[:split_idx].strip("'\"")
-                        v_spec = token[split_idx:].strip("'\"")
-                    else:
-                        pkg_name = token.strip("'\"")
-                        v_spec = ""
-
-                    if pkg_name:
-                        token_specs.append((token, pkg_name, v_spec))
-                    i += 1
-
-                for raw_tok, pkg, v_spec in token_specs:
-                    occurrences.append(
-                        PipInstallOccurrence(
-                            cell_idx=cell_idx,
-                            line_idx=line_idx,
-                            raw_token=raw_tok,
-                            name=pkg,
-                            version_spec=v_spec,
-                            flags=list(line_flags)
-                        )
-                    )
-
-    return occurrences, raw_installs
-
-
-def resolve_pip_occurrences(
-    occurrences: List[PipInstallOccurrence],
-    is_execution_ordered: bool = True
-) -> Tuple[Dict[str, PipInstallOccurrence], List[DiagnosticEvent]]:
-    """
-    Applies atomic last-wins resolution across occurrences.
-    The later occurrence completely replaces earlier occurrences (name, version, flags indivisibly).
-    Emits synchronized confidence-hedged warnings on pin or flag conflicts.
-    """
-    resolved: Dict[str, PipInstallOccurrence] = {}
-    conflict_warnings: List[DiagnosticEvent] = []
-    seen_history: Dict[str, List[PipInstallOccurrence]] = {}
-
-    for occ in occurrences:
-        norm_key = util.canonicalize_pkg_name(occ.name)
-        seen_history.setdefault(norm_key, []).append(occ)
-
-    time_qualifier = get_timeline_context_label(is_execution_ordered)
-
-    for norm_key, history in seen_history.items():
-        winning_occ = history[-1]
-        resolved[norm_key] = winning_occ
-        resolved[winning_occ.name] = winning_occ
-
-        if len(history) > 1:
-            versions = [h.version_spec for h in history if h.version_spec]
-            if len(set(versions)) > 1:
-                conflict_warnings.append(
-                    DiagnosticEvent(
-                        type="conflicting_pin",
-                        detail=f"Conflicting Explicit Pins for '{winning_occ.name}': Resolving to '{winning_occ.name}{winning_occ.version_spec}' ({time_qualifier}).",
-                        cell_idx=winning_occ.cell_idx,
-                        line_idx=winning_occ.line_idx,
-                        level="warning"
-                    )
-                )
-
-            flags_history = [tuple(h.flags) for h in history]
-            if len(set(flags_history)) > 1:
-                flags_display = " ".join(winning_occ.flags) if winning_occ.flags else "default index (no flags)"
-                conflict_warnings.append(
-                    DiagnosticEvent(
-                        type="conflicting_flags",
-                        detail=f"Conflicting Scoped Flags for '{winning_occ.name}': Overwriting earlier flags with '{flags_display}' ({time_qualifier}).",
-                        cell_idx=winning_occ.cell_idx,
-                        line_idx=winning_occ.line_idx,
-                        level="warning"
-                    )
-                )
-
-    return resolved, conflict_warnings
-
-
-def harvest_scoped_cell_flags(code_sources: List[str]) -> Dict[str, List[str]]:
-    """Convenience delegate returning harvested scoped flags map directly."""
-    occurrences, _raw_installs = harvest_pip_install_occurrences(code_sources)
-    resolved, _ = resolve_pip_occurrences(occurrences)
-    return {pkg: occ.flags for pkg, occ in resolved.items()}
-
-
-def harvest_index_urls_from_sources(code_sources: List[str]) -> Set[str]:
-    """Scans code sources for index URLs and returns a combined set of all harvested URLs."""
-    h_res = harvest_cell_magics_and_commands(code_sources)
-    return h_res.base_index_urls.union(h_res.extra_index_urls)
-
-
-def harvest_cell_magics_and_commands(
-    code_sources: List[str]
-) -> HarvestResult:
-    """Scans code sources for cell magics, index URLs, auxiliary tools, and shell commands."""
-    occurrences, raw_installs = harvest_pip_install_occurrences(code_sources)
-    resolved_occs, magic_warnings = resolve_pip_occurrences(occurrences)
-
-    harvested_packages: Set[str] = set()
-    base_index_urls: Set[str] = set()
-    extra_index_urls: Set[str] = set()
-    magic_notices: List[DiagnosticEvent] = []
-    scoped_flags: Dict[str, List[str]] = {}
-
-    for raw_spec in raw_installs:
-        magic_notices.append(
-            DiagnosticEvent(
-                type="raw_install",
-                detail=f"'{raw_spec}' is installed from a non-standard source (git/URL/local file), not PyPI. "
-                       f"It will still be installed exactly as specified, but can't be verified or checked for "
-                       f"drift -- you're responsible for ensuring anyone running this notebook has access to "
-                       f"the same resource.",
-                cell_idx=0,
-                line_idx=0,
-                level="notice"
-            )
-        )
-
-    for occ in occurrences:
-        harvested_packages.add(occ.name)
-
-    for occ in resolved_occs.values():
-        scoped_flags[occ.name] = occ.flags
-        i = 0
-        while i < len(occ.flags):
-            flag = occ.flags[i]
-            val = occ.flags[i+1] if i + 1 < len(occ.flags) else ""
-            if flag in {"--index-url", "-i"}:
-                base_index_urls.add(val)
-            elif flag in {"--extra-index-url", "-f", "--find-links"}:
-                extra_index_urls.add(val)
-            i += 2
-
-    for cell_idx, source in enumerate(code_sources, start=1):
-        cell_type, clean_body = classify_cell_source(source)
-        if cell_type == "WRITEFILE":
-            continue
-
-        for line_idx, line in enumerate(clean_body.splitlines()):
-            clean_line = line.strip()
-            if not clean_line or clean_line.startswith('#') or clean_line in SHELL_CELL_MAGICS:
-                continue
-
-            command_segments = SHELL_SPLIT_PATTERN.split(clean_line)
-            for segment in command_segments:
-                seg = segment.strip()
-                if not seg:
-                    continue
-
-                if SYSTEM_PKG_PATTERN.match(seg):
-                    magic_notices.append(
-                        DiagnosticEvent(
-                            type="system_command",
-                            detail=f"Cell {cell_idx} uses a system install command ('{seg}'). Note: System dependencies must be run manually by readers.",
-                            cell_idx=cell_idx - 1,
-                            line_idx=line_idx,
-                            level="notice"
-                        )
-                    )
-                elif CONDA_INSTALL_PATTERN.match(seg):
-                    magic_notices.append(
-                        DiagnosticEvent(
-                            type="conda_command",
-                            detail=f"Cell {cell_idx} uses 'conda install'. Conda packages are not tracked in pip requirements manifests.",
-                            cell_idx=cell_idx - 1,
-                            line_idx=line_idx,
-                            level="notice"
-                        )
-                    )
-                elif PIP_INSTALL_PATTERN.match(seg):
-                    if "-r " in seg or "--requirement" in seg:
-                        magic_warnings.append(
-                            DiagnosticEvent(
-                                type="external_requirement",
-                                detail=f"Cell {cell_idx} references an external requirements file ('{seg}'). Ensure that file is shared alongside your notebook.",
-                                cell_idx=cell_idx - 1,
-                                line_idx=line_idx,
-                                level="warning"
-                            )
-                        )
-
-    return HarvestResult(
-        harvested_packages=harvested_packages,
-        base_index_urls=base_index_urls,
-        extra_index_urls=extra_index_urls,
-        magic_warnings=magic_warnings,
-        magic_notices=magic_notices,
-        scoped_flags=scoped_flags,
-        raw_installs=raw_installs
-    )
-
-
-# =====================================================================
 # UNIFIED TIMELINE ENGINE
 # =====================================================================
 
@@ -883,15 +235,15 @@ def build_unified_timeline(
     - Bare AST imports only anchor position if no explicit install was found anywhere in the notebook.
     Returns a structured TimelineResult payload.
     """
-    pip_occs, _raw_installs = harvest_pip_install_occurrences(code_sources)
-    resolved_pips, conflict_warnings = resolve_pip_occurrences(pip_occs, is_execution_ordered=is_execution_ordered)
+    pip_occs, _raw_installs = magics.harvest_pip_install_occurrences(code_sources)
+    resolved_pips, conflict_warnings = magics.resolve_pip_occurrences(pip_occs, is_execution_ordered=is_execution_ordered)
 
     all_import_occs: List[ImportOccurrence] = []
     submodules_map: Dict[str, Set[str]] = {}
     guarded_set: Set[str] = set()
 
     for cell_idx, src in enumerate(code_sources):
-        cell_imports = extract_import_occurrences_from_source(src, cell_idx=cell_idx)
+        cell_imports = scanning.extract_import_occurrences_from_source(src, cell_idx=cell_idx)
         for imp in cell_imports:
             all_import_occs.append(imp)
             if imp.full_name and '.' in imp.full_name:
@@ -1298,7 +650,6 @@ def resolve_opencv_variant(submodules: Optional[Set[str]] = None) -> str:
     return "opencv-contrib-python" if has_contrib else "opencv-python"
 
 
-
 def process_package_requirements(
     pinned_list: List[str], 
     harvested_urls: Set[str],
@@ -1380,7 +731,6 @@ def build_dependency_entries(
         all_entries.extend(writefile_entries)
 
     return all_entries, local_tagged_info, warnings_out
-
 
 
 # --- Direct-pin checks ---------------------------------------------------
@@ -2244,7 +1594,7 @@ def extract_manifest_from_file(path: str) -> Tuple[Optional[SteadyPyManifest], O
             ]
             cleaned_cells = []
             for cell_source in cell_sources:
-                cell_type, clean_body = classify_cell_source(cell_source)
+                cell_type, clean_body = scanning.classify_cell_source(cell_source)
                 if cell_type in {"SHELL_SCRIPT", "WRITEFILE"}:
                     continue
                 cleaned_cells.append("\n".join(
@@ -2827,7 +2177,7 @@ def build_scan_result(
     parse_error: Optional[str] = None,
 ) -> NotebookScanResult:
     """Harvests a notebook's cell magics and commands and assembles its scan result from an extraction."""
-    h_res = harvest_cell_magics_and_commands(ext_res.code_sources)
+    h_res = magics.harvest_cell_magics_and_commands(ext_res.code_sources)
     return NotebookScanResult(
         path=path,
         is_python=is_python,
@@ -2869,7 +2219,7 @@ def walk_and_scan_directory(target_dir: str, skip_suffix: Optional[str] = None) 
             repo_map.companion_files_skipped.append(full_path)
             continue
 
-        ext_res = extract_from_file(str(full_path), strict=True)
+        ext_res = scanning.extract_from_file(str(full_path), strict=True)
 
         parse_err = ext_res.error_msg if (not ext_res.success and "Skipped non-Python notebook" not in (ext_res.error_msg or "")) else None
         res = build_scan_result(

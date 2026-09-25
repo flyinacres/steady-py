@@ -21,7 +21,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import constants, installed, models
+from steady_py import constants, installed, magics, models, scanning
 from steady_py.constants import StatusLabel
 from steady_py.core import BlueprintResult
 from steady_py.models import GpuInfo
@@ -38,7 +38,7 @@ class TestImportExtraction:
         sources: List[str] = [
             "import numpy as np\nimport os, sys\nfrom sklearn.model_selection import train_test_split"
         ]
-        imports, _, _, _ = spy.extract_imports_from_sources(sources)
+        imports, _, _, _ = scanning.extract_imports_from_sources(sources)
         assert "numpy" in imports
         assert "os" in imports
         assert "sys" in imports
@@ -46,7 +46,7 @@ class TestImportExtraction:
 
     def test_deep_submodule_import_resolves_top_level(self) -> None:
         sources: List[str] = ["import torch.nn.functional as F"]
-        imports, submodules, _, _ = spy.extract_imports_from_sources(sources)
+        imports, submodules, _, _ = scanning.extract_imports_from_sources(sources)
         assert "torch" in imports
         assert "torch.nn.functional" in submodules.get("torch", set())
 
@@ -54,7 +54,7 @@ class TestImportExtraction:
         sources: List[str] = [
             "%matplotlib inline\n%%writefile foo.py\n!pip install foo\nimport pandas as pd"
         ]
-        imports, _, _, _ = spy.extract_imports_from_sources(sources)
+        imports, _, _, _ = scanning.extract_imports_from_sources(sources)
         assert "pandas" in imports
 
     def test_syntax_error_in_one_cell_does_not_block_others(self) -> None:
@@ -63,12 +63,12 @@ class TestImportExtraction:
             "def foo(",
             "import requests",
         ]
-        imports, _, _, _ = spy.extract_imports_from_sources(sources)
+        imports, _, _, _ = scanning.extract_imports_from_sources(sources)
         assert "pandas" in imports
         assert "requests" in imports
 
     def test_empty_and_non_code_sources_return_empty(self) -> None:
-        imports, submodules, guarded, dyn_warns = spy.extract_imports_from_sources([])
+        imports, submodules, guarded, dyn_warns = scanning.extract_imports_from_sources([])
         assert imports == []
         assert submodules == {}
         assert guarded == set()
@@ -76,7 +76,7 @@ class TestImportExtraction:
 
     def test_commented_import_not_extracted(self) -> None:
         sources: List[str] = ["# import tensorflow as tf\nimport json"]
-        imports, _, _, _ = spy.extract_imports_from_sources(sources)
+        imports, _, _, _ = scanning.extract_imports_from_sources(sources)
         assert "tensorflow" not in imports
         assert "json" in imports
 
@@ -88,7 +88,7 @@ class TestImportExtraction:
         
         with warnings.catch_warnings(record=True) as recorded_warnings:
             warnings.simplefilter("always")
-            imports, _, _, _ = spy.extract_imports_from_sources(sources)
+            imports, _, _, _ = scanning.extract_imports_from_sources(sources)
             
         syntax_warnings = [w for w in recorded_warnings if issubclass(w.category, SyntaxWarning)]
         assert len(syntax_warnings) == 0
@@ -106,7 +106,7 @@ class TestGuardedImports:
             "except ImportError:\n"
             "    pass"
         ]
-        imports, submodules, guarded_imports, _ = spy.extract_imports_from_sources(sources)
+        imports, submodules, guarded_imports, _ = scanning.extract_imports_from_sources(sources)
         assert "numpy" in imports
         assert "numpy" not in guarded_imports
         assert "cupy" in guarded_imports
@@ -117,7 +117,7 @@ class TestGuardedImports:
             "if sys.platform == 'win32':\n"
             "    import pywin32\n"
         ]
-        imports, submodules, guarded_imports, _ = spy.extract_imports_from_sources(sources)
+        imports, submodules, guarded_imports, _ = scanning.extract_imports_from_sources(sources)
         assert "os" in imports
         assert "os" not in guarded_imports
         assert "pywin32" in guarded_imports
@@ -161,7 +161,7 @@ class TestGuardedImports:
             "if sys.platform == 'win32':\n    import numpy as np2\n"
         ]
 
-        imports, submodules, guarded_imports, _ = spy.extract_imports_from_sources(sources)
+        imports, submodules, guarded_imports, _ = scanning.extract_imports_from_sources(sources)
 
         assert "numpy" in imports
         assert "numpy" not in guarded_imports
@@ -177,7 +177,7 @@ class TestDynamicImportHandling:
             "torch = importlib.import_module('torch')\n"
         ]
 
-        imports, submodules, guarded_imports, warnings = spy.extract_imports_from_sources(sources)
+        imports, submodules, guarded_imports, warnings = scanning.extract_imports_from_sources(sources)
 
         assert "torch" in imports
         assert "importlib" in imports
@@ -191,7 +191,7 @@ class TestDynamicImportHandling:
             "mod = importlib.import_module(pkg_name)\n"
         ]
 
-        imports, submodules, guarded_imports, warnings = spy.extract_imports_from_sources(sources)
+        imports, submodules, guarded_imports, warnings = scanning.extract_imports_from_sources(sources)
 
         assert "tensorflow" not in imports
         assert any("pkg_name" in w for w in warnings)
@@ -203,7 +203,7 @@ class TestDynamicImportHandling:
             "torch = import_module('torch')\n"
         ]
 
-        imports, submodules, guarded_imports, warnings = spy.extract_imports_from_sources(sources)
+        imports, submodules, guarded_imports, warnings = scanning.extract_imports_from_sources(sources)
 
         assert "torch" in imports
         assert "importlib" in imports
@@ -216,7 +216,7 @@ class TestDynamicImportHandling:
             "torch = il.import_module('torch')\n"
         ]
 
-        imports, submodules, guarded_imports, warnings = spy.extract_imports_from_sources(sources)
+        imports, submodules, guarded_imports, warnings = scanning.extract_imports_from_sources(sources)
 
         assert "torch" in imports
         assert "importlib" in imports
@@ -230,7 +230,7 @@ class TestDynamicImportHandling:
             "mod = import_module(pkg)\n"
         ]
 
-        imports, submodules, guarded_imports, warnings = spy.extract_imports_from_sources(sources)
+        imports, submodules, guarded_imports, warnings = scanning.extract_imports_from_sources(sources)
 
         assert "tensorflow" not in imports
         assert any("pkg" in w for w in warnings)
@@ -241,12 +241,12 @@ class TestDynamicImportHandling:
 class TestIndexUrlHarvesting:
     def test_extra_index_url_flag(self) -> None:
         sources: List[str] = ["!pip install torch --extra-index-url https://download.pytorch.org/whl/cu121"]
-        urls: Set[str] = spy.harvest_index_urls_from_sources(sources)
+        urls: Set[str] = magics.harvest_index_urls_from_sources(sources)
         assert "https://download.pytorch.org/whl/cu121" in urls
 
     def test_short_flag(self) -> None:
         sources: List[str] = ["!pip install -i https://pypi.org/simple somepkg"]
-        urls: Set[str] = spy.harvest_index_urls_from_sources(sources)
+        urls: Set[str] = magics.harvest_index_urls_from_sources(sources)
         assert "https://pypi.org/simple" in urls
 
     def test_quoted_and_multiple_urls_across_cells(self) -> None:
@@ -254,18 +254,18 @@ class TestIndexUrlHarvesting:
             "!pip install foo --extra-index-url 'https://a.example.com'",
             '!pip install bar --extra-index-url "https://b.example.com"',
         ]
-        urls: Set[str] = spy.harvest_index_urls_from_sources(sources)
+        urls: Set[str] = magics.harvest_index_urls_from_sources(sources)
         assert "https://a.example.com" in urls
         assert "https://b.example.com" in urls
 
     def test_malformed_flag_no_url_not_captured(self) -> None:
         sources: List[str] = ["!pip install foo --extra-index-url"]
-        urls: Set[str] = spy.harvest_index_urls_from_sources(sources)
+        urls: Set[str] = magics.harvest_index_urls_from_sources(sources)
         assert urls == set()
 
     def test_commented_out_pip_call_not_harvested(self) -> None:
         sources: List[str] = ["# !pip install torch --extra-index-url https://download.pytorch.org/whl/cu121"]
-        urls: Set[str] = spy.harvest_index_urls_from_sources(sources)
+        urls: Set[str] = magics.harvest_index_urls_from_sources(sources)
         assert urls == set()
 
 
@@ -321,7 +321,7 @@ class TestDualPathIngestion:
         nb_path: Path = tmp_path / "test.ipynb"
         nb_path.write_text(json.dumps(nb), encoding="utf-8")
 
-        success, imports, submodules, code_sources, err, lang_label, guarded, dyn_warns = spy.extract_from_file(str(nb_path))
+        success, imports, submodules, code_sources, err, lang_label, guarded, dyn_warns = scanning.extract_from_file(str(nb_path))
         assert success is True
         assert "numpy" in imports
         assert len(code_sources) == 1
@@ -359,7 +359,7 @@ class TestDualPathIngestion:
         assert "fake_uninstalled_pkg" in captured_stdout
 
     def test_path_a_missing_file_returns_error(self) -> None:
-        success, imports, submodules, code_sources, err, lang_label, guarded, dyn_warns = spy.extract_from_file("does_not_exist.ipynb")
+        success, imports, submodules, code_sources, err, lang_label, guarded, dyn_warns = scanning.extract_from_file("does_not_exist.ipynb")
         assert success is False
         assert err is not None and len(err) > 0
         assert lang_label == StatusLabel.UNKNOWN
@@ -368,7 +368,7 @@ class TestDualPathIngestion:
         bad_path: Path = tmp_path / "bad.ipynb"
         bad_path.write_text("{not valid json", encoding="utf-8")
 
-        success, imports, submodules, code_sources, err, lang_label, guarded, dyn_warns = spy.extract_from_file(str(bad_path))
+        success, imports, submodules, code_sources, err, lang_label, guarded, dyn_warns = scanning.extract_from_file(str(bad_path))
         assert success is False
         assert lang_label == StatusLabel.CORRUPTED
 
@@ -377,7 +377,7 @@ class TestDualPathIngestion:
         fake_main.In = ["", "import requests", "import pandas as pd"]
         monkeypatch.setitem(sys.modules, "__main__", fake_main)
 
-        imports, submodules, code_sources, guarded, dyn_warns = spy.extract_from_active_session()
+        imports, submodules, code_sources, guarded, dyn_warns = scanning.extract_from_active_session()
         assert "requests" in imports
         assert "pandas" in imports
 
@@ -386,7 +386,7 @@ class TestDualPathIngestion:
         fake_main.In = []
         monkeypatch.setitem(sys.modules, "__main__", fake_main)
 
-        imports, submodules, code_sources, guarded, dyn_warns = spy.extract_from_active_session()
+        imports, submodules, code_sources, guarded, dyn_warns = scanning.extract_from_active_session()
         assert imports == []
         assert code_sources == []
 
@@ -725,8 +725,8 @@ class TestSequentialExecutionEngine:
         assert timeline_res.dependencies[1].flags == ["--extra-index-url", "https://whl"]
 
     def test_timeline_context_label_execution_vs_document(self) -> None:
-        assert spy.get_timeline_context_label(True) == "in execution sequence"
-        assert spy.get_timeline_context_label(False) == "in document order (execution counts unavailable or inconsistent)"
+        assert scanning.get_timeline_context_label(True) == "in execution sequence"
+        assert scanning.get_timeline_context_label(False) == "in document order (execution counts unavailable or inconsistent)"
 
     def test_active_env_discrepancy_logged_at_debug(self, caplog: pytest.LogCaptureFixture) -> None:
         """Explicit notebook pin differing from host frozen_env logs a DEBUG trace, preferring notebook pin."""
@@ -756,7 +756,7 @@ class TestCellClassificationAndMagicHarvesting:
             "pip install gdown\n"
         ]
 
-        harvested_pkgs, base_urls, extra_urls, warnings, notices = spy.harvest_cell_magics_and_commands(sources)
+        harvested_pkgs, base_urls, extra_urls, warnings, notices = magics.harvest_cell_magics_and_commands(sources)
 
         assert "gdown" in harvested_pkgs
         assert any("apt-get" in n.lower() or "system" in n.lower() for n in notices)
@@ -768,7 +768,7 @@ class TestCellClassificationAndMagicHarvesting:
             "!pip install torchvision --extra-index-url https://download.pytorch.org/whl/cu121\n"
         ]
 
-        harvested_pkgs, base_urls, extra_urls, warnings, notices = spy.harvest_cell_magics_and_commands(sources)
+        harvested_pkgs, base_urls, extra_urls, warnings, notices = magics.harvest_cell_magics_and_commands(sources)
 
         assert "https://custom.base.index/simple" in base_urls
         assert "https://download.pytorch.org/whl/cu121" in extra_urls
@@ -777,7 +777,7 @@ class TestCellClassificationAndMagicHarvesting:
         """%conda or !conda installs generate an informational notice rather than pip freeze correlation."""
         sources = ["%conda install -c conda-forge graphviz\n"]
 
-        harvested_pkgs, base_urls, extra_urls, warnings, notices = spy.harvest_cell_magics_and_commands(sources)
+        harvested_pkgs, base_urls, extra_urls, warnings, notices = magics.harvest_cell_magics_and_commands(sources)
 
         assert any("conda" in n.lower() for n in notices)
 
@@ -785,7 +785,7 @@ class TestCellClassificationAndMagicHarvesting:
         """%pip install -r requirements.txt emits a diagnostic warning."""
         sources = ["!pip install -r requirements.txt\n"]
 
-        harvested_pkgs, base_urls, extra_urls, warnings, notices = spy.harvest_cell_magics_and_commands(sources)
+        harvested_pkgs, base_urls, extra_urls, warnings, notices = magics.harvest_cell_magics_and_commands(sources)
 
         assert any("requirements" in w.lower() for w in warnings)
 
@@ -1070,7 +1070,7 @@ class TestExecutionChronology:
             {"cell_type": "code", "execution_count": 2, "source": ["# Second\n"]},
             {"cell_type": "code", "execution_count": 1, "source": ["# First\n"]},
         ]
-        ordered_cells, is_exec_ordered = spy.get_ordered_code_cells(cells)
+        ordered_cells, is_exec_ordered = scanning.get_ordered_code_cells(cells)
         assert is_exec_ordered is True
         assert [c["execution_count"] for _, c in ordered_cells] == [1, 2, 5]
 
@@ -1081,7 +1081,7 @@ class TestExecutionChronology:
             {"cell_type": "code", "execution_count": None, "source": ["# Cell 1 unexecuted\n"]},
             {"cell_type": "code", "execution_count": 2, "source": ["# Cell 2\n"]},
         ]
-        ordered_cells, is_exec_ordered = spy.get_ordered_code_cells(cells)
+        ordered_cells, is_exec_ordered = scanning.get_ordered_code_cells(cells)
         assert is_exec_ordered is False
         assert [idx for idx, _ in ordered_cells] == [0, 1, 2]
 
@@ -1092,7 +1092,7 @@ class TestExecutionChronology:
             {"cell_type": "code", "execution_count": 3, "source": ["# Re-run copy\n"]},
             {"cell_type": "code", "execution_count": 1, "source": ["# First\n"]},
         ]
-        ordered_cells, is_exec_ordered = spy.get_ordered_code_cells(cells)
+        ordered_cells, is_exec_ordered = scanning.get_ordered_code_cells(cells)
         assert is_exec_ordered is False
         assert [idx for idx, _ in ordered_cells] == [0, 1, 2]
 
@@ -1135,7 +1135,7 @@ class TestInteractiveKernelRuntime:
         monkeypatch.setattr(__main__, "In", simulated_in_history, raising=False)
 
         imports, submodules, clean_sources, guarded_imports, dyn_warnings = (
-            spy.extract_from_active_session()
+            scanning.extract_from_active_session()
         )
 
         # User imports must be captured

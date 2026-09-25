@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple
 
 import sys
 
-from steady_py import constants, core, delta, installed, models, util
+from steady_py import constants, core, delta, installed, models, scanning, util
 from steady_py.results import (
     CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SetupCells, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -82,7 +82,7 @@ def _analyze(target: Optional[str], environment: Optional[Environment]) -> _Anal
     environment = environment or detect_environment()
 
     if target is not None:
-        ext_res = core.extract_from_file(target, strict=False)
+        ext_res = scanning.extract_from_file(target, strict=False)
         if not ext_res.success:
             unreadable = models.NotebookAnalysisReport(
                 notebook_path=str(target), is_python=False, lang_label=ext_res.lang_label, parse_error=ext_res.error_msg,
@@ -92,11 +92,11 @@ def _analyze(target: Optional[str], environment: Optional[Environment]) -> _Anal
     else:
         if not util.is_running_in_ipython():
             raise ValueError("a target file is required outside a live IPython session")
-        imports, submodules, code_sources, guarded_imports, dynamic_warnings = core.extract_from_active_session()
+        imports, submodules, code_sources, guarded_imports, dynamic_warnings = scanning.extract_from_active_session()
         ext_res = models.ExtractionResult(
             success=True, lang_label=constants.StatusLabel.PYTHON, imports=imports, submodules=submodules,
             code_sources=code_sources, guarded_imports=guarded_imports, dynamic_warnings=dynamic_warnings,
-            writefile_imports=core.extract_writefile_imports_from_sources(code_sources),
+            writefile_imports=scanning.extract_writefile_imports_from_sources(code_sources),
         )
         path, kind, root_dir = Path("session.ipynb"), TargetKind.SESSION, "."
 

@@ -6,7 +6,7 @@ import pytest
 from pathlib import Path
 
 import steady_py.core as spy
-from steady_py import installed, models
+from steady_py import installed, models, scanning
 
 _SRC = str(Path(__file__).resolve().parents[1] / "src")
 SUBPROCESS_ENV = {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [_SRC, os.environ.get("PYTHONPATH")]))}
@@ -181,7 +181,7 @@ def test_apply_output_inplace(sample_notebook_file, mock_frozen_env):
 def test_inplace_idempotency_rerun(sample_notebook_file, mock_frozen_env):
     """Verify executing --in-place twice replaces managed cells without duplication, using real AST re-scan."""
     # First Pass
-    success1, imports1, submodules1, sources1, _, _, guarded1, dyn1 = spy.extract_from_file(str(sample_notebook_file))
+    success1, imports1, submodules1, sources1, _, _, guarded1, dyn1 = scanning.extract_from_file(str(sample_notebook_file))
     scan_res1 = spy.NotebookScanResult(
         path=sample_notebook_file,
         is_python=success1,
@@ -200,7 +200,7 @@ def test_inplace_idempotency_rerun(sample_notebook_file, mock_frozen_env):
     assert len(data_run1["cells"]) == 3
 
     # Second Pass: Perform genuine extract_from_file on the modified notebook
-    success2, imports2, submodules2, sources2, _, _, guarded2, dyn2 = spy.extract_from_file(str(sample_notebook_file))
+    success2, imports2, submodules2, sources2, _, _, guarded2, dyn2 = scanning.extract_from_file(str(sample_notebook_file))
     scan_res2 = spy.NotebookScanResult(
         path=sample_notebook_file,
         is_python=success2,
@@ -226,7 +226,7 @@ def test_inplace_idempotency_rerun(sample_notebook_file, mock_frozen_env):
 
 def _scan(path):
     """Real AST re-scan of a notebook on disk, as the CLI does."""
-    success, imports, submodules, sources, _, _, guarded, dyn = spy.extract_from_file(str(path))
+    success, imports, submodules, sources, _, _, guarded, dyn = scanning.extract_from_file(str(path))
     return spy.NotebookScanResult(
         path=path,
         is_python=success,

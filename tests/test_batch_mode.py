@@ -9,7 +9,7 @@ import pytest
 from pathlib import Path
 
 import steady_py.core as spy
-from steady_py import constants, installed, util
+from steady_py import constants, installed, scanning, util
 
 
 @pytest.fixture
@@ -36,19 +36,19 @@ def mock_batch_env(monkeypatch):
 class TestLanguageKernelDetection:
     def test_python_notebook_detected(self):
         nb = {"metadata": {"kernelspec": {"language": "python"}}}
-        is_py, label = spy.detect_notebook_language(nb)
+        is_py, label = scanning.detect_notebook_language(nb)
         assert is_py is True
         assert label == "python"
 
     def test_r_notebook_skipped(self):
         nb = {"metadata": {"kernelspec": {"language": "R"}}}
-        is_py, label = spy.detect_notebook_language(nb)
+        is_py, label = scanning.detect_notebook_language(nb)
         assert is_py is False
         assert label == "r"
 
     def test_conflicting_language_metadata(self):
         nb = {"metadata": {"kernelspec": {"language": "python"}, "language_info": {"name": "julia"}}}
-        is_py, label = spy.detect_notebook_language(nb)
+        is_py, label = scanning.detect_notebook_language(nb)
         assert is_py is False
         assert "conflict" in label
 
@@ -62,7 +62,7 @@ class TestLanguageKernelDetection:
         nb_path.write_text(json.dumps(nb_no_meta), encoding="utf-8")
 
         success, imports, submodules, code_sources, err, lang_label, guarded, dyn_warns = (
-            spy.extract_from_file(str(nb_path), strict=True)
+            scanning.extract_from_file(str(nb_path), strict=True)
         )
 
         assert success is True

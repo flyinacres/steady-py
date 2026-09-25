@@ -7,8 +7,12 @@ src/steady_py/constants.py
 src/steady_py/core.py
 src/steady_py/delta.py
 src/steady_py/endpoints.py
+src/steady_py/installed.py
+src/steady_py/magics.py
 src/steady_py/models.py
+src/steady_py/pypi.py
 src/steady_py/results.py
+src/steady_py/scanning.py
 src/steady_py/util.py
 src/steady_py.egg-info/PKG-INFO
 src/steady_py.egg-info/SOURCES.txt

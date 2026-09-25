@@ -13,7 +13,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import constants, installed
+from steady_py import constants, installed, scanning
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures//unit"
@@ -63,7 +63,7 @@ def mock_environment(monkeypatch):
 class TestKitchenSinkNotebook:
     def test_extraction_only(self, kitchen_sink_notebook):
         """Confirms raw AST extraction, independent of environment correlation."""
-        success, imports, submodules, code_sources, error_msg, lang_label, guarded, dyn_warns = spy.extract_from_file(str(kitchen_sink_notebook))
+        success, imports, submodules, code_sources, error_msg, lang_label, guarded, dyn_warns = scanning.extract_from_file(str(kitchen_sink_notebook))
         assert success is True
 
         for expected in ("numpy", "cv2", "sklearn", "yaml", "PIL", "bs4", "torch", "cupy", "umap", "this_package_does_not_exist_xyz"):
@@ -83,7 +83,7 @@ class TestKitchenSinkNotebook:
         assert "this_package_does_not_exist_xyz" in guarded
 
     def test_stdlib_correctly_filtered(self, kitchen_sink_notebook):
-        success, imports, submodules, code_sources, error_msg, lang_label, guarded, dyn_warns = spy.extract_from_file(str(kitchen_sink_notebook))
+        success, imports, submodules, code_sources, error_msg, lang_label, guarded, dyn_warns = scanning.extract_from_file(str(kitchen_sink_notebook))
         non_stdlib = {i for i in imports if i not in constants.STD_LIB}
 
         for stdlib_name in ("os", "collections", "xml", "json", "re", "itertools", "math", "importlib"):
@@ -114,7 +114,7 @@ class TestKitchenSinkNotebook:
         assert "https://download.pytorch.org/whl/cu121" in out
 
     def test_relative_import_is_silently_invisible(self, kitchen_sink_notebook):
-        success, imports, submodules, code_sources, error_msg, lang_label, guarded, dyn_warns = spy.extract_from_file(str(kitchen_sink_notebook))
+        success, imports, submodules, code_sources, error_msg, lang_label, guarded, dyn_warns = scanning.extract_from_file(str(kitchen_sink_notebook))
         assert success is True
         assert "helper_module" not in imports
         assert not any("helper" in name for name in imports)
