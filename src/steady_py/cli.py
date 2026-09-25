@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
-from steady_py import constants, core, endpoints, localmodules, models
+from steady_py import constants, core, endpoints, localmodules, models, resolution
 from steady_py.results import (
     CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -482,7 +482,7 @@ def main() -> None:
     """The entry point: parses the flags, runs the verb they ask for, and exits with its code."""
     core.configure_console()
     localmodules.resolve_local_module.cache_clear()  # type: ignore[attr-defined]  # attached by _memoize_for_run
-    core.build_manifest_entries.cache_clear()  # type: ignore[attr-defined]
+    resolution.build_manifest_entries.cache_clear()  # type: ignore[attr-defined]
 
     parser = build_parser()
     args = parser.parse_args()

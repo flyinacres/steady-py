@@ -12,8 +12,7 @@ from pathlib import Path
 import pytest
 
 import steady_py.cli as cli
-import steady_py.core as spy
-from steady_py import constants, installed, scanning
+from steady_py import constants, installed, resolution, scanning
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures//unit"
@@ -39,7 +38,7 @@ def mock_environment(monkeypatch):
     }
     raw_freeze = list(frozen_env.values())
     monkeypatch.setattr(installed, "get_installed_environment", lambda: (frozen_env, raw_freeze))
-    monkeypatch.setattr(spy, "resolve_opencv_variant", lambda submodules=None: "opencv-python")
+    monkeypatch.setattr(resolution, "resolve_opencv_variant", lambda submodules=None: "opencv-python")
 
     fake_packages_distributions = {
         "numpy": ["numpy"],
@@ -133,7 +132,7 @@ class TestKitchenSinkNotebook:
         }
         mock_raw_freeze = list(mock_frozen_env.values())
         monkeypatch.setattr(installed, "get_installed_environment", lambda: (mock_frozen_env, mock_raw_freeze))
-        monkeypatch.setattr(spy, "resolve_opencv_variant", lambda submodules=None: "opencv-python")
+        monkeypatch.setattr(resolution, "resolve_opencv_variant", lambda submodules=None: "opencv-python")
         monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
         monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(kitchen_sink_notebook)])
 
@@ -173,8 +172,8 @@ class TestPypiMapTranslations:
         """dotenv resolves to python-dotenv and mpl_toolkits resolves to matplotlib."""
         frozen_env = {}
         
-        pin_dotenv, _ = spy.resolve_pypi_package_and_extras("dotenv", set(), frozen_env)
+        pin_dotenv, _ = resolution.resolve_pypi_package_and_extras("dotenv", set(), frozen_env)
         assert "python-dotenv" in pin_dotenv.specifier
 
-        pin_mpl, _ = spy.resolve_pypi_package_and_extras("mpl_toolkits", set(), frozen_env)
+        pin_mpl, _ = resolution.resolve_pypi_package_and_extras("mpl_toolkits", set(), frozen_env)
         assert "matplotlib" in pin_mpl.specifier

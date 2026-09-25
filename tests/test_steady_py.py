@@ -21,7 +21,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import accelerator, constants, installed, localmodules, magics, models, scanning
+from steady_py import accelerator, constants, installed, localmodules, magics, models, resolution, scanning
 from steady_py.constants import StatusLabel
 from steady_py.core import BlueprintResult
 from steady_py.models import GpuInfo
@@ -130,7 +130,7 @@ class TestGuardedImports:
         imports = {"numpy", "cupy"}
         guarded_imports = {"cupy"}
 
-        pinned_entries, notices = spy.build_manifest_entries(
+        pinned_entries, notices = resolution.build_manifest_entries(
             imports, submodules, frozen_env, guarded_imports=guarded_imports
         )
 
@@ -145,7 +145,7 @@ class TestGuardedImports:
         imports = {"numpy", "cupy"}
         guarded_imports = {"cupy"}
 
-        pinned_entries, notices = spy.build_manifest_entries(
+        pinned_entries, notices = resolution.build_manifest_entries(
             imports, submodules, frozen_env, guarded_imports=guarded_imports
         )
 
@@ -285,7 +285,7 @@ class TestDynamicResolution:
         frozen_env: Dict[str, str] = {"umap-learn": "umap-learn==0.5.5"}
         submodules_set: Set[str] = {"umap.plot"}
 
-        pin, notice = spy.resolve_pypi_package_and_extras("umap", submodules_set, frozen_env)
+        pin, notice = resolution.resolve_pypi_package_and_extras("umap", submodules_set, frozen_env)
 
         assert pin.specifier == "umap-learn[plot]==0.5.5"
         assert notice is not None
@@ -297,7 +297,7 @@ class TestDynamicResolution:
 
         frozen_env: Dict[str, str] = {}
 
-        pin, notice = spy.resolve_pypi_package_and_extras("sklearn", set(), frozen_env)
+        pin, notice = resolution.resolve_pypi_package_and_extras("sklearn", set(), frozen_env)
 
         assert pin.specifier.startswith("#")
         assert "scikit-learn" in pin.specifier
@@ -511,12 +511,12 @@ class TestGpuInspection:
 
 class TestPackageRequirements:
     def test_local_tag_without_harvested_url_warns(self) -> None:
-        manifest, tagged, warnings = spy.process_package_requirements(["torch==2.3.1+cu121"], set())
+        manifest, tagged, warnings = resolution.process_package_requirements(["torch==2.3.1+cu121"], set())
         assert "torch==2.3.1+cu121" in warnings
         assert tagged == [("torch==2.3.1+cu121", [])]
 
     def test_local_tag_with_harvested_url_no_warning(self) -> None:
-        manifest, tagged, warnings = spy.process_package_requirements(
+        manifest, tagged, warnings = resolution.process_package_requirements(
             ["torch==2.3.1+cu121"], {"https://download.pytorch.org/whl/cu121"}
         )
         assert warnings == []
@@ -526,7 +526,7 @@ class TestPackageRequirements:
 
     def test_uninstalled_top_level_import_placeholder(self) -> None:
         pinned_manifest: List[str] = ["# some_unknown_pkg (imported as 'some_unknown_pkg', not currently found in active env)"]
-        manifest, tagged, warnings = spy.process_package_requirements(pinned_manifest, set())
+        manifest, tagged, warnings = resolution.process_package_requirements(pinned_manifest, set())
         assert manifest == pinned_manifest
         assert tagged == []
         assert warnings == []
@@ -714,7 +714,7 @@ class TestSequentialExecutionEngine:
             "import pandas as pd\n",                                     # cell 1
             "!pip install torch==2.3.1 --extra-index-url https://whl\n" # cell 2
         ]
-        timeline_res = spy.build_unified_timeline(
+        timeline_res = resolution.build_unified_timeline(
             code_cells, 
             frozen_env={"torch": "torch==2.3.1", "pandas": "pandas==2.2.1"}
         )
@@ -737,7 +737,7 @@ class TestSequentialExecutionEngine:
         sources = ["!pip install pandas==2.0.0\n"]
         frozen_env = {"pandas": "pandas==2.2.1"}  # Host has 2.2.1, notebook explicitly asked for 2.0.0
         
-        res = spy.build_unified_timeline(sources, frozen_env=frozen_env)
+        res = resolution.build_unified_timeline(sources, frozen_env=frozen_env)
         
         assert res.dependencies[0].version == "2.0.0"
         assert any(
@@ -798,7 +798,7 @@ class TestIntegrationAndFormatting:
         harvested_urls = {"https://download.pytorch.org/whl/cu121"}
         base_urls = {"https://custom.pypi.org/simple"}
 
-        manifest_lines, _, _ = spy.process_package_requirements(
+        manifest_lines, _, _ = resolution.process_package_requirements(
             pinned, harvested_urls, base_urls=base_urls
         )
 
@@ -811,7 +811,7 @@ class TestIntegrationAndFormatting:
         harvested_pkgs = {"gdown", "pandas"}  # pandas is already imported, gdown is aux-only
         frozen_env = {"pandas": "pandas==2.2.0", "gdown": "gdown==5.1.0"}
 
-        aux_entries = spy.build_auxiliary_tool_entries(harvested_pkgs, imports, frozen_env)
+        aux_entries = resolution.build_auxiliary_tool_entries(harvested_pkgs, imports, frozen_env)
 
         assert len(aux_entries) == 2
         assert aux_entries[0].comment_text == "\n# --- AUXILIARY TOOL INSTALLS (harvested from cell magics) ---"
@@ -824,7 +824,7 @@ class TestIntegrationAndFormatting:
         harvested_pkgs = {"awscli"}
         frozen_env = {}
 
-        aux_entries = spy.build_auxiliary_tool_entries(harvested_pkgs, imports, frozen_env)
+        aux_entries = resolution.build_auxiliary_tool_entries(harvested_pkgs, imports, frozen_env)
 
         assert len(aux_entries) == 2
         assert "# awscli  (installed via cell command; not found in active env)" in aux_entries[1].comment_text
@@ -835,7 +835,7 @@ class TestIntegrationAndFormatting:
         writefile_imports = ["requests", "pandas"]  # pandas is in primary, requests is script-only
         frozen_env = {"pandas": "pandas==2.30.0", "requests": "requests==2.31.0"}
 
-        entries = spy.build_writefile_tool_entries(writefile_imports, primary_imports, frozen_env)
+        entries = resolution.build_writefile_tool_entries(writefile_imports, primary_imports, frozen_env)
 
         assert len(entries) == 2
         assert entries[0].comment_text == "\n# --- WRITEFILE SCRIPT DEPENDENCIES ---"
@@ -939,14 +939,14 @@ class TestMemoizeForRun:
 
     def test_build_manifest_entries_dedupes_identical_calls(self, monkeypatch):
         call_count = {"n": 0}
-        real_resolve = spy.resolve_pypi_package_and_extras
+        real_resolve = resolution.resolve_pypi_package_and_extras
 
         def counting_resolve(*args, **kwargs):
             call_count["n"] += 1
             return real_resolve(*args, **kwargs)
 
-        monkeypatch.setattr(spy, "resolve_pypi_package_and_extras", counting_resolve)
-        spy.build_manifest_entries.cache_clear()
+        monkeypatch.setattr(resolution, "resolve_pypi_package_and_extras", counting_resolve)
+        resolution.build_manifest_entries.cache_clear()
 
         imports = {"pandas", "numpy"}
         # Same dict object passed to both calls, matching every real call site
@@ -959,9 +959,9 @@ class TestMemoizeForRun:
         submodules: Dict[str, Set[str]] = {}
         frozen_env = {"pandas": "pandas==2.2.0", "numpy": "numpy==1.26.0"}
 
-        r1 = spy.build_manifest_entries(imports, submodules, frozen_env)
+        r1 = resolution.build_manifest_entries(imports, submodules, frozen_env)
         calls_after_first = call_count["n"]
-        r2 = spy.build_manifest_entries(imports, submodules, frozen_env)
+        r2 = resolution.build_manifest_entries(imports, submodules, frozen_env)
 
         assert r1 == r2
         assert call_count["n"] == calls_after_first, "second identical call (same object refs) should not re-resolve every import"
@@ -972,37 +972,37 @@ class TestMemoizeForRun:
         correctly hit the cache without re-resolving dependencies.
         """
         call_count = {"n": 0}
-        real_resolve = spy.resolve_pypi_package_and_extras
+        real_resolve = resolution.resolve_pypi_package_and_extras
 
         def counting_resolve(*args, **kwargs):
             call_count["n"] += 1
             return real_resolve(*args, **kwargs)
 
-        monkeypatch.setattr(spy, "resolve_pypi_package_and_extras", counting_resolve)
-        spy.build_manifest_entries.cache_clear()
-        if hasattr(spy.resolve_pypi_package_and_extras, "cache_clear"):
-            spy.resolve_pypi_package_and_extras.cache_clear()
+        monkeypatch.setattr(resolution, "resolve_pypi_package_and_extras", counting_resolve)
+        resolution.build_manifest_entries.cache_clear()
+        if hasattr(resolution.resolve_pypi_package_and_extras, "cache_clear"):
+            resolution.resolve_pypi_package_and_extras.cache_clear()
 
         imports = {"pandas"}
         frozen_env = {"pandas": "pandas==2.2.0"}
 
         # 1. First call must execute resolution and record >= 1 call
-        r1 = spy.build_manifest_entries(imports, {}, frozen_env)
+        r1 = resolution.build_manifest_entries(imports, {}, frozen_env)
         calls_after_first = call_count["n"]
         assert calls_after_first > 0, "First call must actively invoke dependency resolution"
 
         # 2. Second call with a fresh distinct {} literal MUST hit build_manifest_entries cache
-        r2 = spy.build_manifest_entries(imports, {}, frozen_env)
+        r2 = resolution.build_manifest_entries(imports, {}, frozen_env)
 
         assert r1 == r2, "Results must match between cached runs"
         assert call_count["n"] == calls_after_first, "Distinct dicts with identical content must not re-invoke resolution"
 
     def test_build_manifest_entries_different_imports_not_conflated(self):
-        spy.build_manifest_entries.cache_clear()
+        resolution.build_manifest_entries.cache_clear()
         frozen_env = {"pandas": "pandas==2.2.0", "numpy": "numpy==1.26.0"}
 
-        entries_pandas, _ = spy.build_manifest_entries({"pandas"}, {}, frozen_env)
-        entries_numpy, _ = spy.build_manifest_entries({"numpy"}, {}, frozen_env)
+        entries_pandas, _ = resolution.build_manifest_entries({"pandas"}, {}, frozen_env)
+        entries_numpy, _ = resolution.build_manifest_entries({"numpy"}, {}, frozen_env)
 
         assert any("pandas" in line for line in entries_pandas)
         assert not any("pandas" in line for line in entries_numpy)
@@ -1013,25 +1013,25 @@ class TestMemoizeForRun:
         """Two distinct frozen_env dict objects (even if built independently)
         must resolve independently — id()-keying must not accidentally treat
         an unrelated dict as a cache hit."""
-        spy.build_manifest_entries.cache_clear()
+        resolution.build_manifest_entries.cache_clear()
         imports = {"pandas"}
 
-        entries_v1, _ = spy.build_manifest_entries(imports, {}, {"pandas": "pandas==2.2.0"})
-        entries_v2, _ = spy.build_manifest_entries(imports, {}, {"pandas": "pandas==1.5.0"})
+        entries_v1, _ = resolution.build_manifest_entries(imports, {}, {"pandas": "pandas==2.2.0"})
+        entries_v2, _ = resolution.build_manifest_entries(imports, {}, {"pandas": "pandas==1.5.0"})
 
         assert any("2.2.0" in line for line in entries_v1)
         assert any("1.5.0" in line for line in entries_v2)
 
     def test_build_manifest_entries_returns_defensive_copy(self):
-        spy.build_manifest_entries.cache_clear()
+        resolution.build_manifest_entries.cache_clear()
         imports = {"pandas"}
         submodules: Dict[str, Set[str]] = {}  # same object both calls — see dedup test above for why
         frozen_env = {"pandas": "pandas==2.2.0"}
 
-        entries1, notes1 = spy.build_manifest_entries(imports, submodules, frozen_env)
+        entries1, notes1 = resolution.build_manifest_entries(imports, submodules, frozen_env)
         entries1.append("INJECTED_BY_TEST")
         notes1.append("INJECTED_NOTE")
-        entries2, notes2 = spy.build_manifest_entries(imports, submodules, frozen_env)
+        entries2, notes2 = resolution.build_manifest_entries(imports, submodules, frozen_env)
 
         assert "INJECTED_BY_TEST" not in entries2
         assert "INJECTED_NOTE" not in notes2
@@ -1043,7 +1043,7 @@ class TestMemoizeForRun:
         left over from an earlier one."""
         cleared = {"local_modules": False, "manifest": False}
         monkeypatch.setattr(localmodules.resolve_local_module, "cache_clear", lambda: cleared.__setitem__("local_modules", True))
-        monkeypatch.setattr(spy.build_manifest_entries, "cache_clear", lambda: cleared.__setitem__("manifest", True))
+        monkeypatch.setattr(resolution.build_manifest_entries, "cache_clear", lambda: cleared.__setitem__("manifest", True))
 
         # --output with no subcommand hits argparse's own required-subcommand
         # validation inside parser.parse_args() -- a real, guaranteed-early exit
@@ -1156,33 +1156,33 @@ class TestResolveOpencvVariant:
     def test_contrib_headless_detected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When pip list shows opencv-contrib-python-headless, that exact variant is returned."""
         monkeypatch.setattr(subprocess, "run", self._mock_pip_list("opencv-contrib-python-headless 4.9.0"))
-        assert spy.resolve_opencv_variant() == "opencv-contrib-python-headless"
+        assert resolution.resolve_opencv_variant() == "opencv-contrib-python-headless"
 
     def test_headless_detected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When pip list shows opencv-python-headless, that exact variant is returned."""
         monkeypatch.setattr(subprocess, "run", self._mock_pip_list("opencv-python-headless 4.9.0"))
-        assert spy.resolve_opencv_variant() == "opencv-python-headless"
+        assert resolution.resolve_opencv_variant() == "opencv-python-headless"
 
     def test_contrib_detected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When pip list shows opencv-contrib-python, that exact variant is returned."""
         monkeypatch.setattr(subprocess, "run", self._mock_pip_list("opencv-contrib-python 4.9.0"))
-        assert spy.resolve_opencv_variant() == "opencv-contrib-python"
+        assert resolution.resolve_opencv_variant() == "opencv-contrib-python"
 
     def test_base_detected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When pip list shows plain opencv-python, that exact variant is returned."""
         monkeypatch.setattr(subprocess, "run", self._mock_pip_list("opencv-python 4.9.0"))
-        assert spy.resolve_opencv_variant() == "opencv-python"
+        assert resolution.resolve_opencv_variant() == "opencv-python"
 
     def test_no_match_falls_back_to_submodule_heuristic(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When pip list succeeds but matches none of the four variant strings, resolution falls back to the submodules heuristic."""
         monkeypatch.setattr(subprocess, "run", self._mock_pip_list("some-other-package 1.0.0"))
-        assert spy.resolve_opencv_variant({"aruco"}) == "opencv-contrib-python"
-        assert spy.resolve_opencv_variant(set()) == "opencv-python"
+        assert resolution.resolve_opencv_variant({"aruco"}) == "opencv-contrib-python"
+        assert resolution.resolve_opencv_variant(set()) == "opencv-python"
 
     def test_subprocess_exception_falls_back_to_submodule_heuristic(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When 'pip list' itself raises, resolution falls back to the submodules heuristic."""
         def raise_error(*a, **kw):
             raise OSError("pip not found")
         monkeypatch.setattr(subprocess, "run", raise_error)
-        assert spy.resolve_opencv_variant({"contrib"}) == "opencv-contrib-python"
-        assert spy.resolve_opencv_variant(None) == "opencv-python"
+        assert resolution.resolve_opencv_variant({"contrib"}) == "opencv-contrib-python"
+        assert resolution.resolve_opencv_variant(None) == "opencv-python"

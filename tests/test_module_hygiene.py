@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import steady_py.core as spy
+from steady_py import resolution
 
 SRC_DIR = str(Path(spy.__file__).resolve().parents[1])
 
@@ -54,7 +55,7 @@ def test_failed_opencv_probe_falls_back_and_is_logged_at_debug(monkeypatch, capl
 
     monkeypatch.setattr(spy.subprocess, "run", boom)
     caplog.set_level(logging.DEBUG, logger="steady_py")
-    assert spy.resolve_opencv_variant() == "opencv-python"
+    assert resolution.resolve_opencv_variant() == "opencv-python"
     assert "Could not inspect installed OpenCV variants" in caplog.text
 
 

@@ -21,8 +21,7 @@ from pathlib import Path
 import pytest
 
 import steady_py.cli as cli
-import steady_py.core as spy
-from steady_py import installed
+from steady_py import installed, resolution
 
 
 KERNEL_META = {
@@ -61,7 +60,7 @@ def minimal_environment(monkeypatch):
     unrelated missing/matched-package noise, and prevents any real
     subprocess calls (pip list / pip freeze) during generation."""
     monkeypatch.setattr(installed, "get_installed_environment", lambda: ({}, []))
-    monkeypatch.setattr(spy, "resolve_opencv_variant", lambda submodules=None: "opencv-python")
+    monkeypatch.setattr(resolution, "resolve_opencv_variant", lambda submodules=None: "opencv-python")
     monkeypatch.setattr(
         "subprocess.run",
         lambda *a, **k: pytest.fail("Unexpected real subprocess.run call during generation"),

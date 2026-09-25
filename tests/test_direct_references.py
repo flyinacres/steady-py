@@ -20,7 +20,7 @@ import types
 import pytest
 
 import steady_py.core as spy
-from steady_py import installed
+from steady_py import installed, resolution
 
 REMOTE_URL = "git+https://example.com/org/zzq-remote.git@0123456789abcdef"
 LOCAL_DIR = "/home/ron/src/zzq-local"
@@ -88,7 +88,7 @@ class TestInstalledEnvironmentParsing:
 
 class TestResolveDirectReference:
     def test_remote_is_not_a_pypi_pin_and_keeps_its_url(self):
-        entry, _ = spy.resolve_pypi_package_and_extras(
+        entry, _ = resolution.resolve_pypi_package_and_extras(
             "zzqremote", set(), {"zzq-remote": REMOTE_PIN}, pkg_dist_map={"zzqremote": ["zzq-remote"]}
         )
         assert entry.status == "direct_reference"
@@ -97,7 +97,7 @@ class TestResolveDirectReference:
         assert "not found" not in entry.comment_text
 
     def test_local_is_system_path_and_never_carries_the_path(self):
-        entry, _ = spy.resolve_pypi_package_and_extras(
+        entry, _ = resolution.resolve_pypi_package_and_extras(
             "zzqlocal", set(), {"zzq-local": LOCAL_PIN}, pkg_dist_map={"zzqlocal": ["zzq-local"]}
         )
         assert entry.status == "system_path"
@@ -107,7 +107,7 @@ class TestResolveDirectReference:
         assert "system-dependent path" in entry.comment_text
 
     def test_guarded_import_of_direct_reference_does_not_crash(self):
-        entry, _ = spy.resolve_pypi_package_and_extras(
+        entry, _ = resolution.resolve_pypi_package_and_extras(
             "zzqremote", set(), {"zzq-remote": REMOTE_PIN},
             pkg_dist_map={"zzqremote": ["zzq-remote"]}, is_guarded=True,
         )
@@ -115,8 +115,8 @@ class TestResolveDirectReference:
         assert REMOTE_URL not in entry.comment_text
 
     @pytest.mark.parametrize("builder,pkg", [
-        (spy.build_auxiliary_tool_entries, "zzq-local"),
-        (spy.build_writefile_tool_entries, "zzq_local"),
+        (resolution.build_auxiliary_tool_entries, "zzq-local"),
+        (resolution.build_writefile_tool_entries, "zzq_local"),
     ])
     def test_tool_entries_never_leak_a_local_path(self, builder, pkg):
         entries = builder({pkg}, set(), {"zzq-local": LOCAL_PIN})
