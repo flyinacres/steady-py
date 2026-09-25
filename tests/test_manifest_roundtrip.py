@@ -22,6 +22,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
+from steady_py import models
 
 
 FIXTURE_DIR = Path("tests/fixtures")
@@ -48,7 +49,7 @@ def _write_notebook_with_manifest(tmp_path, dependencies, filename="generated.ip
 class TestManifestRoundTrip:
     def test_generate_then_extract_round_trip(self, tmp_path):
         """generate -> write -> extract should recover the exact same manifest."""
-        deps = [spy.PinnedDependency("requests", "2.32.1")]
+        deps = [models.PinnedDependency("requests", "2.32.1")]
         path, result = _write_notebook_with_manifest(tmp_path, deps)
 
         extracted, error = spy.extract_manifest_from_file(str(path))
@@ -94,7 +95,7 @@ class TestManifestRoundTrip:
         """Regression test for the magic-line parse bug: a notebook with a real
         '!pip install' line in an unrelated cell must not block extraction of
         a manifest that lives in a different cell."""
-        deps = [spy.PinnedDependency("requests", "2.32.1")]
+        deps = [models.PinnedDependency("requests", "2.32.1")]
         result = spy.generate_production_blueprint(deps)
         nb = {
             "cells": [
@@ -120,7 +121,7 @@ class TestBaselineE2E:
         """requests==2.32.0 was yanked before this test existed (a permanent historical fact), so
         generation records it, and a later check reports it as known -- still failing the check,
         since a known confirmed finding is still a real problem."""
-        deps = [spy.PinnedDependency("requests", "2.32.0")]
+        deps = [models.PinnedDependency("requests", "2.32.0")]
         path, result = _write_notebook_with_manifest(tmp_path, deps)
 
         assert ("yanked", "requests", "2.32.0") in result["drift_report"].manifest.baseline.findings
@@ -136,7 +137,7 @@ class TestBaselineE2E:
 class TestTamperingDetectionE2E:
     def test_hand_edited_version_is_detected(self, tmp_path):
         """Real file, hand-edited on disk after generation -- hash mismatch fires."""
-        deps = [spy.PinnedDependency("requests", "2.32.1")]
+        deps = [models.PinnedDependency("requests", "2.32.1")]
         path, _ = _write_notebook_with_manifest(tmp_path, deps)
 
         content = path.read_text(encoding="utf-8")
@@ -148,7 +149,7 @@ class TestTamperingDetectionE2E:
         assert exit_code == 1  # confirmed findings present, no check_error
 
     def test_untampered_manifest_has_no_tampering_finding(self, tmp_path, capsys):
-        deps = [spy.PinnedDependency("requests", "2.32.1")]
+        deps = [models.PinnedDependency("requests", "2.32.1")]
         path, _ = _write_notebook_with_manifest(tmp_path, deps)
 
         cli.run_check(str(path))
@@ -161,7 +162,7 @@ class TestCheckDriftPipelineE2E:
         """requests==2.32.0 is permanently yanked (verified live earlier this
         session) -- a durable fact, safe to assert against real PyPI without
         the test breaking as time passes."""
-        deps = [spy.PinnedDependency("requests", "2.32.0")]
+        deps = [models.PinnedDependency("requests", "2.32.0")]
         path, _ = _write_notebook_with_manifest(tmp_path, deps)
 
         exit_code = cli.run_check(str(path))
@@ -266,7 +267,7 @@ class TestLocalModulePersistence:
         parse cleanly and default to an empty list, not crash."""
         pre_existing_shape = {
             "python_version": {"major": 3, "minor": 11},
-            "dependencies": [spy.PinnedDependency("requests", "2.32.1")],
+            "dependencies": [models.PinnedDependency("requests", "2.32.1")],
             "gpu": None,
             "generated_at": "2025-01-01 00:00:00",
             "tool_version": "40",
@@ -274,47 +275,47 @@ class TestLocalModulePersistence:
             "raw_installs": [],
             "custom_sourced": [],
         }
-        manifest = spy.SteadyPyManifest(**pre_existing_shape)
+        manifest = models.SteadyPyManifest(**pre_existing_shape)
         assert manifest.local_modules == []
 
 class TestPinnedDependencyType:
     """Manifest pins are typed objects in memory and plain dicts only in the persisted literal."""
 
     def test_to_dict_is_the_persisted_shape(self):
-        pin = spy.PinnedDependency("pandas[test]", "2.2.1", ("--extra-index-url", "https://idx"))
+        pin = models.PinnedDependency("pandas[test]", "2.2.1", ("--extra-index-url", "https://idx"))
         assert pin.to_dict() == {"name": "pandas[test]", "version": "2.2.1", "flags": ["--extra-index-url", "https://idx"]}
 
     def test_flags_default_to_empty(self):
-        assert spy.PinnedDependency("requests", "2.32.3").to_dict()["flags"] == []
+        assert models.PinnedDependency("requests", "2.32.3").to_dict()["flags"] == []
 
     def test_from_dict_round_trips(self):
-        pin = spy.PinnedDependency("numpy", "1.26.4", ("--pre",))
-        assert spy.PinnedDependency.from_dict(pin.to_dict()) == pin
+        pin = models.PinnedDependency("numpy", "1.26.4", ("--pre",))
+        assert models.PinnedDependency.from_dict(pin.to_dict()) == pin
 
     @pytest.mark.parametrize("bad", ["numpy==1", None, {"version": "1"}, {"name": "x"}, {"name": 3, "version": "1"}])
     def test_from_dict_rejects_malformed_entries(self, bad):
         with pytest.raises(TypeError):
-            spy.PinnedDependency.from_dict(bad)
+            models.PinnedDependency.from_dict(bad)
 
     def test_dependency_entry_converts_to_a_pin(self):
-        entry = spy.DependencyEntry(name="requests", version="2.32.3", flags=["--pre"])
-        assert entry.to_pin() == spy.PinnedDependency("requests", "2.32.3", ("--pre",))
+        entry = models.DependencyEntry(name="requests", version="2.32.3", flags=["--pre"])
+        assert entry.to_pin() == models.PinnedDependency("requests", "2.32.3", ("--pre",))
 
     def test_generation_records_typed_pins(self):
-        result = spy.generate_production_blueprint([spy.PinnedDependency("core-dep", "1.0.0"), "plain==2.0"])
+        result = spy.generate_production_blueprint([models.PinnedDependency("core-dep", "1.0.0"), "plain==2.0"])
         assert result["drift_report"].manifest.dependencies == [
-            spy.PinnedDependency("core-dep", "1.0.0"), spy.PinnedDependency("plain", "2.0"),
+            models.PinnedDependency("core-dep", "1.0.0"), models.PinnedDependency("plain", "2.0"),
         ]
 
     def test_from_literal_builds_typed_pins_and_keeps_the_hash_over_the_stored_dicts(self):
-        manifest = spy.generate_production_blueprint([spy.PinnedDependency("core-dep", "1.0.0")])["drift_report"].manifest
-        loaded = spy.SteadyPyManifest.from_literal(manifest.to_dict())
-        assert loaded.dependencies == [spy.PinnedDependency("core-dep", "1.0.0")]
+        manifest = spy.generate_production_blueprint([models.PinnedDependency("core-dep", "1.0.0")])["drift_report"].manifest
+        loaded = models.SteadyPyManifest.from_literal(manifest.to_dict())
+        assert loaded.dependencies == [models.PinnedDependency("core-dep", "1.0.0")]
         assert loaded.verified_hash == loaded.dependency_hash
 
     @pytest.mark.parametrize("bad_deps", ["core-dep==1.0.0", [{"name": "core-dep"}], ["core-dep==1.0.0"]])
     def test_extraction_reports_a_malformed_dependency_list(self, tmp_path, bad_deps):
-        literal = spy.generate_production_blueprint([spy.PinnedDependency("core-dep", "1.0.0")])["drift_report"].manifest.to_dict()
+        literal = spy.generate_production_blueprint([models.PinnedDependency("core-dep", "1.0.0")])["drift_report"].manifest.to_dict()
         literal["dependencies"] = bad_deps
         path = tmp_path / "nb.py"
         path.write_text(f"STEADY_PY_MANIFEST = {literal!r}\n", encoding="utf-8")

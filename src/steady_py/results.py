@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 if TYPE_CHECKING:
-    from steady_py import core
+    from steady_py import core, models
 
-# Plain string constants, not Enum members, for the same reason as core.StatusLabel: they serialize
+# Plain string constants, not Enum members, for the same reason as constants.StatusLabel: they serialize
 # and format as ordinary strings on every supported Python version.
 
 
@@ -117,8 +117,8 @@ class Delta:
     python_version: Optional[Tuple[str, str]] = None     # (before, after), None when unchanged
     gpu: Optional[Tuple[GpuSetting, GpuSetting]] = None  # (before, after), None when unchanged
     baseline_compared: bool = False  # False when the fresh manifest has no baseline, as in scan, which never contacts PyPI
-    findings_appeared: List[core.FindingKey] = field(default_factory=list)  # baseline findings; empty unless baseline_compared
-    findings_resolved: List[core.FindingKey] = field(default_factory=list)
+    findings_appeared: List[models.FindingKey] = field(default_factory=list)  # baseline findings; empty unless baseline_compared
+    findings_resolved: List[models.FindingKey] = field(default_factory=list)
 
     @property
     def has_changes(self) -> bool:
@@ -152,8 +152,8 @@ class Delta:
 class NotebookScan:
     """scan of one notebook: what it needs."""
     path: str
-    report: core.NotebookAnalysisReport
-    manifest: Optional[core.SteadyPyManifest] = None  # the manifest the file already carries, if any
+    report: models.NotebookAnalysisReport
+    manifest: Optional[models.SteadyPyManifest] = None  # the manifest the file already carries, if any
     manifest_error: Optional[str] = None              # the file has a manifest that could not be read
     delta: Optional[Delta] = None                     # set when `manifest` is present
     error: Optional[str] = None
@@ -170,7 +170,7 @@ class SetupCells:
 class NotebookSnapshot:
     """snapshot of one notebook: the setup cells and manifest, and where they went."""
     path: str
-    report: core.NotebookAnalysisReport
+    report: models.NotebookAnalysisReport
     cells: Optional[SetupCells] = None
     drift_report: Optional[core.DriftCheckReport] = None  # generation-time validation of the new pins
     delta: Optional[Delta] = None                         # set when the file already had a manifest
@@ -178,7 +178,7 @@ class NotebookSnapshot:
     error: Optional[str] = None
 
     @property
-    def manifest(self) -> Optional[core.SteadyPyManifest]:
+    def manifest(self) -> Optional[models.SteadyPyManifest]:
         """The new manifest."""
         return self.drift_report.manifest if self.drift_report is not None else None
 
@@ -205,7 +205,7 @@ class ScanResult:
     target: str
     kind: str = TargetKind.FILE
     notebooks: List[NotebookScan] = field(default_factory=list)
-    batch_summary: Optional[core.BatchAnalysisSummary] = None  # directories only
+    batch_summary: Optional[models.BatchAnalysisSummary] = None  # directories only
 
     @property
     def failed(self) -> List[NotebookScan]:
@@ -217,7 +217,7 @@ class SnapshotResult:
     target: str
     kind: str = TargetKind.FILE
     notebooks: List[NotebookSnapshot] = field(default_factory=list)
-    batch_summary: Optional[core.BatchAnalysisSummary] = None  # directories only
+    batch_summary: Optional[models.BatchAnalysisSummary] = None  # directories only
     validation: Optional[core.BatchValidation] = None         # aggregate validation across written notebooks
     universal_path: Optional[str] = None                      # the combined requirements file, if written
     error: Optional[str] = None                               # a failure of the run as a whole, not of one notebook

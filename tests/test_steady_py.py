@@ -21,11 +21,10 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py.core import (
-    StatusLabel,
-    GpuInfo,
-    BlueprintResult,
-)
+from steady_py import constants, models
+from steady_py.constants import StatusLabel
+from steady_py.core import BlueprintResult
+from steady_py.models import GpuInfo
 
 
 # =====================================================================
@@ -535,35 +534,35 @@ class TestPackageRequirements:
 
 class TestBlueprintGeneration:
     def test_returns_both_sections(self) -> None:
-        manifest_items = [spy.PinnedDependency("numpy", "1.26.0")]
+        manifest_items = [models.PinnedDependency("numpy", "1.26.0")]
         blueprint: BlueprintResult = spy.generate_production_blueprint(manifest_items)
         assert "step1_markdown" in blueprint
         assert "step2_code" in blueprint
 
     def test_python_version_guard_matches_runtime(self) -> None:
-        manifest_items = [spy.PinnedDependency("numpy", "1.26.0")]
+        manifest_items = [models.PinnedDependency("numpy", "1.26.0")]
         blueprint: BlueprintResult = spy.generate_production_blueprint(manifest_items)
         expected_guard: str = f"'major': {sys.version_info.major}, 'minor': {sys.version_info.minor}"
         assert expected_guard in blueprint["step2_code"]
 
     def test_gpu_section_included_when_gpu_present(self) -> None:
-        gpu_info = spy.GpuInfo(
+        gpu_info = models.GpuInfo(
             has_gpu=True,
             active_framework="PyTorch",
             device_name="NVIDIA GeForce RTX 3090 (via PyTorch)",
             frameworks=["torch"],
         )
-        manifest_items = [spy.PinnedDependency("torch", "2.3.1")]
+        manifest_items = [models.PinnedDependency("torch", "2.3.1")]
         blueprint: BlueprintResult = spy.generate_production_blueprint(manifest_items, gpu_info=gpu_info)
         assert "RTX 3090" in blueprint["step1_markdown"]
 
     def test_gpu_section_omitted_when_no_gpu(self) -> None:
-        manifest_items = [spy.PinnedDependency("numpy", "1.26.0")]
+        manifest_items = [models.PinnedDependency("numpy", "1.26.0")]
         blueprint: BlueprintResult = spy.generate_production_blueprint(manifest_items, gpu_info=None)
         assert "Hardware Acceleration" not in blueprint["step1_markdown"]
 
     def test_full_freeze_appended_after_manifest(self) -> None:
-        manifest_items = [spy.PinnedDependency("numpy", "1.26.0")]
+        manifest_items = [models.PinnedDependency("numpy", "1.26.0")]
         blueprint: BlueprintResult = spy.generate_production_blueprint(
             manifest_items, full_freeze_lines=["# certifi==2024.2.2"]
         )
@@ -583,8 +582,8 @@ class TestSequentialExecutionEngine:
     def test_cell2_contains_inline_dependency_structure(self) -> None:
         """Cell 2 embeds dependencies and scoped flags as an inline Python list/dict."""
         manifest_items = [
-            spy.PinnedDependency("torch", "2.3.1+cu121", ("--extra-index-url", "https://download.pytorch.org/whl/cu121")),
-            spy.PinnedDependency("pandas", "2.2.1")
+            models.PinnedDependency("torch", "2.3.1+cu121", ("--extra-index-url", "https://download.pytorch.org/whl/cu121")),
+            models.PinnedDependency("pandas", "2.2.1")
         ]
         blueprint = spy.generate_production_blueprint(manifest_items)
         code = blueprint["step2_code"]
@@ -597,11 +596,11 @@ class TestSequentialExecutionEngine:
     def test_cell2_is_a_slim_pinned_install_wrapper(self) -> None:
         """Task 13: Cell 2 installs the exact pinned steady-py helper and calls install() --
         the actual installer loop lives in core.py now, not duplicated into the generated cell."""
-        manifest_items = [spy.PinnedDependency("numpy", "1.26.0")]
+        manifest_items = [models.PinnedDependency("numpy", "1.26.0")]
         blueprint = spy.generate_production_blueprint(manifest_items)
         code = blueprint["step2_code"]
 
-        assert f"steady-py=={spy.TOOL_VERSION}" in code
+        assert f"steady-py=={constants.TOOL_VERSION}" in code
         assert "import steady_py" in code
         assert "steady_py.install(STEADY_PY_MANIFEST" in code
         # The extracted loop internals must not be duplicated into the generated cell.
@@ -617,16 +616,16 @@ class TestSequentialExecutionEngine:
             expected = importlib.metadata.version("steady-py")
         except importlib.metadata.PackageNotFoundError:
             expected = "0.0.0+unknown"
-        assert spy.TOOL_VERSION == expected
-        assert spy.TOOL_VERSION != "44", "TOOL_VERSION must not be the old hardcoded placeholder"
+        assert constants.TOOL_VERSION == expected
+        assert constants.TOOL_VERSION != "44", "TOOL_VERSION must not be the old hardcoded placeholder"
 
     def test_manifest_has_its_own_schema_version_distinct_from_the_report_schema(self) -> None:
         """Task 15: the manifest gets its own schema_version, separate from SCHEMA_VERSION
         (which versions the CLI's --format json report structure, a different concern)."""
-        manifest_items = [spy.PinnedDependency("numpy", "1.26.0")]
+        manifest_items = [models.PinnedDependency("numpy", "1.26.0")]
         blueprint = spy.generate_production_blueprint(manifest_items)
         manifest = blueprint["drift_report"].manifest
-        assert manifest.schema_version == spy.MANIFEST_SCHEMA_VERSION
+        assert manifest.schema_version == constants.MANIFEST_SCHEMA_VERSION
         assert "'schema_version':" in blueprint["step2_code"]
 
     def test_failure_diagnostics_contain_verified_version(
@@ -865,7 +864,7 @@ def test_install_failure_prints_troubleshooting_steps(monkeypatch, capsys):
     spy.install(manifest)
     out = capsys.readouterr().out
     assert "Internet Access" in out
-    assert spy.HELP_URL in out
+    assert constants.HELP_URL in out
 
 
 class TestMemoizeForRun:

@@ -1,0 +1,2 @@
+[console_scripts]
+steady-py = steady_py.cli:main

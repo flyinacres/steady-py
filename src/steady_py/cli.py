@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
-from steady_py import core, endpoints
+from steady_py import constants, core, endpoints, models
 from steady_py.results import (
     CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -59,7 +59,7 @@ def _notebook_check_json(notebook: NotebookCheck) -> str:
     if notebook.report is not None:
         return core.format_json_drift_report(notebook.report)
     return json.dumps({
-        "schema_version": core.SCHEMA_VERSION, "tool_version": core.TOOL_VERSION, "mode": "check_drift",
+        "schema_version": constants.SCHEMA_VERSION, "tool_version": constants.TOOL_VERSION, "mode": "check_drift",
         "target": notebook.path, "manifest_found": False, "error": notebook.error,
     }, indent=2)
 
@@ -71,7 +71,7 @@ def _format_check_directory(result: CheckResult, output_format: str) -> Tuple[st
     without = len(notebooks) - len(with_manifest) - len(unreadable)
     if output_format == "json":
         payload = {
-            "schema_version": core.SCHEMA_VERSION, "tool_version": core.TOOL_VERSION, "mode": "check_batch",
+            "schema_version": constants.SCHEMA_VERSION, "tool_version": constants.TOOL_VERSION, "mode": "check_batch",
             "target_dir": result.target,
             "summary": {"notebooks": len(notebooks), "with_manifest": len(with_manifest),
                         "without_manifest": without, "unreadable": len(unreadable)},
@@ -229,7 +229,7 @@ def format_snapshot_result(result: SnapshotResult, output_format: str = "text") 
     return "\n".join(parts)
 
 
-def _log_diagnostics(report: core.NotebookAnalysisReport) -> None:
+def _log_diagnostics(report: models.NotebookAnalysisReport) -> None:
     """The warnings, notices, accelerator status and promotions found while analyzing."""
     gpu_info = report.gpu
     if report.warnings:
@@ -456,8 +456,8 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot_parser.add_argument("--full-freeze", action="store_true", help="Append full environment pip freeze after targeted manifest.")
     snapshot_parser.add_argument("--timeout", type=int, default=120, metavar="SECONDS", help="Per-package pip install timeout in seconds, baked into the generated notebook's install cell (default: 120).")
     snapshot_parser.add_argument(
-        "--universal", nargs="?", const=core.DEFAULT_UNIVERSAL_MANIFEST_NAME, default=None, metavar="FILENAME",
-        help=f"Generate universal repository manifest (default: '{core.DEFAULT_UNIVERSAL_MANIFEST_NAME}' when flag is provided). Directory targets only.",
+        "--universal", nargs="?", const=constants.DEFAULT_UNIVERSAL_MANIFEST_NAME, default=None, metavar="FILENAME",
+        help=f"Generate universal repository manifest (default: '{constants.DEFAULT_UNIVERSAL_MANIFEST_NAME}' when flag is provided). Directory targets only.",
     )
     snapshot_parser.add_argument("--output", action="store_true", help="Generate per-notebook merged lockfiles.")
     snapshot_parser.add_argument("--output-dir", metavar="DIR", help="Directory where generated locked notebooks should be written.")

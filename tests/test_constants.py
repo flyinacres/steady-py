@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 import steady_py.core as spy
+from steady_py import constants, models
 
 PACKAGE_DIR = Path(spy.__file__).resolve().parent
 SOURCES = {path.name: path.read_text(encoding="utf-8", errors="replace") for path in sorted(PACKAGE_DIR.glob("*.py"))}
@@ -28,18 +29,18 @@ def test_no_bare_literals_for_signal_severity_or_status():
 
 
 def test_constant_values_are_the_wire_strings():
-    assert spy.Signal.NOT_FOUND_ON_PYPI == "not_found_on_pypi"
-    assert spy.Severity.NOTICE == "notice"
-    assert spy.BaselineStatus.NOT_CHECKED_AT_GENERATION == "not_checked_at_generation"
-    assert spy.DependencyStatus.DIRECT_REFERENCE == "direct_reference"
-    assert spy.FetchStatus.NETWORK_ERROR == "network_error"
-    assert spy.ReportKind.VALIDATION == "validation"
+    assert constants.Signal.NOT_FOUND_ON_PYPI == "not_found_on_pypi"
+    assert constants.Severity.NOTICE == "notice"
+    assert constants.BaselineStatus.NOT_CHECKED_AT_GENERATION == "not_checked_at_generation"
+    assert constants.DependencyStatus.DIRECT_REFERENCE == "direct_reference"
+    assert constants.FetchStatus.NETWORK_ERROR == "network_error"
+    assert constants.ReportKind.VALIDATION == "validation"
 
 
 def test_constants_embed_in_the_manifest_literal_as_plain_strings():
-    baseline = spy.build_baseline([spy.DriftFinding("requests", "2.32.0", spy.Signal.YANKED, spy.Severity.CONFIRMED, "m")])
+    baseline = spy.build_baseline([models.DriftFinding("requests", "2.32.0", constants.Signal.YANKED, constants.Severity.CONFIRMED, "m")])
     assert repr(baseline.to_dict()) == "{'version': 1, 'findings': [['yanked', 'requests', '2.32.0']], 'errors': []}"
 
 
 def test_scan_covers_every_module_in_the_package():
-    assert {"core.py", "cli.py", "endpoints.py", "results.py"} <= set(SOURCES)
+    assert {"core.py", "cli.py", "endpoints.py", "results.py", "constants.py", "models.py", "util.py"} <= set(SOURCES)

@@ -13,6 +13,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
+from steady_py import constants
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures//unit"
@@ -83,7 +84,7 @@ class TestKitchenSinkNotebook:
 
     def test_stdlib_correctly_filtered(self, kitchen_sink_notebook):
         success, imports, submodules, code_sources, error_msg, lang_label, guarded, dyn_warns = spy.extract_from_file(str(kitchen_sink_notebook))
-        non_stdlib = {i for i in imports if i not in spy.STD_LIB}
+        non_stdlib = {i for i in imports if i not in constants.STD_LIB}
 
         for stdlib_name in ("os", "collections", "xml", "json", "re", "itertools", "math", "importlib"):
             assert stdlib_name not in non_stdlib, f"'{stdlib_name}' should have been filtered as stdlib"

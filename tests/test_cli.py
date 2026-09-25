@@ -10,22 +10,23 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
+from steady_py import constants, models
 import steady_py.endpoints as endpoints
 from steady_py.results import (
     CheckResult, Delta, Environment, PackageChange, NotebookCheck, NotebookScan, NotebookSnapshot, ScanResult, SetupCells,
     SnapshotResult, TargetKind, WriteMode,
 )
 
-PIN = spy.PinnedDependency("requests", "2.32.1")
+PIN = models.PinnedDependency("requests", "2.32.1")
 
 
 def _manifest(baseline=None):
-    return spy.SteadyPyManifest(python_version={"major": 3, "minor": 12}, dependencies=[PIN], gpu=None,
+    return models.SteadyPyManifest(python_version={"major": 3, "minor": 12}, dependencies=[PIN], gpu=None,
                                 generated_at="t", baseline=baseline)
 
 
 def _finding(signal, severity, **kw):
-    return spy.DriftFinding("requests", "2.32.1", signal, severity, "message", **kw)
+    return models.DriftFinding("requests", "2.32.1", signal, severity, "message", **kw)
 
 
 def _checked(*findings, baseline=None, path="a.ipynb"):
@@ -45,29 +46,29 @@ class TestCheckExitCode:
         assert cli.check_exit_code(_result(NotebookCheck(path="a.ipynb"))) == 0
 
     def test_a_confirmed_finding_is_1(self):
-        assert cli.check_exit_code(_result(_checked(_finding(spy.Signal.YANKED, spy.Severity.CONFIRMED)))) == 1
+        assert cli.check_exit_code(_result(_checked(_finding(constants.Signal.YANKED, constants.Severity.CONFIRMED)))) == 1
 
     def test_a_confirmed_finding_already_known_at_generation_still_counts(self):
-        baseline = spy.Baseline(findings=(("yanked", "requests", "2.32.1"),))
-        result = _result(_checked(_finding(spy.Signal.YANKED, spy.Severity.CONFIRMED), baseline=baseline))
+        baseline = models.Baseline(findings=(("yanked", "requests", "2.32.1"),))
+        result = _result(_checked(_finding(constants.Signal.YANKED, constants.Severity.CONFIRMED), baseline=baseline))
         assert cli.check_exit_code(result) == 1
 
     def test_a_new_heuristic_finding_is_1(self):
-        assert cli.check_exit_code(_result(_checked(_finding(spy.Signal.STALE, spy.Severity.HEURISTIC)))) == 1
+        assert cli.check_exit_code(_result(_checked(_finding(constants.Signal.STALE, constants.Severity.HEURISTIC)))) == 1
 
     def test_a_heuristic_finding_already_known_at_generation_is_0(self):
-        baseline = spy.Baseline(findings=(("stale", "requests"),))
-        result = _result(_checked(_finding(spy.Signal.STALE, spy.Severity.HEURISTIC), baseline=baseline))
+        baseline = models.Baseline(findings=(("stale", "requests"),))
+        result = _result(_checked(_finding(constants.Signal.STALE, constants.Severity.HEURISTIC), baseline=baseline))
         assert cli.check_exit_code(result) == 0
 
     def test_a_pin_that_could_not_be_checked_is_2(self):
-        assert cli.check_exit_code(_result(_checked(_finding(spy.Signal.CHECK_ERROR, spy.Severity.ERROR)))) == 2
+        assert cli.check_exit_code(_result(_checked(_finding(constants.Signal.CHECK_ERROR, constants.Severity.ERROR)))) == 2
 
     def test_an_unreadable_manifest_is_2(self):
         assert cli.check_exit_code(_result(NotebookCheck(path="a.ipynb", error="not a manifest"))) == 2
 
     def test_drift_and_an_unreadable_manifest_together_is_1(self):
-        drift = _checked(_finding(spy.Signal.YANKED, spy.Severity.CONFIRMED))
+        drift = _checked(_finding(constants.Signal.YANKED, constants.Severity.CONFIRMED))
         result = _result(drift, NotebookCheck(path="b.ipynb", error="unreadable"))
         assert cli.check_exit_code(result) == 1
 
@@ -85,7 +86,7 @@ class TestFormatCheckResult:
         assert (out, err) == ("", "⚠️ boom")
 
     def test_text_is_the_console_drift_report(self):
-        checked = _checked(_finding(spy.Signal.YANKED, spy.Severity.CONFIRMED))
+        checked = _checked(_finding(constants.Signal.YANKED, constants.Severity.CONFIRMED))
         out, err = cli.format_check_result(_result(checked))
         assert out == spy.format_console_drift_report(checked.report) and err == ""
 
@@ -172,7 +173,7 @@ def _unreadable(tmp_path):
 class TestScanAndSnapshotExitCodes:
     """0 everything processed, 1 some of it, 2 nothing."""
 
-    REPORT = spy.NotebookAnalysisReport(notebook_path="a.ipynb", is_python=True, lang_label="python")
+    REPORT = models.NotebookAnalysisReport(notebook_path="a.ipynb", is_python=True, lang_label="python")
 
     def _scan(self, *errors):
         return ScanResult(target="t", notebooks=[NotebookScan(path=f"n{i}", report=self.REPORT, error=e) for i, e in enumerate(errors)])
@@ -644,11 +645,11 @@ def _clean(name):
 
 
 def _drifted(name):
-    return _checked(_finding(spy.Signal.YANKED, spy.Severity.CONFIRMED), path=name)
+    return _checked(_finding(constants.Signal.YANKED, constants.Severity.CONFIRMED), path=name)
 
 
 def _cannot_check(name):
-    return _checked(_finding(spy.Signal.CHECK_ERROR, spy.Severity.ERROR), path=name)
+    return _checked(_finding(constants.Signal.CHECK_ERROR, constants.Severity.ERROR), path=name)
 
 
 class TestCheckExitCodeOverADirectory:

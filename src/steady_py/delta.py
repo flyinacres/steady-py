@@ -6,14 +6,14 @@ from typing import TYPE_CHECKING, Dict, List
 from steady_py.results import Delta, PackageChange
 
 if TYPE_CHECKING:
-    from steady_py import core
+    from steady_py import models
 
 
 def _python_label(python_version: Dict[str, int]) -> str:
     return f"{python_version.get('major')}.{python_version.get('minor')}"
 
 
-def compute_delta(before: core.SteadyPyManifest, after: core.SteadyPyManifest) -> Delta:
+def compute_delta(before: models.SteadyPyManifest, after: models.SteadyPyManifest) -> Delta:
     """What replacing `before` with `after` would change.
 
     Packages are matched by their recorded name, extras included. The baseline is compared only
@@ -35,7 +35,7 @@ def compute_delta(before: core.SteadyPyManifest, after: core.SteadyPyManifest) -
         delta.baseline_compared = True
         was = set(before.baseline.findings) if before.baseline is not None else set()
         now = set(after.baseline.findings)
-        appeared: List[core.FindingKey] = sorted(now - was)
-        resolved: List[core.FindingKey] = sorted(was - now)
+        appeared: List[models.FindingKey] = sorted(now - was)
+        resolved: List[models.FindingKey] = sorted(was - now)
         delta.findings_appeared, delta.findings_resolved = appeared, resolved
     return delta

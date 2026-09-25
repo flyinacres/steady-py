@@ -1,5 +1,8 @@
 """Importing steady_py must not touch process-global state; only the CLI entry point may.
 Also pins that best-effort probes stay quiet by default but leave a trace under --verbose."""
+import ast
+import importlib
+import inspect
 import logging
 import os
 import subprocess
@@ -65,3 +68,35 @@ def test_reloading_the_module_in_one_process_never_stacks_handlers():
         "print(len(logging.getLogger('steady_py').handlers))"
     )
     assert out == "1"
+
+
+def _function_from_imports(path: Path):
+    """(line, module, name) for every `from steady_py... import name` in path that binds a function.
+    Imports inside `if TYPE_CHECKING:` are skipped: they never run, so they cannot hide a patch."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    skipped = {id(node) for stmt in ast.walk(tree) if isinstance(stmt, ast.If)
+               and isinstance(stmt.test, ast.Name) and stmt.test.id == "TYPE_CHECKING"
+               for inner in stmt.body for node in ast.walk(inner)}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or id(node) in skipped:
+            continue
+        if not (node.module or "").startswith("steady_py"):
+            continue
+        source = importlib.import_module(node.module)
+        for alias in node.names:
+            if inspect.isfunction(getattr(source, alias.name, None)):
+                yield node.lineno, node.module, alias.name
+
+
+def test_package_modules_never_from_import_a_function():
+    """Tests replace functions by setting the attribute on their defining module. A caller that did
+    `from steady_py.x import f` keeps the original, so the patch silently does nothing. Functions are
+    therefore called through their module (`x.f(...)`); classes and constants may be from-imported.
+    __init__.py is exempt: its re-exports are the public API, not internal callers."""
+    package_dir = Path(spy.__file__).resolve().parent
+    offenders = [
+        f"{path.name}:{line}: from {module} import {name}"
+        for path in sorted(package_dir.glob("*.py")) if path.name != "__init__.py"
+        for line, module, name in _function_from_imports(path)
+    ]
+    assert offenders == []

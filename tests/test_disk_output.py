@@ -6,6 +6,7 @@ import pytest
 from pathlib import Path
 
 import steady_py.core as spy
+from steady_py import models
 
 _SRC = str(Path(__file__).resolve().parents[1] / "src")
 SUBPROCESS_ENV = {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [_SRC, os.environ.get("PYTHONPATH")]))}
@@ -132,7 +133,7 @@ def test_apply_output_gpu_misattribution_prevented(sample_notebook_file, mock_fr
     )
 
     # Batch HW cache populated by a PyTorch notebook on CUDA
-    pytorch_batch_cache = spy.GpuInfo(
+    pytorch_batch_cache = models.GpuInfo(
         has_gpu=True,
         type="NVIDIA CUDA",
         active_framework="PyTorch",
@@ -412,7 +413,7 @@ def test_apply_output_multi_framework_gpu_resolution(sample_notebook_file, mock_
     )
 
     # Cache where both PyTorch and TensorFlow were independently probed
-    multi_fw_cache = spy.GpuInfo(
+    multi_fw_cache = models.GpuInfo(
         has_gpu=True,
         type="NVIDIA CUDA",
         active_framework="PyTorch",

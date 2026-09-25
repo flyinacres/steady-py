@@ -14,8 +14,7 @@ from typing import List, Optional, Tuple
 
 import sys
 
-from steady_py import core
-from steady_py.delta import compute_delta
+from steady_py import constants, core, delta, models, util
 from steady_py.results import (
     CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SetupCells, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -31,7 +30,7 @@ def detect_environment() -> Environment:
     return Environment(frozen_env=frozen_env, pkg_dist_map=pkg_dist_map, raw_full_freeze=raw_full_freeze)
 
 
-def _read_manifest(path: object) -> Tuple[Optional[core.SteadyPyManifest], Optional[str]]:
+def _read_manifest(path: object) -> Tuple[Optional[models.SteadyPyManifest], Optional[str]]:
     """The manifest a notebook file already carries: (manifest, None), (None, None) when it has
     none or is not a file, and (None, reason) when it has one that cannot be read."""
     if not os.path.isfile(str(path)):
@@ -41,12 +40,12 @@ def _read_manifest(path: object) -> Tuple[Optional[core.SteadyPyManifest], Optio
 
 
 def _provisional_manifest(
-    scan_result: core.NotebookScanResult, report: core.NotebookAnalysisReport, hardware: Optional[core.GpuInfo],
-) -> core.SteadyPyManifest:
+    scan_result: core.NotebookScanResult, report: models.NotebookAnalysisReport, hardware: Optional[models.GpuInfo],
+) -> models.SteadyPyManifest:
     """What a snapshot would record, as far as it can be known without contacting PyPI: the pins,
     the Python version and the accelerator. It has no baseline, custom-sourced list or hash."""
     gpu = core.resolve_notebook_gpu_info(scan_result.imports, hardware)
-    return core.SteadyPyManifest(
+    return models.SteadyPyManifest(
         python_version={"major": sys.version_info.major, "minor": sys.version_info.minor},
         dependencies=[dep.to_pin() for dep in report.dependencies if not dep.is_comment],
         gpu=gpu.to_dict() if gpu else None,
@@ -55,13 +54,13 @@ def _provisional_manifest(
 
 
 def _scan_notebook(
-    scan_result: core.NotebookScanResult, report: core.NotebookAnalysisReport, hardware: Optional[core.GpuInfo],
+    scan_result: core.NotebookScanResult, report: models.NotebookAnalysisReport, hardware: Optional[models.GpuInfo],
 ) -> NotebookScan:
     """One analyzed notebook, compared with the manifest it already carries, if any."""
     manifest, manifest_error = _read_manifest(scan_result.path)
-    delta = compute_delta(manifest, _provisional_manifest(scan_result, report, hardware)) if manifest else None
+    manifest_delta = delta.compute_delta(manifest, _provisional_manifest(scan_result, report, hardware)) if manifest else None
     return NotebookScan(
-        path=str(scan_result.path), report=report, manifest=manifest, manifest_error=manifest_error, delta=delta,
+        path=str(scan_result.path), report=report, manifest=manifest, manifest_error=manifest_error, delta=manifest_delta,
     )
 
 
@@ -70,10 +69,10 @@ class _Analysis:
     """The one analysis of a notebook that scan and snapshot both build on."""
     path: str
     kind: str
-    report: core.NotebookAnalysisReport
+    report: models.NotebookAnalysisReport
     environment: Environment
     scan_result: Optional[core.NotebookScanResult] = None  # None when the file could not be read
-    hardware: Optional[core.GpuInfo] = None                # the probed accelerator
+    hardware: Optional[models.GpuInfo] = None                # the probed accelerator
     root_dir: str = "."
     error: Optional[str] = None
 
@@ -85,17 +84,17 @@ def _analyze(target: Optional[str], environment: Optional[Environment]) -> _Anal
     if target is not None:
         ext_res = core.extract_from_file(target, strict=False)
         if not ext_res.success:
-            unreadable = core.NotebookAnalysisReport(
+            unreadable = models.NotebookAnalysisReport(
                 notebook_path=str(target), is_python=False, lang_label=ext_res.lang_label, parse_error=ext_res.error_msg,
             )
             return _Analysis(path=target, kind=TargetKind.FILE, report=unreadable, environment=environment, error=ext_res.error_msg)
         path, kind, root_dir = Path(target), TargetKind.FILE, str(Path(target).parent)
     else:
-        if not core.is_running_in_ipython():
+        if not util.is_running_in_ipython():
             raise ValueError("a target file is required outside a live IPython session")
         imports, submodules, code_sources, guarded_imports, dynamic_warnings = core.extract_from_active_session()
-        ext_res = core.ExtractionResult(
-            success=True, lang_label=core.StatusLabel.PYTHON, imports=imports, submodules=submodules,
+        ext_res = models.ExtractionResult(
+            success=True, lang_label=constants.StatusLabel.PYTHON, imports=imports, submodules=submodules,
             code_sources=code_sources, guarded_imports=guarded_imports, dynamic_warnings=dynamic_warnings,
             writefile_imports=core.extract_writefile_imports_from_sources(code_sources),
         )
@@ -167,8 +166,8 @@ def snapshot(
 
 def _snapshot_notebook(
     scan_result: core.NotebookScanResult,
-    report: core.NotebookAnalysisReport,
-    hardware: Optional[core.GpuInfo],
+    report: models.NotebookAnalysisReport,
+    hardware: Optional[models.GpuInfo],
     options: SnapshotOptions,
     full_freeze_lines: Optional[List[str]],
     root_dir: str,
@@ -183,7 +182,7 @@ def _snapshot_notebook(
         report=report,
         cells=SetupCells(markdown=blueprint["step1_markdown"], code=blueprint["step2_code"]),
         drift_report=blueprint["drift_report"],
-        delta=compute_delta(previous, blueprint["drift_report"].manifest) if previous else None,
+        delta=delta.compute_delta(previous, blueprint["drift_report"].manifest) if previous else None,
     )
     if options.write_mode != WriteMode.NONE:
         try:
@@ -206,9 +205,9 @@ def _snapshot_notebook(
 class _DirectoryAnalysis:
     """The one analysis of a directory of notebooks that scan and snapshot both build on."""
     repo_map: core.RepoEnvironmentMap
-    summary: core.BatchAnalysisSummary
+    summary: models.BatchAnalysisSummary
     environment: Environment
-    hardware: Optional[core.GpuInfo]
+    hardware: Optional[models.GpuInfo]
 
 
 def _analyze_directory(target: str, environment: Optional[Environment], skip_suffix: Optional[str]) -> _DirectoryAnalysis:
@@ -225,12 +224,12 @@ def _skip_suffix(suffix: Optional[str], in_place: bool) -> Optional[str]:
     return None if in_place else (suffix if suffix is not None else DEFAULT_COMPANION_SUFFIX)
 
 
-def _unreadable(repo_map: core.RepoEnvironmentMap) -> List[Tuple[str, core.NotebookAnalysisReport, str]]:
+def _unreadable(repo_map: core.RepoEnvironmentMap) -> List[Tuple[str, models.NotebookAnalysisReport, str]]:
     """(path, report, cause) for each notebook that could not be read."""
     out = []
     for err in repo_map.parse_errors:
         cause = err.parse_error or "Unknown parse error"
-        report = core.NotebookAnalysisReport(
+        report = models.NotebookAnalysisReport(
             notebook_path=str(err.path), is_python=err.is_python, lang_label=err.lang_label, parse_error=cause,
         )
         out.append((str(err.path), report, cause))
@@ -312,7 +311,7 @@ def _check_file(path: str, options: CheckOptions) -> NotebookCheck:
     if manifest is None:
         return NotebookCheck(path=path)
 
-    findings: List[core.DriftFinding] = []
+    findings: List[models.DriftFinding] = []
 
     # Verify the manifest hasn't been hand-edited since it was generated. Only meaningful here:
     # generation is writing dependency_hash for the first time, not verifying a prior one. The
@@ -320,8 +319,8 @@ def _check_file(path: str, options: CheckOptions) -> NotebookCheck:
     stored_hash = manifest.dependency_hash
     recomputed_hash = manifest.verified_hash
     if recomputed_hash != stored_hash:
-        findings.append(core.DriftFinding(
-            package="", version="", signal=core.Signal.TAMPERED, severity=core.Severity.CONFIRMED,
+        findings.append(models.DriftFinding(
+            package="", version="", signal=constants.Signal.TAMPERED, severity=constants.Severity.CONFIRMED,
             message=f"Manifest hash mismatch in {path} -- it may have been hand-edited since generation.",
             details={"stored_hash": stored_hash, "recomputed_hash": recomputed_hash},
         ))

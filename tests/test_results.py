@@ -6,6 +6,7 @@ import pytest
 
 import steady_py
 import steady_py.core as spy
+from steady_py import constants, models
 from steady_py.results import (
     CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookScan, NotebookSnapshot,
     PackageChange, ScanResult, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -14,12 +15,12 @@ from steady_py.results import (
 
 
 def _report(path="a.ipynb"):
-    return spy.NotebookAnalysisReport(notebook_path=path, is_python=True, lang_label=spy.StatusLabel.PYTHON)
+    return models.NotebookAnalysisReport(notebook_path=path, is_python=True, lang_label=constants.StatusLabel.PYTHON)
 
 
 def _drift_report():
-    manifest = spy.SteadyPyManifest(python_version={"major": 3, "minor": 12}, dependencies=[], gpu=None, generated_at="t")
-    return spy.build_drift_check_report("a.ipynb", manifest, [], kind=spy.ReportKind.VALIDATION)
+    manifest = models.SteadyPyManifest(python_version={"major": 3, "minor": 12}, dependencies=[], gpu=None, generated_at="t")
+    return spy.build_drift_check_report("a.ipynb", manifest, [], kind=constants.ReportKind.VALIDATION)
 
 
 class TestSnapshotOptions:

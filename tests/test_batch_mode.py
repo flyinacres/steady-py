@@ -9,6 +9,7 @@ import pytest
 from pathlib import Path
 
 import steady_py.core as spy
+from steady_py import constants, util
 
 
 @pytest.fixture
@@ -67,7 +68,7 @@ class TestLanguageKernelDetection:
         assert success is True
         assert "math" in imports
         assert err is None
-        assert "unspecified" in lang_label or lang_label == spy.StatusLabel.PYTHON
+        assert "unspecified" in lang_label or lang_label == constants.StatusLabel.PYTHON
 
 
 class TestPrimaryIndexSelection:
@@ -282,21 +283,21 @@ class TestBatchOrchestration:
 
     def test_canonicalize_pkg_name_normalizes_variants(self):
         """PEP 503 normalization: equate hyphens, underscores, and periods."""
-        assert spy.canonicalize_pkg_name("torch_neuronx") == "torch-neuronx"
-        assert spy.canonicalize_pkg_name("torch-neuronx") == "torch-neuronx"
-        assert spy.canonicalize_pkg_name("scikit_learn") == "scikit-learn"
-        assert spy.canonicalize_pkg_name("Scikit.Learn") == "scikit-learn"
+        assert util.canonicalize_pkg_name("torch_neuronx") == "torch-neuronx"
+        assert util.canonicalize_pkg_name("torch-neuronx") == "torch-neuronx"
+        assert util.canonicalize_pkg_name("scikit_learn") == "scikit-learn"
+        assert util.canonicalize_pkg_name("Scikit.Learn") == "scikit-learn"
 
     def test_import_to_pypi_map_includes_skimage(self):
         """'skimage' must resolve to 'scikit-image' in PyPI mapping."""
-        assert spy.IMPORT_TO_PYPI_MAP.get("skimage") == "scikit-image"
+        assert constants.IMPORT_TO_PYPI_MAP.get("skimage") == "scikit-image"
 
     def test_platform_pseudo_modules_contains_bootstrap_tools(self):
         """'databricks' and 'steady_py' are platform pseudo-modules; 'pip'/'setuptools'/'wheel' are build/packaging tools -- both buckets excluded from missing packages."""
         for mod in ("databricks", "steady_py"):
-            assert mod in spy.PLATFORM_PSEUDO_MODULES
+            assert mod in constants.PLATFORM_PSEUDO_MODULES
         for tool in ("pip", "setuptools", "wheel"):
-            assert tool in spy.BUILD_AND_PACKAGING_TOOLS
+            assert tool in constants.BUILD_AND_PACKAGING_TOOLS
 
     def test_batch_summary_deduplicates_and_hyphenates_uninstalled_packages(self, tmp_path):
         """

@@ -5,10 +5,11 @@ from pathlib import Path
 import pytest
 
 import steady_py.core as spy
+from steady_py import constants, models, util
 from steady_py.endpoints import check, scan, snapshot
 from steady_py.results import CheckOptions, Environment, PackageChange, ScanOptions, SnapshotOptions, TargetKind, WriteMode
 
-DEPS = [spy.PinnedDependency("requests", "2.32.1")]
+DEPS = [models.PinnedDependency("requests", "2.32.1")]
 
 
 @pytest.fixture
@@ -52,7 +53,7 @@ class TestCheck:
         assert edited != path.read_text(encoding="utf-8")
         path.write_text(edited, encoding="utf-8")
         report = check(str(path)).notebooks[0].report
-        assert [f.signal for f in report.confirmed] == [spy.Signal.TAMPERED]
+        assert [f.signal for f in report.confirmed] == [constants.Signal.TAMPERED]
 
     def test_pin_checks_run_on_the_manifests_pins_and_python(self, tmp_path, monkeypatch):
         seen = []
@@ -64,7 +65,7 @@ class TestCheck:
         assert python_version == {"major": spy.sys.version_info.major, "minor": spy.sys.version_info.minor}
 
     def test_findings_from_the_pin_checks_land_in_the_report(self, tmp_path, monkeypatch):
-        finding = spy.DriftFinding("requests", "2.32.1", spy.Signal.YANKED, spy.Severity.CONFIRMED, "yanked")
+        finding = models.DriftFinding("requests", "2.32.1", constants.Signal.YANKED, constants.Severity.CONFIRMED, "yanked")
         path = _notebook_with_manifest(tmp_path)
         monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [finding])
         assert check(str(path)).notebooks[0].report.confirmed == [finding]
@@ -127,7 +128,7 @@ class TestCheckDirectory:
         assert result.validation.notebooks_checked == 2
 
     def test_a_finding_shared_by_notebooks_is_grouped_once(self, tmp_path, monkeypatch):
-        finding = spy.DriftFinding("requests", "2.32.1", spy.Signal.YANKED, spy.Severity.CONFIRMED, "yanked")
+        finding = models.DriftFinding("requests", "2.32.1", constants.Signal.YANKED, constants.Severity.CONFIRMED, "yanked")
         monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [finding])
         root = self._tree(tmp_path)
         group, = check(root).validation.findings
@@ -206,14 +207,14 @@ class TestScan:
         assert [d.version for d in notebook.report.dependencies] == ["2.32.3"]
 
     def test_the_live_session_is_a_target_when_none_is_given(self, isolated, monkeypatch):
-        monkeypatch.setattr(spy, "is_running_in_ipython", lambda: True)
+        monkeypatch.setattr(util, "is_running_in_ipython", lambda: True)
         monkeypatch.setattr(spy, "extract_from_active_session", lambda: (["requests"], {}, ["import requests"], set(), []))
         result = scan(None, environment=ENV)
         assert (result.kind, result.notebooks[0].path) == (TargetKind.SESSION, "session.ipynb")
         assert [d.name for d in result.notebooks[0].report.dependencies] == ["requests"]
 
     def test_no_target_outside_a_live_session_is_a_usage_error(self, isolated, monkeypatch):
-        monkeypatch.setattr(spy, "is_running_in_ipython", lambda: False)
+        monkeypatch.setattr(util, "is_running_in_ipython", lambda: False)
         with pytest.raises(ValueError, match="target"):
             scan(None, environment=ENV)
 
@@ -487,7 +488,7 @@ class TestScanDelta:
         assert deltas["plain.ipynb"] is None and deltas["locked.ipynb"] is not None
 
     def test_the_live_session_has_no_delta(self, isolated, monkeypatch):
-        monkeypatch.setattr(spy, "is_running_in_ipython", lambda: True)
+        monkeypatch.setattr(util, "is_running_in_ipython", lambda: True)
         monkeypatch.setattr(spy, "extract_from_active_session", lambda: (["requests"], {}, ["import requests"], set(), []))
         assert scan(None, environment=ENV).notebooks[0].delta is None
 
@@ -520,7 +521,7 @@ class TestSnapshotDelta:
 
     def test_findings_that_appear_are_reported(self, tmp_path, isolated, monkeypatch):
         path = _locked_notebook(tmp_path)
-        yanked = spy.DriftFinding("requests", "2.32.3", spy.Signal.YANKED, spy.Severity.CONFIRMED, "yanked")
+        yanked = models.DriftFinding("requests", "2.32.3", constants.Signal.YANKED, constants.Severity.CONFIRMED, "yanked")
         monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [yanked])
         delta = snapshot(path, environment=ENV).notebooks[0].delta
         assert delta.findings_appeared == [("yanked", "requests", "2.32.3")]

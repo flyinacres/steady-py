@@ -24,6 +24,7 @@ import os
 import pytest
 
 import steady_py.core as spy
+from steady_py import models
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("RUN_LIVE_PYPI_TESTS"),
@@ -106,15 +107,15 @@ class TestLiveTransitiveResolution:
         """pandas 2.2.1 declares numpy<2 in every marker branch; pinning numpy>=2.5
         alongside it is a genuine, permanent conflict."""
         deps = [
-            spy.PinnedDependency("pandas", "2.2.1"),
-            spy.PinnedDependency("numpy", "2.5.0"),
+            models.PinnedDependency("pandas", "2.2.1"),
+            models.PinnedDependency("numpy", "2.5.0"),
         ]
         resolved, findings = spy.resolve_transitive_graph(deps, {"major": 3, "minor": 11})
         assert resolved is None
         assert any(f.signal == "conflict" for f in findings)
 
     def test_real_resolvable_graph(self):
-        deps = [spy.PinnedDependency("pandas", "2.2.1")]
+        deps = [models.PinnedDependency("pandas", "2.2.1")]
         resolved, findings = spy.resolve_transitive_graph(deps, {"major": 3, "minor": 11})
         assert findings == []
         assert resolved["pandas"] == "2.2.1"
@@ -123,7 +124,7 @@ class TestLiveTransitiveResolution:
 
     def test_real_extra_is_expanded(self):
         """pandas 2.2.1 declares hypothesis under extra == "test" (historical, immutable)."""
-        deps = [spy.PinnedDependency("pandas[test]", "2.2.1")]
+        deps = [models.PinnedDependency("pandas[test]", "2.2.1")]
         resolved, findings = spy.resolve_transitive_graph(deps, {"major": 3, "minor": 11})
         assert findings == []
         assert resolved["pandas"] == "2.2.1"

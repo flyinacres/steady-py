@@ -1,17 +1,17 @@
 """compute_delta is a pure comparison of two manifests."""
-import steady_py.core as spy
+from steady_py import models
 from steady_py.delta import compute_delta
 from steady_py.results import PackageChange
 
 
 def _manifest(deps=(), python=(3, 12), gpu=None, baseline=None):
-    pins = [spy.PinnedDependency(name, version) for name, version in deps]
-    return spy.SteadyPyManifest(python_version={"major": python[0], "minor": python[1]}, dependencies=pins,
+    pins = [models.PinnedDependency(name, version) for name, version in deps]
+    return models.SteadyPyManifest(python_version={"major": python[0], "minor": python[1]}, dependencies=pins,
                                 gpu=gpu, generated_at="t", baseline=baseline)
 
 
 def _baseline(*findings):
-    return spy.Baseline(findings=tuple(findings))
+    return models.Baseline(findings=tuple(findings))
 
 
 class TestPackages:

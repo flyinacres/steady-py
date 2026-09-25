@@ -1,3 +1,3 @@
-from steady_py.cli import main
+from steady_py import cli
 
-main()
+cli.main()

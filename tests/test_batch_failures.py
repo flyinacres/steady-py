@@ -15,7 +15,8 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py.core import StatusLabel
+from steady_py import util
+from steady_py.constants import StatusLabel
 
 
 @pytest.fixture
@@ -230,5 +231,5 @@ class TestBatchFailureModes:
         to propagate cleanly without raising 'RuntimeError: generator didn't stop after throw()'.
         """
         with pytest.raises(ValueError, match="Probe test error"):
-            with spy.silence_fd2_stderr():
+            with util.silence_fd2_stderr():
                 raise ValueError("Probe test error")

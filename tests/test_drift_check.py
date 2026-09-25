@@ -15,6 +15,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
+from steady_py import constants, models
 from steady_py.results import Environment
 
 
@@ -400,7 +401,7 @@ class TestMarkerEnvironment:
 
 class TestResolveTransitiveGraph:
     def test_resolvable_graph(self):
-        deps = [spy.PinnedDependency("pandas", "2.2.1")]
+        deps = [models.PinnedDependency("pandas", "2.2.1")]
         resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
         assert findings == []
         assert resolved["pandas"] == "2.2.1"
@@ -408,8 +409,8 @@ class TestResolveTransitiveGraph:
 
     def test_unresolvable_graph_reports_conflict(self):
         deps = [
-            spy.PinnedDependency("pandas", "2.2.1"),
-            spy.PinnedDependency("numpy", "2.5.3"),
+            models.PinnedDependency("pandas", "2.2.1"),
+            models.PinnedDependency("numpy", "2.5.3"),
         ]
         resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
         assert resolved is None
@@ -419,7 +420,7 @@ class TestResolveTransitiveGraph:
     def test_extra_gated_requirement_excluded_from_base_resolution(self):
         """pandas's hypothesis requirement is extra=='test'-gated; a base install
         (no extras requested) must not pull it into the graph."""
-        deps = [spy.PinnedDependency("pandas", "2.2.1")]
+        deps = [models.PinnedDependency("pandas", "2.2.1")]
         resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
         assert "hypothesis" not in resolved
 
@@ -428,53 +429,53 @@ class TestExtrasInTransitiveGraph:
     """A pin like pandas[test] must pull the extra's own requirements into the graph."""
 
     def test_extra_requirements_are_walked(self):
-        deps = [spy.PinnedDependency("pandas[test]", "2.2.1")]
+        deps = [models.PinnedDependency("pandas[test]", "2.2.1")]
         resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
         assert findings == []
         assert resolved["hypothesis"] == "6.100.0"
         assert "sortedcontainers" in resolved  # reachable only through the extra
 
     def test_base_pin_still_excludes_extra_requirements(self):
-        deps = [spy.PinnedDependency("pandas", "2.2.1")]
+        deps = [models.PinnedDependency("pandas", "2.2.1")]
         resolved, _ = spy.resolve_transitive_graph(deps, REQ_PY_311)
         assert "hypothesis" not in resolved
 
     def test_extras_variant_is_not_reported_as_a_separate_package(self):
-        deps = [spy.PinnedDependency("pandas[test]", "2.2.1")]
+        deps = [models.PinnedDependency("pandas[test]", "2.2.1")]
         resolved, _ = spy.resolve_transitive_graph(deps, REQ_PY_311)
         assert not [name for name in resolved if "[" in name]
         assert resolved["pandas"] == "2.2.1"
 
     def test_every_requested_extra_is_walked(self):
-        deps = [spy.PinnedDependency("multi-extra-pkg[a,b]", "1.0.0")]
+        deps = [models.PinnedDependency("multi-extra-pkg[a,b]", "1.0.0")]
         resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
         assert findings == []
         assert {"alpha-dep", "beta-dep", "core-dep"} <= set(resolved)
 
     def test_only_the_requested_extra_is_walked(self):
-        deps = [spy.PinnedDependency("multi-extra-pkg[a]", "1.0.0")]
+        deps = [models.PinnedDependency("multi-extra-pkg[a]", "1.0.0")]
         resolved, _ = spy.resolve_transitive_graph(deps, REQ_PY_311)
         assert "alpha-dep" in resolved
         assert "beta-dep" not in resolved
         assert "core-dep" in resolved
 
     def test_extra_named_by_a_transitive_requirement_is_walked(self):
-        deps = [spy.PinnedDependency("meta-pkg", "1.0.0")]
+        deps = [models.PinnedDependency("meta-pkg", "1.0.0")]
         resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
         assert findings == []
         assert "hypothesis" in resolved  # meta-pkg -> pandas[test] -> hypothesis
 
     def test_conflict_created_by_an_extra_is_reported(self):
         deps = [
-            spy.PinnedDependency("pandas[test]", "2.2.1"),
-            spy.PinnedDependency("hypothesis", "5.0.0"),  # pandas[test] needs >=6.46.1
+            models.PinnedDependency("pandas[test]", "2.2.1"),
+            models.PinnedDependency("hypothesis", "5.0.0"),  # pandas[test] needs >=6.46.1
         ]
         resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
         assert resolved is None
         assert findings and all(f.signal == "conflict" and f.severity == "confirmed" for f in findings)
 
     def test_unknown_extra_adds_nothing_and_does_not_fail(self):
-        deps = [spy.PinnedDependency("pandas[nonexistent]", "2.2.1")]
+        deps = [models.PinnedDependency("pandas[nonexistent]", "2.2.1")]
         resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
         assert findings == []
         assert "hypothesis" not in resolved
@@ -482,11 +483,11 @@ class TestExtrasInTransitiveGraph:
 
     def test_signals_reach_packages_only_reachable_through_the_extra(self):
         with_extra = spy.check_transitive_signals(
-            [spy.PinnedDependency("pandas[test]", "2.2.1")], REQ_PY_311)
+            [models.PinnedDependency("pandas[test]", "2.2.1")], REQ_PY_311)
         assert [f for f in with_extra if f.signal == "yanked" and f.package == "sortedcontainers"]
 
         without = spy.check_transitive_signals(
-            [spy.PinnedDependency("pandas", "2.2.1")], REQ_PY_311)
+            [models.PinnedDependency("pandas", "2.2.1")], REQ_PY_311)
         assert not [f for f in without if f.package == "sortedcontainers"]
 
     def test_all_requested_extras_are_parsed(self):
@@ -497,12 +498,12 @@ class TestExtrasInTransitiveGraph:
 
 class TestCheckTransitiveSignals:
     def test_direct_pins_are_skipped(self):
-        deps = [spy.PinnedDependency("pandas", "2.2.1")]
+        deps = [models.PinnedDependency("pandas", "2.2.1")]
         findings = spy.check_transitive_signals(deps, REQ_PY_311)
         assert all(f.package != "pandas" for f in findings)
 
     def test_transitive_package_checked_against_resolved_version(self):
-        deps = [spy.PinnedDependency("pandas", "2.2.1")]
+        deps = [models.PinnedDependency("pandas", "2.2.1")]
         findings = spy.check_transitive_signals(deps, {"major": 3, "minor": 8})
         # numpy resolves to 1.26.4 here (only version satisfying pandas's non-3.11/3.12 branch);
         # 1.26.4 declares requires-python >=3.9, which doesn't cover 3.8.
@@ -511,8 +512,8 @@ class TestCheckTransitiveSignals:
 
     def test_unresolvable_graph_short_circuits_to_conflict_findings(self):
         deps = [
-            spy.PinnedDependency("pandas", "2.2.1"),
-            spy.PinnedDependency("numpy", "2.5.3"),
+            models.PinnedDependency("pandas", "2.2.1"),
+            models.PinnedDependency("numpy", "2.5.3"),
         ]
         findings = spy.check_transitive_signals(deps, REQ_PY_311)
         assert all(f.signal == "conflict" for f in findings)
@@ -528,7 +529,7 @@ class TestLocalModuleDriftCheck:
     """
 
     def _manifest_with(self, local_modules):
-        return spy.SteadyPyManifest(
+        return models.SteadyPyManifest(
             python_version={"major": 3, "minor": 11},
             dependencies=[],
             gpu=None,
@@ -612,7 +613,7 @@ class TestLocalModuleDriftCheck:
 # Manifest hash verification, shared pin checks, generation-time ordering
 # ---------------------------------------------------------------------------
 
-CLEAN_DEP = spy.PinnedDependency("core-dep", "1.0.0")  # fake package with no findings of any kind
+CLEAN_DEP = models.PinnedDependency("core-dep", "1.0.0")  # fake package with no findings of any kind
 
 
 def _sha256_of(payload):
@@ -703,8 +704,8 @@ class TestPinChecksAreSharedBetweenGenerationAndCheckDrift:
     def test_identical_checks_in_both_paths(self, tmp_path, monkeypatch, capsys):
         deps = [
             CLEAN_DEP,
-            spy.PinnedDependency("torch", "2.3.1+cu121"),  # local version: skipped by direct checks
-            spy.PinnedDependency("pandas[test]", "2.2.1"),
+            models.PinnedDependency("torch", "2.3.1+cu121"),  # local version: skipped by direct checks
+            models.PinnedDependency("pandas[test]", "2.2.1"),
         ]
         generated, checked = [], []
 
@@ -720,7 +721,7 @@ class TestPinChecksAreSharedBetweenGenerationAndCheckDrift:
         assert generated == checked
 
     def test_local_version_pin_yields_the_same_finding_in_both_paths(self, tmp_path, capsys):
-        deps = [spy.PinnedDependency("torch", "2.3.1+cu121")]
+        deps = [models.PinnedDependency("torch", "2.3.1+cu121")]
         result = spy.generate_production_blueprint(deps)
         at_generation = [f.to_dict() for f in result["drift_report"].heuristic]
         path = _write_literal(tmp_path, result["drift_report"].manifest.to_dict())
@@ -737,13 +738,13 @@ class TestGenerationOrdering:
         """Recorded findings will live inside the hashed manifest, so they must exist first."""
         order = []
         monkeypatch.setattr(spy, "check_yanked_or_removed", lambda *a: order.append("checks") or [])
-        real_hash = spy.SteadyPyManifest.compute_and_set_hash
+        real_hash = models.SteadyPyManifest.compute_and_set_hash
 
         def record_hash(self):
             order.append("hash")
             return real_hash(self)
 
-        monkeypatch.setattr(spy.SteadyPyManifest, "compute_and_set_hash", record_hash)
+        monkeypatch.setattr(models.SteadyPyManifest, "compute_and_set_hash", record_hash)
         spy.generate_production_blueprint([CLEAN_DEP])
         assert "checks" in order and "hash" in order
         assert order.index("checks") < order.index("hash")
@@ -775,47 +776,47 @@ def _by_signal(report, bucket, signal):
     return [f for f in report[bucket] if f["signal"] == signal]
 
 
-REQUESTS_YANKED = spy.PinnedDependency("requests", "2.32.0")  # yanked (confirmed) + stale (heuristic)
-STALE_ONLY = spy.PinnedDependency("stale-package", "1.0.0")   # stale (heuristic) only
-OLD_NUMPY = spy.PinnedDependency("numpy", "1.26.4")           # major_bump (heuristic) only at 3.11
+REQUESTS_YANKED = models.PinnedDependency("requests", "2.32.0")  # yanked (confirmed) + stale (heuristic)
+STALE_ONLY = models.PinnedDependency("stale-package", "1.0.0")   # stale (heuristic) only
+OLD_NUMPY = models.PinnedDependency("numpy", "1.26.4")           # major_bump (heuristic) only at 3.11
 
 
 class TestBaselineKeys:
     @pytest.mark.parametrize("finding,expected", [
-        (spy.DriftFinding("requests", "2.32.0", "yanked", "confirmed", "m"), ("yanked", "requests", "2.32.0")),
-        (spy.DriftFinding("old-package", "0.9.0", "removed", "confirmed", "m"), ("removed", "old-package", "0.9.0")),
-        (spy.DriftFinding("numpy", "1.26.4", "unsupported_python", "confirmed", "m"), ("unsupported_python", "numpy", "1.26.4")),
-        (spy.DriftFinding("torch", "2.3.1+cu121", "unverifiable_custom_index", "heuristic", "m"),
+        (models.DriftFinding("requests", "2.32.0", "yanked", "confirmed", "m"), ("yanked", "requests", "2.32.0")),
+        (models.DriftFinding("old-package", "0.9.0", "removed", "confirmed", "m"), ("removed", "old-package", "0.9.0")),
+        (models.DriftFinding("numpy", "1.26.4", "unsupported_python", "confirmed", "m"), ("unsupported_python", "numpy", "1.26.4")),
+        (models.DriftFinding("torch", "2.3.1+cu121", "unverifiable_custom_index", "heuristic", "m"),
          ("unverifiable_custom_index", "torch", "2.3.1+cu121")),
-        (spy.DriftFinding("stale-package", "1.0.0", "stale", "heuristic", "m", {"days_since_last_release": 900}),
+        (models.DriftFinding("stale-package", "1.0.0", "stale", "heuristic", "m", {"days_since_last_release": 900}),
          ("stale", "stale-package")),
-        (spy.DriftFinding("numpy", "1.26.4", "major_bump", "heuristic", "m", latest_version="2.5.3"),
+        (models.DriftFinding("numpy", "1.26.4", "major_bump", "heuristic", "m", latest_version="2.5.3"),
          ("major_bump", "numpy", "2")),
-        (spy.DriftFinding("numpy", "<2", "conflict", "confirmed", "m", parent="pandas"),
+        (models.DriftFinding("numpy", "<2", "conflict", "confirmed", "m", parent="pandas"),
          ("conflict", "numpy", "<2", "pandas")),
     ])
     def test_key_holds_the_facts_that_define_the_problem(self, finding, expected):
-        assert spy.finding_baseline_key(finding) == expected
+        assert models.finding_baseline_key(finding) == expected
 
     def test_stale_key_ignores_the_changing_day_count(self):
-        a = spy.DriftFinding("p", "1", "stale", "heuristic", "m", {"days_since_last_release": 800})
-        b = spy.DriftFinding("p", "1", "stale", "heuristic", "m", {"days_since_last_release": 900})
-        assert spy.finding_baseline_key(a) == spy.finding_baseline_key(b)
+        a = models.DriftFinding("p", "1", "stale", "heuristic", "m", {"days_since_last_release": 800})
+        b = models.DriftFinding("p", "1", "stale", "heuristic", "m", {"days_since_last_release": 900})
+        assert models.finding_baseline_key(a) == models.finding_baseline_key(b)
 
     def test_a_newer_latest_major_is_a_different_major_bump(self):
-        a = spy.DriftFinding("numpy", "1.26.4", "major_bump", "heuristic", "m", latest_version="2.5.3")
-        b = spy.DriftFinding("numpy", "1.26.4", "major_bump", "heuristic", "m", latest_version="3.0.0")
-        assert spy.finding_baseline_key(a) != spy.finding_baseline_key(b)
+        a = models.DriftFinding("numpy", "1.26.4", "major_bump", "heuristic", "m", latest_version="2.5.3")
+        b = models.DriftFinding("numpy", "1.26.4", "major_bump", "heuristic", "m", latest_version="3.0.0")
+        assert models.finding_baseline_key(a) != models.finding_baseline_key(b)
 
     @pytest.mark.parametrize("signal,severity", [
         ("tampered", "confirmed"), ("local_module_missing", "confirmed"),
         ("local_module_unverifiable", "error"), ("check_error", "error"),
     ])
     def test_findings_with_no_generation_time_counterpart_have_no_key(self, signal, severity):
-        assert spy.finding_baseline_key(spy.DriftFinding("x", "1", signal, severity, "m")) is None
+        assert models.finding_baseline_key(models.DriftFinding("x", "1", signal, severity, "m")) is None
 
     def test_conflict_findings_carry_their_parent(self):
-        deps = [spy.PinnedDependency("pandas", "2.2.1"), spy.PinnedDependency("numpy", "2.5.3")]
+        deps = [models.PinnedDependency("pandas", "2.2.1"), models.PinnedDependency("numpy", "2.5.3")]
         _, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
         assert findings and all(f.parent is not None for f in findings)  # "" for a requirement from a direct pin
         assert any(f.parent == "pandas" for f in findings)
@@ -830,10 +831,10 @@ class TestGenerationRecordsBaseline:
 
     def test_clean_generation_records_an_empty_baseline_not_none(self):
         manifest = spy.generate_production_blueprint([CLEAN_DEP])["drift_report"].manifest
-        assert manifest.baseline == spy.Baseline()
+        assert manifest.baseline == models.Baseline()
 
     def test_packages_that_could_not_be_checked_are_recorded(self):
-        deps = [spy.PinnedDependency("flaky-package", "1.0.0")]
+        deps = [models.PinnedDependency("flaky-package", "1.0.0")]
         baseline = spy.generate_production_blueprint(deps)["drift_report"].manifest.baseline
         assert baseline.errors == ("flaky-package",)
 
@@ -897,7 +898,7 @@ class TestCheckDriftClassifiesAgainstBaseline:
         assert [f["baseline_status"] for f in _by_signal(report, "heuristic", "major_bump")] == ["new"]
 
     def test_finding_on_a_package_that_errored_at_generation_is_not_claimed_new(self, tmp_path, monkeypatch, capsys):
-        path, _ = _generate_file(tmp_path, [spy.PinnedDependency("flaky-package", "1.0.0")])
+        path, _ = _generate_file(tmp_path, [models.PinnedDependency("flaky-package", "1.0.0")])
 
         def recovers(world):
             world["flaky-package"] = copy.deepcopy(world["stale-package"])
@@ -972,7 +973,7 @@ class TestCheckDriftClassifiesAgainstBaseline:
 # an expected state (private/custom-index package), not drift.
 # ---------------------------------------------------------------------------
 
-PRIVATE_PKG = spy.PinnedDependency("my-private-pkg", "1.0.0")  # not on the fake PyPI
+PRIVATE_PKG = models.PinnedDependency("my-private-pkg", "1.0.0")  # not on the fake PyPI
 
 
 class TestKnownCustomSources:
@@ -1040,19 +1041,19 @@ class TestKnownCustomSources:
 
 class TestFindingKeyInJson:
     @pytest.mark.parametrize("finding,expected", [
-        (spy.DriftFinding("requests", "2.32.0", "yanked", "confirmed", "m"), ["yanked", "requests", "2.32.0"]),
-        (spy.DriftFinding("stale-package", "1.0.0", "stale", "heuristic", "m", {"days_since_last_release": 9}),
+        (models.DriftFinding("requests", "2.32.0", "yanked", "confirmed", "m"), ["yanked", "requests", "2.32.0"]),
+        (models.DriftFinding("stale-package", "1.0.0", "stale", "heuristic", "m", {"days_since_last_release": 9}),
          ["stale", "stale-package"]),
-        (spy.DriftFinding("", "", "tampered", "confirmed", "m"), ["tampered", "", ""]),
-        (spy.DriftFinding("cookbook", "", "local_module_missing", "confirmed", "m"), ["local_module_missing", "cookbook", ""]),
-        (spy.DriftFinding("numpy", "1.26.4", "check_error", "error", "m"), ["check_error", "numpy", "1.26.4"]),
+        (models.DriftFinding("", "", "tampered", "confirmed", "m"), ["tampered", "", ""]),
+        (models.DriftFinding("cookbook", "", "local_module_missing", "confirmed", "m"), ["local_module_missing", "cookbook", ""]),
+        (models.DriftFinding("numpy", "1.26.4", "check_error", "error", "m"), ["check_error", "numpy", "1.26.4"]),
     ])
     def test_every_finding_serializes_a_key(self, finding, expected):
         assert finding.to_dict()["key"] == expected
 
     def test_key_ignores_the_volatile_parts_of_a_finding(self):
-        a = spy.DriftFinding("p", "1", "stale", "heuristic", "no release in 800 days", {"days_since_last_release": 800})
-        b = spy.DriftFinding("p", "1", "stale", "heuristic", "no release in 900 days", {"days_since_last_release": 900})
+        a = models.DriftFinding("p", "1", "stale", "heuristic", "no release in 800 days", {"days_since_last_release": 800})
+        b = models.DriftFinding("p", "1", "stale", "heuristic", "no release in 900 days", {"days_since_last_release": 900})
         assert a.to_dict()["key"] == b.to_dict()["key"] and a.to_dict()["message"] != b.to_dict()["message"]
 
     def test_check_drift_json_carries_keys(self, tmp_path, capsys):
@@ -1160,14 +1161,14 @@ class TestBatchAggregateValidation:
 
 class TestBaselineType:
     def test_to_dict_is_the_persisted_shape(self):
-        baseline = spy.Baseline(findings=(("yanked", "requests", "2.32.0"),), errors=("flaky-package",))
+        baseline = models.Baseline(findings=(("yanked", "requests", "2.32.0"),), errors=("flaky-package",))
         assert baseline.to_dict() == {
             "version": 1, "findings": [["yanked", "requests", "2.32.0"]], "errors": ["flaky-package"],
         }
 
     def test_round_trips(self):
-        baseline = spy.Baseline(findings=(("stale", "p"), ("yanked", "q", "1")), errors=("x", ""))
-        assert spy.Baseline.from_dict(baseline.to_dict()) == baseline
+        baseline = models.Baseline(findings=(("stale", "p"), ("yanked", "q", "1")), errors=("x", ""))
+        assert models.Baseline.from_dict(baseline.to_dict()) == baseline
 
     @pytest.mark.parametrize("raw", [
         None, [], "baseline", {"version": 99, "findings": [], "errors": []},
@@ -1175,28 +1176,28 @@ class TestBaselineType:
         {"version": 1, "findings": [], "errors": [3]}, {"version": 1, "errors": []},
     ])
     def test_unusable_baselines_read_as_none(self, raw):
-        assert spy.Baseline.from_dict(raw) is None
+        assert models.Baseline.from_dict(raw) is None
 
     def test_build_baseline_returns_a_sorted_typed_record(self):
         findings = [
-            spy.DriftFinding("requests", "2.32.0", spy.Signal.YANKED, spy.Severity.CONFIRMED, "m"),
-            spy.DriftFinding("a-pkg", "1", spy.Signal.STALE, spy.Severity.HEURISTIC, "m"),
-            spy.DriftFinding("flaky", "1", spy.Signal.CHECK_ERROR, spy.Severity.ERROR, "m"),
+            models.DriftFinding("requests", "2.32.0", constants.Signal.YANKED, constants.Severity.CONFIRMED, "m"),
+            models.DriftFinding("a-pkg", "1", constants.Signal.STALE, constants.Severity.HEURISTIC, "m"),
+            models.DriftFinding("flaky", "1", constants.Signal.CHECK_ERROR, constants.Severity.ERROR, "m"),
         ]
-        assert spy.build_baseline(findings) == spy.Baseline(
+        assert spy.build_baseline(findings) == models.Baseline(
             findings=(("stale", "a-pkg"), ("yanked", "requests", "2.32.0")), errors=("flaky",),
         )
 
     def test_manifest_holds_a_typed_baseline_and_persists_it_as_a_dict(self):
         manifest = spy.generate_production_blueprint([REQUESTS_YANKED])["drift_report"].manifest
-        assert isinstance(manifest.baseline, spy.Baseline)
+        assert isinstance(manifest.baseline, models.Baseline)
         assert manifest.to_dict()["baseline"] == manifest.baseline.to_dict()
-        assert spy.SteadyPyManifest.from_literal(manifest.to_dict()).baseline == manifest.baseline
+        assert models.SteadyPyManifest.from_literal(manifest.to_dict()).baseline == manifest.baseline
 
     def test_finding_keys_are_tuples_but_serialize_as_lists(self):
-        finding = spy.DriftFinding("requests", "2.32.0", spy.Signal.YANKED, spy.Severity.CONFIRMED, "m")
-        assert spy.finding_baseline_key(finding) == ("yanked", "requests", "2.32.0")
-        assert spy.finding_identity_key(finding) == ("yanked", "requests", "2.32.0")
+        finding = models.DriftFinding("requests", "2.32.0", constants.Signal.YANKED, constants.Severity.CONFIRMED, "m")
+        assert models.finding_baseline_key(finding) == ("yanked", "requests", "2.32.0")
+        assert models.finding_identity_key(finding) == ("yanked", "requests", "2.32.0")
         assert finding.to_dict()["key"] == ["yanked", "requests", "2.32.0"]
 
 
@@ -1207,17 +1208,17 @@ class TestDriftFindingExplicitFields:
         assert finding.to_dict()["details"]["latest_version"] == "2.5.3"
 
     def test_conflict_carries_its_parent_as_a_field_and_in_json_details(self):
-        deps = [spy.PinnedDependency("pandas", "2.2.1"), spy.PinnedDependency("numpy", "2.5.3")]
+        deps = [models.PinnedDependency("pandas", "2.2.1"), models.PinnedDependency("numpy", "2.5.3")]
         _, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
         via_pandas = [f for f in findings if f.parent == "pandas"]
         assert via_pandas and via_pandas[0].to_dict()["details"]["parent"] == "pandas"
         assert [f.parent for f in findings if f.parent is not None]  # "" means a requirement from a direct pin
 
     def test_keys_read_the_explicit_fields(self):
-        bump = spy.DriftFinding("numpy", "1.26.4", spy.Signal.MAJOR_BUMP, spy.Severity.HEURISTIC, "m", latest_version="3.0.0")
-        conflict = spy.DriftFinding("numpy", "<2", spy.Signal.CONFLICT, spy.Severity.CONFIRMED, "m", parent="pandas")
-        assert spy.finding_baseline_key(bump) == ("major_bump", "numpy", "3")
-        assert spy.finding_baseline_key(conflict) == ("conflict", "numpy", "<2", "pandas")
+        bump = models.DriftFinding("numpy", "1.26.4", constants.Signal.MAJOR_BUMP, constants.Severity.HEURISTIC, "m", latest_version="3.0.0")
+        conflict = models.DriftFinding("numpy", "<2", constants.Signal.CONFLICT, constants.Severity.CONFIRMED, "m", parent="pandas")
+        assert models.finding_baseline_key(bump) == ("major_bump", "numpy", "3")
+        assert models.finding_baseline_key(conflict) == ("conflict", "numpy", "<2", "pandas")
 
     def test_display_only_details_stay_in_details(self):
         (finding,) = spy.check_staleness("stale-package", "1.0.0")

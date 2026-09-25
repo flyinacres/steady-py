@@ -10,6 +10,7 @@ from typing import Dict, Any
 import pytest
 import steady_py.cli as cli
 import steady_py.core as spy
+from steady_py import constants, models
 
 
 @pytest.fixture
@@ -256,16 +257,16 @@ class TestJsonRendererUnit:
 
     def test_dependency_shape_guarded_found_and_not_found(self):
         deps = [
-            spy.DependencyEntry(name="torch", version="2.3.1+cu121", source="pip_command",
+            models.DependencyEntry(name="torch", version="2.3.1+cu121", source="pip_command",
                                 status="pinned", flags=["--extra-index-url", "https://x"]),
-            spy.DependencyEntry(name="cupy", version="13.0.0", source="import", status="guarded",
+            models.DependencyEntry(name="cupy", version="13.0.0", source="import", status="guarded",
                                 is_comment=True, comment_text="optional or conditional dependency inside try/except block"),
-            spy.DependencyEntry(name="cupy2", version="", source="import", status="guarded",
+            models.DependencyEntry(name="cupy2", version="", source="import", status="guarded",
                                 is_comment=True, comment_text="cupy2 (optional..., not found in active env)"),
-            spy.DependencyEntry(name="xgboost", version="", source="import", status="pinned",
+            models.DependencyEntry(name="xgboost", version="", source="import", status="pinned",
                                 is_comment=True, comment_text="imported as 'xgboost', not currently found in active env"),
         ]
-        report = spy.NotebookAnalysisReport(
+        report = models.NotebookAnalysisReport(
             notebook_path="x.ipynb", is_python=True, lang_label="python", dependencies=deps
         )
         payload = json.loads(spy.format_json_single_report(report))
@@ -291,23 +292,23 @@ class TestJsonRendererUnit:
 
     def test_hardware_tagged_derived_purely_from_version(self):
         """hardware_tagged must come from the '+' in version, not a separately tracked flag."""
-        tagged = spy.DependencyEntry(name="torch", version="2.3.1+cu121")
-        untagged = spy.DependencyEntry(name="pandas", version="2.2.1")
-        no_version = spy.DependencyEntry(name="xgboost", version="", is_comment=True, comment_text="# not found")
+        tagged = models.DependencyEntry(name="torch", version="2.3.1+cu121")
+        untagged = models.DependencyEntry(name="pandas", version="2.2.1")
+        no_version = models.DependencyEntry(name="xgboost", version="", is_comment=True, comment_text="# not found")
 
         assert tagged.to_report_dict()["hardware_tagged"] is True
         assert untagged.to_report_dict()["hardware_tagged"] is False
         assert no_version.to_report_dict()["hardware_tagged"] is False
 
     def test_warning_and_notice_location_fields(self):
-        report = spy.NotebookAnalysisReport(
+        report = models.NotebookAnalysisReport(
             notebook_path="x.ipynb", is_python=True, lang_label="python",
             warnings=[
-                spy.DiagnosticEvent(type="dynamic_import", detail="d", cell_idx=3, line_idx=1, level="warning"),
-                spy.DiagnosticEvent(type="missing_hardware_index", detail="d", level="warning"),
+                models.DiagnosticEvent(type="dynamic_import", detail="d", cell_idx=3, line_idx=1, level="warning"),
+                models.DiagnosticEvent(type="missing_hardware_index", detail="d", level="warning"),
             ],
             notices=[
-                spy.DiagnosticEvent(type="system_command", detail="d", cell_idx=0, line_idx=2, level="notice"),
+                models.DiagnosticEvent(type="system_command", detail="d", cell_idx=0, line_idx=2, level="notice"),
             ],
         )
         payload = json.loads(spy.format_json_single_report(report))
@@ -325,19 +326,19 @@ class TestJsonRendererUnit:
 
     def test_warnings_and_notices_level_consistency(self):
         """Every item placed in `warnings` must be level='warning'; `notices` must be level='notice'."""
-        report = spy.NotebookAnalysisReport(
+        report = models.NotebookAnalysisReport(
             notebook_path="x.ipynb", is_python=True, lang_label="python",
-            warnings=[spy.DiagnosticEvent(type="dynamic_import", detail="d", level="warning")],
-            notices=[spy.DiagnosticEvent(type="system_command", detail="d", level="notice")],
+            warnings=[models.DiagnosticEvent(type="dynamic_import", detail="d", level="warning")],
+            notices=[models.DiagnosticEvent(type="system_command", detail="d", level="notice")],
         )
         assert all(w.level == "warning" for w in report.warnings)
         assert all(n.level == "notice" for n in report.notices)
 
     def test_gpu_serialization_present_and_null(self):
-        gpu = spy.GpuInfo(has_gpu=True, active_framework="PyTorch", device_name="RTX 3090",
+        gpu = models.GpuInfo(has_gpu=True, active_framework="PyTorch", device_name="RTX 3090",
                           frameworks=["torch"], probe_errors=[])
-        with_gpu = spy.NotebookAnalysisReport(notebook_path="x.ipynb", is_python=True, lang_label="python", gpu=gpu)
-        without_gpu = spy.NotebookAnalysisReport(notebook_path="x.ipynb", is_python=True, lang_label="python", gpu=None)
+        with_gpu = models.NotebookAnalysisReport(notebook_path="x.ipynb", is_python=True, lang_label="python", gpu=gpu)
+        without_gpu = models.NotebookAnalysisReport(notebook_path="x.ipynb", is_python=True, lang_label="python", gpu=None)
 
         payload_with = json.loads(spy.format_json_single_report(with_gpu))
         payload_without = json.loads(spy.format_json_single_report(without_gpu))
@@ -349,7 +350,7 @@ class TestJsonRendererUnit:
         assert payload_without["gpu"] is None
 
     def test_artifacts_written_passthrough(self):
-        report = spy.NotebookAnalysisReport(notebook_path="x.ipynb", is_python=True, lang_label="python")
+        report = models.NotebookAnalysisReport(notebook_path="x.ipynb", is_python=True, lang_label="python")
 
         assert json.loads(spy.format_json_single_report(report))["artifacts_written"] is None
 
@@ -357,18 +358,18 @@ class TestJsonRendererUnit:
         assert json.loads(spy.format_json_single_report(report, artifacts_written=written))["artifacts_written"] == written
 
     def test_schema_and_tool_version_constants(self):
-        report = spy.NotebookAnalysisReport(notebook_path="x.ipynb", is_python=True, lang_label="python")
+        report = models.NotebookAnalysisReport(notebook_path="x.ipynb", is_python=True, lang_label="python")
         payload = json.loads(spy.format_json_single_report(report))
-        assert payload["schema_version"] == spy.SCHEMA_VERSION
-        assert payload["tool_version"] == spy.TOOL_VERSION
+        assert payload["schema_version"] == constants.SCHEMA_VERSION
+        assert payload["tool_version"] == constants.TOOL_VERSION
         assert isinstance(payload["tool_version"], str)
 
     def test_batch_summary_shape(self):
-        nb_report = spy.NotebookAnalysisReport(
+        nb_report = models.NotebookAnalysisReport(
             notebook_path="repo/a.ipynb", is_python=True, lang_label="python",
-            dependencies=[spy.DependencyEntry(name="torch", version="2.3.1+cu121", status="pinned")]
+            dependencies=[models.DependencyEntry(name="torch", version="2.3.1+cu121", status="pinned")]
         )
-        summary = spy.BatchAnalysisSummary(
+        summary = models.BatchAnalysisSummary(
             target_dir="./repo",
             total_python_notebooks=1,
             non_python_count=1,
@@ -408,15 +409,15 @@ class TestConsoleJsonParity:
     """Feeds one shared report object to both renderers and checks they agree."""
 
     def test_batch_console_and_json_agree_on_counts(self):
-        nb_report = spy.NotebookAnalysisReport(notebook_path="repo/a.ipynb", is_python=True, lang_label="python")
-        summary = spy.BatchAnalysisSummary(
+        nb_report = models.NotebookAnalysisReport(notebook_path="repo/a.ipynb", is_python=True, lang_label="python")
+        summary = models.BatchAnalysisSummary(
             target_dir="./repo",
             total_python_notebooks=1,
             matched_packages={"numpy", "pandas", "torch"},
             missing_packages={"xgboost": ["a.ipynb"], "shap": ["a.ipynb"]},
-            magic_warnings=[spy.DiagnosticEvent(type="external_requirement", detail="uses -r reqs.txt", level="warning")],
-            magic_notices=[spy.DiagnosticEvent(type="system_command", detail="uses apt-get", level="notice")],
-            promotions=[spy.PromotionDetail(import_name="umap.plot", promoted_name="umap-learn[plot]",
+            magic_warnings=[models.DiagnosticEvent(type="external_requirement", detail="uses -r reqs.txt", level="warning")],
+            magic_notices=[models.DiagnosticEvent(type="system_command", detail="uses apt-get", level="notice")],
+            promotions=[models.PromotionDetail(import_name="umap.plot", promoted_name="umap-learn[plot]",
                                             version="0.5.5", detail="umap.plot -> umap-learn[plot]==0.5.5")],
             primary_url="https://download.pytorch.org/whl/cu121",
             primary_url_reason="Sole index URL harvested across batch (1 notebook(s))",

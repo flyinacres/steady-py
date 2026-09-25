@@ -29,7 +29,7 @@ Execution Modes:
 """
 
 # =====================================================================
-# CONSTANTS, LOGGING & TYPE DEFINITIONS
+# IMPORTS & LOGGING
 # =====================================================================
 
 import ast
@@ -38,14 +38,12 @@ import os
 import re
 import sys
 import uuid
-import contextlib
-import functools
 import logging
 import warnings
 import subprocess
 import tempfile
-import hashlib
 import importlib.metadata
+import importlib.util
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -60,13 +58,47 @@ from packaging.markers import default_environment
 from resolvelib import AbstractProvider, BaseReporter, Resolver
 from resolvelib.resolvers import ResolutionImpossible
 
-TOOL_VERSION: str
-try:
-    TOOL_VERSION = importlib.metadata.version("steady-py")
-except importlib.metadata.PackageNotFoundError:
-    TOOL_VERSION = "0.0.0+unknown"
-SCHEMA_VERSION: str = "1.0"
-MANIFEST_SCHEMA_VERSION: str = "1.0"
+from steady_py.constants import (
+    BaselineStatus,
+    BUILD_AND_PACKAGING_TOOLS,
+    CANONICAL_TO_FRAMEWORK_DISPLAY,
+    DEFAULT_IGNORED_DIRS,
+    DependencyStatus,
+    FetchStatus,
+    HELP_URL,
+    IMPORT_TO_PYPI_MAP,
+    PLATFORM_PSEUDO_MODULES,
+    ReportKind,
+    SCHEMA_VERSION,
+    SETUP_MARKDOWN_HEADING,
+    Severity,
+    Signal,
+    StatusLabel,
+    STD_LIB,
+    SUPPORTED_GPU_FRAMEWORKS,
+    TOOL_VERSION,
+    TRANSITIVE_FRAMEWORK_MAP,
+)
+from steady_py.models import (
+    Baseline,
+    BatchAnalysisSummary,
+    DependencyEntry,
+    DiagnosticEvent,
+    DriftFinding,
+    ExtractionResult,
+    FindingKey,
+    GpuInfo,
+    HarvestResult,
+    ImportOccurrence,
+    NotebookAnalysisReport,
+    PinnedDependency,
+    PipInstallOccurrence,
+    PromotionDetail,
+    SteadyPyManifest,
+    TimelineResult,
+)
+from steady_py import models, util
+
 
 # Diagnostics go through this logger. Importing the module must not touch process-global state
 # (the standard streams, other loggers' handlers), so the logger itself is only given a NullHandler;
@@ -95,480 +127,11 @@ def configure_console() -> None:
         logger.addHandler(handler)
 
 
-# =====================================================================
-# SYSTEM CONSTANTS & CONFIGURATION DEFAULTS
-# =====================================================================
-
-DEFAULT_UNIVERSAL_MANIFEST_NAME: str = "requirements-all.txt"
-
-HELP_URL: str = "https://github.com/flyinacres/notebook_env/blob/main/HELP.md"
-
-# Fixed first line of the generated Cell 1. Shared by the generator and by is_prior_setup_cell,
-# so what the tool writes and what it later recognizes as its own cannot drift apart.
-SETUP_MARKDOWN_HEADING: str = "### 🛠️ Environment Setup & Dependency Verification"
-
-DEFAULT_IGNORED_DIRS: Set[str] = {
-    ".git", ".venv", "venv", "env", "__pycache__", ".ipynb_checkpoints", "build", "dist"
-}
-
-SUPPORTED_GPU_FRAMEWORKS: Set[str] = {"torch", "tensorflow", "jax"}
-
-CANONICAL_TO_FRAMEWORK_DISPLAY: Dict[str, str] = {
-    "torch": "PyTorch",
-    "tensorflow": "TensorFlow",
-    "jax": "JAX"
-}
-
-
-class StatusLabel:
-    """Standardized metadata and language classification status labels."""
-    PYTHON = "python"
-    CORRUPTED = "corrupted"
-    ERROR = "error"
-    UNKNOWN = "unknown"
-
-
-# Names shared by the drift/validation code and the JSON it emits. Plain string constants (like
-# StatusLabel above), not Enum members, so values embed in the manifest literal, serialize to JSON and
-# format into messages as ordinary strings on every supported Python version. Using the constant
-# instead of a bare literal turns a typo into an immediate AttributeError instead of a finding that
-# silently never matches.
-
-class Signal:
-    """DriftFinding.signal values."""
-    CONFLICT = "conflict"
-    YANKED = "yanked"
-    REMOVED = "removed"
-    NOT_FOUND_ON_PYPI = "not_found_on_pypi"
-    STALE = "stale"
-    MAJOR_BUMP = "major_bump"
-    UNSUPPORTED_PYTHON = "unsupported_python"
-    UNVERIFIABLE_CUSTOM_INDEX = "unverifiable_custom_index"
-    CHECK_ERROR = "check_error"
-    TAMPERED = "tampered"
-    LOCAL_MODULE_MISSING = "local_module_missing"
-    LOCAL_MODULE_UNVERIFIABLE = "local_module_unverifiable"
-
-
-class Severity:
-    """DriftFinding.severity values. NOTICE is a known custom source demoted at check time."""
-    CONFIRMED = "confirmed"
-    HEURISTIC = "heuristic"
-    ERROR = "error"
-    NOTICE = "notice"
-
-
-class BaselineStatus:
-    """DriftFinding.baseline_status values (check-drift against a generation-time baseline)."""
-    NEW = "new"
-    KNOWN = "known"
-    NOT_CHECKED_AT_GENERATION = "not_checked_at_generation"
-
-
-class DependencyStatus:
-    """DependencyEntry.status values."""
-    PINNED = "pinned"
-    GUARDED = "guarded"
-    PLATFORM_PSEUDO_MODULE = "platform_pseudo_module"
-    BUILD_TOOL = "build_tool"
-    LOCAL_MODULE = "local_module"
-    AUXILIARY_TOOL = "auxiliary_tool"
-    WRITEFILE_SCRIPT = "writefile_script"
-    DIRECT_REFERENCE = "direct_reference"
-    SYSTEM_PATH = "system_path"
-
-
-class FetchStatus:
-    """Outcome of a PyPI metadata fetch."""
-    FOUND = "found"
-    NOT_FOUND = "not_found"
-    NETWORK_ERROR = "network_error"
-
-
-class ReportKind:
-    """DriftCheckReport.kind values."""
-    CHECK = "check"
-    VALIDATION = "validation"
-
-
-@dataclass
-class DiagnosticEvent:
-    """Represents a structured warning or informational notice."""
-    type: str
-    detail: str
-    cell_idx: Optional[int] = None
-    line_idx: Optional[int] = None
-    level: str = "warning"
-
-    def format_console(self) -> str:
-        prefix = "⚠️" if self.level == "warning" else "ℹ️"
-        return f"{prefix} {self.detail}"
-
-    def __str__(self) -> str:
-        return self.format_console()
-
-    def __contains__(self, item: str) -> bool:
-        return item in self.detail or item in self.format_console()
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "type": self.type,
-            "detail": self.detail,
-            "cell_idx": self.cell_idx,
-            "line_idx": self.line_idx,
-        }
-
-
-@dataclass
-class PromotionDetail:
-    """Represents an automatic extras package promotion event."""
-    import_name: str
-    promoted_name: str
-    version: Optional[str] = None
-    detail: str = ""
-
-    def __str__(self) -> str:
-        return self.detail
-
-    def __contains__(self, item: str) -> bool:
-        return item in self.detail or item in self.promoted_name or item in self.import_name
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "import": self.import_name,
-            "promoted_name": self.promoted_name,
-            "version": self.version,
-        }
-
-
-@dataclass
-class PipInstallOccurrence:
-    """
-    Represents an explicit package install invocation inside a notebook cell.
-    
-    Fields:
-        cell_idx: Index of the cell (document or execution order rank).
-        line_idx: Line index inside the cell where the install was declared.
-        raw_token: Raw CLI argument token (e.g. 'torch==2.3.1+cu121').
-        name: PyPI distribution stem (e.g. 'torch').
-        version_spec: Version specifier string if present (e.g. '==2.3.1+cu121', '>=2.0'), else empty.
-        flags: Scoped CLI flags accompanying this specific command.
-    """
-    cell_idx: int
-    line_idx: int
-    raw_token: str
-    name: str
-    version_spec: str = ""
-    flags: List[str] = field(default_factory=list)
-
-
-@dataclass
-class ImportOccurrence:
-    """
-    Represents an AST import statement inside a notebook cell.
-    
-    Fields:
-        cell_idx: Index of the cell.
-        line_idx: Zero-indexed line number in the original cell source.
-        module: Base imported package stem (e.g. 'torch').
-        full_name: Full imported module string (e.g. 'umap.plot').
-        is_guarded: True if import occurred inside a try/except or conditional block.
-    """
-    cell_idx: int
-    line_idx: int
-    module: str
-    full_name: str = ""
-    is_guarded: bool = False
-
-
-@dataclass
-class DependencyEntry:
-    """
-    Represents a single dependency requirement with scoped flags or an informational comment.
-
-    Fields:
-        name: Distribution / PyPI package name (e.g., 'torch', 'pandas').
-        version: Pinned version string (e.g., '2.3.1+cu121', '2.2.1') or empty if unversioned.
-        flags: Scoped CLI flags to pass to pip install (e.g., ['--extra-index-url', 'https://...']).
-        source: Discovery origin ('import', 'pip_command', 'writefile_script').
-        status: Semantic category ('pinned', 'guarded', 'platform_pseudo_module', 'build_tool', 'local_module', 'auxiliary_tool', 'writefile_script',
-            'direct_reference', 'system_path').
-        is_comment: True if this entry represents a comment, platform pseudo-module, or uninstalled fallback.
-        comment_text: Full string representation when is_comment is True.
-        anchor: Which directory a 'local_module' status entry resolved against
-            ('notebook_dir' or 'root_dir'); empty for every other status. Never
-            carries a path -- only the anchor name -- so a shared notebook never
-            bakes in the creator's directory structure (see SteadyPyManifest.local_modules).
-        direct_url: For a 'direct_reference' entry (installed from a remote git/archive URL,
-            not PyPI): the source spec to carry into the manifest's raw_installs. Always empty
-            for a 'system_path' entry -- a local path is never stored anywhere.
-    """
-    name: str = ""
-    version: str = ""
-    flags: List[str] = field(default_factory=list)
-    source: str = "import"
-    status: str = DependencyStatus.PINNED
-    is_comment: bool = False
-    comment_text: str = ""
-    anchor: str = ""
-    direct_url: str = ""
-
-    @property
-    def specifier(self) -> str:
-        """Returns the pip install specifier (e.g. 'pandas==2.2.1')."""
-        if self.is_comment:
-            return self.comment_text
-        return f"{self.name}=={self.version}" if self.version else self.name
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Converts to a dictionary representation for Cell 2 inline execution metadata."""
-        return {
-            "name": self.name,
-            "version": self.version,
-            "flags": self.flags
-        }
-
-    def to_pin(self) -> "PinnedDependency":
-        """This entry as a manifest pin (only meaningful for an installable, non-comment entry)."""
-        return PinnedDependency(name=self.name, version=self.version, flags=tuple(self.flags))
-
-    def to_report_dict(self) -> Dict[str, Any]:
-        """Converts to full JSON report representation."""
-        return {
-            "name": self.name,
-            "version": self.version if self.version else None,
-            "source": self.source,
-            "status": self.status,
-            "hardware_tagged": ("+" in self.version) if self.version else False,
-            "flags": self.flags,
-            "comment": self.comment_text if self.is_comment else None
-        }
-
-
-@dataclass
-class TimelineResult:
-    """
-    Encapsulates the resolved dependency timeline and associated promotion and conflict notices.
-
-    Fields:
-        dependencies: Ordered list of DependencyEntry objects.
-        promotion_notices: Informational PromotionDetail objects.
-        conflict_warnings: Structured diagnostic events for overwritten pins or conflicting flags.
-    """
-    dependencies: List[DependencyEntry] = field(default_factory=list)
-    promotion_notices: List[PromotionDetail] = field(default_factory=list)
-    conflict_warnings: List[DiagnosticEvent] = field(default_factory=list)
-
-    def __iter__(self):
-        """Unpacking fallback allowing `deps, notices = timeline_result` in legacy callers."""
-        notice_strings = [p.detail for p in self.promotion_notices]
-        return iter((self.dependencies, notice_strings))
-
-
-@dataclass
-class GpuInfo:
-    """Payload representing active host accelerator capabilities across PyTorch, TensorFlow, and JAX."""
-    has_gpu: bool = False
-    type: Optional[str] = None
-    active_framework: Optional[str] = None
-    device_name: Optional[str] = None
-    frameworks: List[str] = field(default_factory=list)
-    framework_devices: Dict[str, Optional[str]] = field(default_factory=dict)
-    probe_errors: List[str] = field(default_factory=list)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "has_gpu": self.has_gpu,
-            "framework": self.active_framework,
-            "device_name": self.device_name,
-            "frameworks_detected": self.frameworks,
-            "probe_errors": self.probe_errors
-        }
-
-
-BASELINE_FORMAT_VERSION = 1
-FindingKey = Tuple[str, ...]  # see finding_baseline_key
-
-
-@dataclass(frozen=True)
-class Baseline:
-    """What generation-time validation found: compact finding keys, plus the packages that could not
-    be checked ("" means the transitive resolution itself failed). Persisted in the manifest as a
-    dict (to_dict / from_dict)."""
-    findings: Tuple[FindingKey, ...] = ()
-    errors: Tuple[str, ...] = ()
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "version": BASELINE_FORMAT_VERSION,
-            "findings": [list(key) for key in self.findings],
-            "errors": list(self.errors),
-        }
-
-    @classmethod
-    def from_dict(cls, data: Any) -> Optional["Baseline"]:
-        """None when `data` is absent or not a baseline format this tool understands, so an
-        unrecognized baseline reads as 'no baseline recorded' rather than as an error."""
-        if not isinstance(data, dict) or data.get("version") != BASELINE_FORMAT_VERSION:
-            return None
-        findings, errors = data.get("findings"), data.get("errors")
-        if not isinstance(findings, list) or not isinstance(errors, list):
-            return None
-        if not all(isinstance(k, (list, tuple)) and all(isinstance(part, str) for part in k) for k in findings):
-            return None
-        if not all(isinstance(e, str) for e in errors):
-            return None
-        return cls(findings=tuple(tuple(k) for k in findings), errors=tuple(errors))
-
-
-@dataclass(frozen=True)
-class PinnedDependency:
-    """One pinned direct dependency as recorded in the manifest and consumed by the drift checks.
-
-    `name` may carry an extras tag ("pandas[test]"). Only the persisted manifest literal uses the
-    dict form (to_dict / from_dict); everything in memory uses this type.
-    """
-    name: str
-    version: str
-    flags: Tuple[str, ...] = ()
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {"name": self.name, "version": self.version, "flags": list(self.flags)}
-
-    @classmethod
-    def from_dict(cls, data: Any) -> "PinnedDependency":
-        if not isinstance(data, dict):
-            raise TypeError(f"a pinned dependency must be a dict, not {type(data).__name__}")
-        name, version = data.get("name"), data.get("version")
-        if not isinstance(name, str) or not isinstance(version, str):
-            raise TypeError(f"a pinned dependency needs a string 'name' and 'version', got {data!r}")
-        return cls(name=name, version=version, flags=tuple(data.get("flags") or ()))
-
-
-def _manifest_payload_hash(payload: Dict[str, Any]) -> str:
-    """SHA-256 of canonical (sorted-key) JSON of every field except dependency_hash itself."""
-    body = {k: v for k, v in payload.items() if k != "dependency_hash"}
-    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-@dataclass
-class SteadyPyManifest:
-    """Reproducibility manifest embedded in generated Cell 2 as STEADY_PY_MANIFEST.
-
-    Also the payload drift-check parses back out of a notebook/.py file to
-    evaluate pins against live PyPI metadata (no execution, no installs).
-
-    baseline records what generation-time validation found, as compact keys (see
-    build_baseline), so a later check can tell findings that were already present from
-    ones that are new. None means no baseline was recorded.
-
-    local_modules records local sibling modules found at generation time, for
-    drift-check to re-verify by existence (not a PyPI check -- these were never
-    pip-installable). Each entry is {"name": ..., "anchor": "notebook_dir" |
-    "root_dir"} -- never a path, so a shared notebook never bakes in the
-    creator's directory structure.
-    """
-    python_version: Dict[str, int]
-    dependencies: List[PinnedDependency]
-    gpu: Optional[Dict[str, Any]]
-    generated_at: str
-    tool_version: str = TOOL_VERSION
-    schema_version: str = MANIFEST_SCHEMA_VERSION
-    dependency_hash: str = ""
-    raw_installs: List[str] = field(default_factory=list)
-    custom_sourced: List[str] = field(default_factory=list)
-    local_modules: List[Dict[str, str]] = field(default_factory=list)
-    baseline: Optional[Baseline] = None
-    # Set only by from_literal: the hash recomputed over the fields exactly as they were
-    # persisted. Never serialized, hashed or compared; it is not part of the manifest.
-    verified_hash: Optional[str] = field(default=None, init=False, repr=False, compare=False)
-
-    @classmethod
-    def from_literal(cls, data: Dict[str, Any]) -> "SteadyPyManifest":
-        """Builds a manifest from a persisted STEADY_PY_MANIFEST literal.
-
-        The integrity hash is recomputed over `data` as found, not over this class's
-        current field set. Adding a field to the manifest therefore never makes an older
-        manifest look hand-edited, and deleting a field from a newer one is still caught.
-        """
-        if not isinstance(data, dict):
-            raise TypeError(f"the manifest literal must be a dict, not {type(data).__name__}")
-        deps = data.get("dependencies")
-        if not isinstance(deps, list):
-            raise TypeError("the manifest's 'dependencies' must be a list")
-        manifest = cls(**{
-            **data,
-            "dependencies": [PinnedDependency.from_dict(d) for d in deps],
-            "baseline": Baseline.from_dict(data.get("baseline")),
-        })
-        manifest.verified_hash = _manifest_payload_hash(data)
-        return manifest
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "python_version": self.python_version,
-            "dependencies": [d.to_dict() for d in self.dependencies],
-            "gpu": self.gpu,
-            "generated_at": self.generated_at,
-            "tool_version": self.tool_version,
-            "schema_version": self.schema_version,
-            "dependency_hash": self.dependency_hash,
-            "raw_installs": self.raw_installs,
-            "custom_sourced": self.custom_sourced,
-            "local_modules": self.local_modules,
-            "baseline": self.baseline.to_dict() if self.baseline is not None else None,
-        }
-
-    def compute_and_set_hash(self) -> str:
-        """Hashes canonical (sorted-key) JSON of every field except dependency_hash itself.
-
-        Covers content and provenance fields alike, so hand-editing anything in
-        the manifest -- including generated_at, to hide age -- invalidates the hash.
-        """
-        self.dependency_hash = _manifest_payload_hash(self.to_dict())
-        return self.dependency_hash
-
-
 class BlueprintResult(TypedDict):
     """Cell blueprint output strings for Cell 1 (Markdown) and Cell 2 (Python script)."""
     step1_markdown: str
     step2_code: str
     drift_report: "DriftCheckReport"
-
-
-@dataclass
-class NotebookAnalysisReport:
-    """Standardized single-notebook analysis report object."""
-    notebook_path: str
-    is_python: bool
-    lang_label: str
-    parse_error: Optional[str] = None
-    dependencies: List[DependencyEntry] = field(default_factory=list)
-    local_modules: List[str] = field(default_factory=list)
-    platform_pseudo_modules: List[str] = field(default_factory=list)
-    build_and_packaging_tools: List[str] = field(default_factory=list)
-    gpu: Optional[GpuInfo] = None
-    warnings: List[DiagnosticEvent] = field(default_factory=list)
-    notices: List[DiagnosticEvent] = field(default_factory=list)
-    promotions: List[PromotionDetail] = field(default_factory=list)
-    local_tagged: List[Tuple[str, List[str]]] = field(default_factory=list)  # specific package builds; feeds the blueprint, not the JSON
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "notebook_path": self.notebook_path,
-            "is_python": self.is_python,
-            "lang_label": self.lang_label,
-            "parse_error": self.parse_error,
-            "dependencies": [d.to_report_dict() for d in self.dependencies],
-            "local_modules": self.local_modules,
-            "platform_pseudo_modules": self.platform_pseudo_modules,
-            "build_and_packaging_tools": self.build_and_packaging_tools,
-            "gpu": self.gpu.to_dict() if self.gpu else None,
-            "warnings": [w.to_dict() for w in self.warnings],
-            "notices": [n.to_dict() for n in self.notices],
-            "promotions": [p.to_dict() for p in self.promotions],
-        }
 
 
 @dataclass
@@ -599,181 +162,6 @@ class NotebookScanResult:
                 self.harvested_urls = harvest_index_urls_from_sources(self.code_sources)
             else:
                 self.harvested_urls = set()
-
-
-@dataclass
-class ExtractionResult:
-    """Encapsulates the raw extraction payload from reading a notebook file."""
-    success: bool
-    lang_label: str
-    imports: List[str] = field(default_factory=list)
-    submodules: Dict[str, Set[str]] = field(default_factory=dict)
-    code_sources: List[str] = field(default_factory=list)
-    error_msg: Optional[str] = None
-    guarded_imports: Set[str] = field(default_factory=set)
-    dynamic_warnings: List[DiagnosticEvent] = field(default_factory=list)
-    writefile_imports: List[str] = field(default_factory=list)
-
-    def __iter__(self):
-        """Legacy tuple-unpacking fallback for backward compatibility."""
-        dyn_warn_strings = [w.format_console() for w in self.dynamic_warnings]
-        return iter((
-            self.success,
-            self.imports,
-            self.submodules,
-            self.code_sources,
-            self.error_msg,
-            self.lang_label,
-            self.guarded_imports,
-            dyn_warn_strings,
-        ))
-
-
-@dataclass
-class HarvestResult:
-    """Encapsulates harvested packages, index URLs, scoped flags, warnings, and notices from cell magics."""
-    harvested_packages: Set[str] = field(default_factory=set)
-    base_index_urls: Set[str] = field(default_factory=set)
-    extra_index_urls: Set[str] = field(default_factory=set)
-    magic_warnings: List[DiagnosticEvent] = field(default_factory=list)
-    magic_notices: List[DiagnosticEvent] = field(default_factory=list)
-    scoped_flags: Dict[str, List[str]] = field(default_factory=dict)
-    raw_installs: List[str] = field(default_factory=list)
-
-    def __iter__(self):
-        """Legacy tuple-unpacking fallback for backward compatibility."""
-        warn_strings = [w.format_console() for w in self.magic_warnings]
-        notice_strings = [n.format_console() for n in self.magic_notices]
-        return iter((
-            self.harvested_packages,
-            self.base_index_urls,
-            self.extra_index_urls,
-            warn_strings,
-            notice_strings,
-        ))
-
-
-@dataclass
-class BatchAnalysisSummary:
-    """Aggregated analysis metrics across all notebooks in a batch repo scan."""
-    target_dir: str
-    total_python_notebooks: int = 0
-    non_python_count: int = 0
-    non_python_languages: Dict[str, int] = field(default_factory=dict)
-    companion_skipped_count: int = 0
-    parse_errors: List[Dict[str, str]] = field(default_factory=list)
-    matched_packages: Set[str] = field(default_factory=set)    
-    missing_packages: Dict[str, List[str]] = field(default_factory=dict)
-    guarded_packages: Dict[str, List[str]] = field(default_factory=dict)
-    promotions: List[PromotionDetail] = field(default_factory=list)
-    dynamic_warnings: List[DiagnosticEvent] = field(default_factory=list)
-    magic_warnings: List[DiagnosticEvent] = field(default_factory=list)
-    magic_notices: List[DiagnosticEvent] = field(default_factory=list)
-    batch_hardware_warnings: Dict[str, List[str]] = field(default_factory=dict)
-    primary_url: Optional[str] = None
-    primary_url_reason: Optional[str] = None
-    batch_hw_cache: Optional[GpuInfo] = None
-    notebooks: List[NotebookAnalysisReport] = field(default_factory=list)
-
-    @property
-    def is_clean(self) -> bool:
-        return len(self.parse_errors) == 0
-
-
-# =====================================================================
-# MAPPINGS, PLATFORM INJECTIONS & STDLIB LOOKUP
-# =====================================================================
-
-IMPORT_TO_PYPI_MAP: Dict[str, str] = {
-    "cv2": "opencv-python",
-    "sklearn": "scikit-learn",
-    "PIL": "Pillow",
-    "yaml": "PyYAML",
-    "bs4": "beautifulsoup4",
-    "attr": "attrs",
-    "serial": "pyserial",
-    "dotenv": "python-dotenv",
-    "mpl_toolkits": "matplotlib",
-    "skimage": "scikit-image"
-}
-
-# Standard build and packaging bootstrap tools; excluded from requirement lockfiles
-BUILD_AND_PACKAGING_TOOLS: Set[str] = {
-    "pip",
-    "setuptools",
-    "wheel"
-}
-
-PLATFORM_PSEUDO_MODULES: Set[str] = {
-    "dbutils",
-    "kaggle_secrets",
-    "google.colab",
-    "pyspark.dbutils",
-    "__main__",
-    "steady_py",
-    "databricks"
-}
-
-TRANSITIVE_FRAMEWORK_MAP: Dict[str, str] = {
-    "fastai": "torch",
-    "torchvision": "torch",
-    "torchaudio": "torch",
-    "timm": "torch",
-    "keras": "tensorflow",
-    "flax": "jax",
-}
-
-STD_LIB: Set[str] = set(sys.stdlib_module_names) if hasattr(sys, 'stdlib_module_names') else {
-    "os", "sys", "re", "json", "ast", "subprocess", "datetime", "math", "random", 
-    "time", "pathlib", "typing", "collections", "itertools", "functools", "shutil"
-}
-
-
-def canonicalize_pkg_name(name: str) -> str:
-    """PEP 503 normalization: lowercase and replace runs of [-_.] with a single hyphen."""
-    return re.sub(r"[-_.]+", "-", name).strip("-").lower()
-
-
-def is_running_in_ipython() -> bool:
-    """Checks whether execution is occurring inside an active IPython/Jupyter kernel."""
-    try:
-        from IPython import get_ipython
-        return get_ipython() is not None
-    except ImportError:
-        return False
-
-
-@contextlib.contextmanager
-def silence_fd2_stderr():
-    """
-    Temporarily redirects OS-level file descriptor 2 (stderr) to os.devnull.
-    Prevents low-level C++ drivers (e.g. CUDA cuInit 303) from polluting output.
-    Ensures safe, generator-compliant exception propagation without crashing.
-    """
-    old_stderr_fd = None
-    devnull_fd = None
-    try:
-        try:
-            devnull_fd = os.open(os.devnull, os.O_WRONLY)
-            old_stderr_fd = os.dup(2)
-            os.dup2(devnull_fd, 2)
-        except Exception:
-            pass
-
-        yield
-
-    finally:
-        if old_stderr_fd is not None:
-            try:
-                os.dup2(old_stderr_fd, 2)
-                os.close(old_stderr_fd)
-            except Exception:
-                pass
-        if devnull_fd is not None:
-            try:
-                os.close(devnull_fd)
-            except Exception:
-                pass
 
 
 def get_timeline_context_label(is_execution_ordered: bool) -> str:
@@ -808,46 +196,6 @@ def get_ordered_code_cells(cells: List[Dict[str, Any]]) -> Tuple[List[Tuple[int,
     return code_cells, False
 
 
-def _memoize_for_run(func: Callable) -> Callable:
-    """Memoizes functions scoped to a single run, handling Set, List, and Dict arguments."""
-    cache: Dict[Tuple[Any, ...], Any] = {}
-
-    def _cache_key_part(value: Any) -> Any:
-        if isinstance(value, dict):
-            return tuple(sorted((k, _cache_key_part(v)) for k, v in value.items()))
-        if isinstance(value, set):
-            return frozenset(_cache_key_part(item) for item in value)
-        if isinstance(value, list):
-            return tuple(_cache_key_part(item) for item in value)
-        if isinstance(value, tuple):
-            return tuple(_cache_key_part(item) for item in value)
-        return value
-
-    def _defensive_copy(value: Any) -> Any:
-        if isinstance(value, dict):
-            return dict(value)
-        if isinstance(value, set):
-            return set(value)
-        if isinstance(value, list):
-            return list(value)
-        if isinstance(value, tuple):
-            return tuple(_defensive_copy(item) for item in value)
-        return value
-
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        key = (
-            tuple(_cache_key_part(a) for a in args),
-            tuple(sorted((k, _cache_key_part(v)) for k, v in kwargs.items()))
-        )
-        if key not in cache:
-            cache[key] = func(*args, **kwargs)
-        return _defensive_copy(cache[key])
-
-    wrapper.cache_clear = cache.clear  # type: ignore[attr-defined]
-    return wrapper
-
-
 class LocalModuleContext(NamedTuple):
     """Carries the two directories local-sibling-module resolution may check against."""
     notebook_dir: Optional[str] = None
@@ -866,13 +214,13 @@ def _found_in_dir(name: str, directory: Optional[str]) -> bool:
         return False
 
 
-@_memoize_for_run
+@util._memoize_for_run
 def resolve_local_module(name: str, notebook_dir: Optional[str], root_dir: Optional[str] = None) -> Optional[str]:
     """
     Checks whether `name` resolves as a local sibling module, using the most
     accurate mechanism available for how this process is running:
 
-    - Live IPython/Jupyter kernel (is_running_in_ipython() True): the tool's own
+    - Live IPython/Jupyter kernel (util.is_running_in_ipython() True): the tool's own
       process IS (or is running inside) a real, already-verified environment, so
       this asks the live interpreter directly via an unrestricted find_spec --
       real sys.path, no guessing, correctly reflects platform-injected paths
@@ -890,7 +238,7 @@ def resolve_local_module(name: str, notebook_dir: Optional[str], root_dir: Optio
     """
     top_level = name.split(".", 1)[0]
 
-    if is_running_in_ipython():
+    if util.is_running_in_ipython():
         try:
             spec = importlib.util.find_spec(top_level)
         except Exception as e:
@@ -907,7 +255,6 @@ def resolve_local_module(name: str, notebook_dir: Optional[str], root_dir: Optio
     if _found_in_dir(top_level, root_dir):
         return "root_dir"
     return None
-
 
 
 # =====================================================================
@@ -1369,7 +716,7 @@ def resolve_pip_occurrences(
     seen_history: Dict[str, List[PipInstallOccurrence]] = {}
 
     for occ in occurrences:
-        norm_key = canonicalize_pkg_name(occ.name)
+        norm_key = util.canonicalize_pkg_name(occ.name)
         seen_history.setdefault(norm_key, []).append(occ)
 
     time_qualifier = get_timeline_context_label(is_execution_ordered)
@@ -1560,7 +907,7 @@ def build_unified_timeline(
 
     # 1. Place explicit pip installs
     for norm_key, occ in resolved_pips.items():
-        canon = canonicalize_pkg_name(occ.name)
+        canon = util.canonicalize_pkg_name(occ.name)
         if norm_key == canon:
             coord = (occ.cell_idx, occ.line_idx)
             timeline_events.append((coord, "PIP", occ.name))
@@ -1568,11 +915,11 @@ def build_unified_timeline(
 
     # 2. Place bare imports only if not already placed via pip install
     for imp in all_import_occs:
-        norm_imp = canonicalize_pkg_name(imp.module)
+        norm_imp = util.canonicalize_pkg_name(imp.module)
         if imp.module.lower() in STD_LIB:
             continue
         pypi_name = IMPORT_TO_PYPI_MAP.get(imp.module, imp.module)
-        canon_pypi = canonicalize_pkg_name(pypi_name)
+        canon_pypi = util.canonicalize_pkg_name(pypi_name)
         if norm_imp not in seen_packages and canon_pypi not in seen_packages:
             coord = (imp.cell_idx, imp.line_idx)
             timeline_events.append((coord, "IMPORT", imp.module))
@@ -1585,7 +932,7 @@ def build_unified_timeline(
     promotion_notices: List[PromotionDetail] = []
 
     for coord, kind, pkg_name in timeline_events:
-        canon_name = canonicalize_pkg_name(pkg_name)
+        canon_name = util.canonicalize_pkg_name(pkg_name)
         submods = submodules_map.get(pkg_name, set())
         is_guarded = pkg_name in guarded_set
 
@@ -1637,10 +984,10 @@ def build_auxiliary_tool_entries(
 ) -> List[DependencyEntry]:
     """Builds commented DependencyEntry instances for CLI tools installed via cell magics."""
     aux_entries: List[DependencyEntry] = []
-    imported_set = {canonicalize_pkg_name(imp) for imp in imported_packages}
+    imported_set = {util.canonicalize_pkg_name(imp) for imp in imported_packages}
     unimported_tools = sorted([
         pkg for pkg in harvested_packages 
-        if canonicalize_pkg_name(pkg) not in imported_set and pkg.lower() not in STD_LIB
+        if util.canonicalize_pkg_name(pkg) not in imported_set and pkg.lower() not in STD_LIB
     ])
 
     if not unimported_tools:
@@ -1653,7 +1000,7 @@ def build_auxiliary_tool_entries(
         comment_text="\n# --- AUXILIARY TOOL INSTALLS (harvested from cell magics) ---"
     ))
     for tool in unimported_tools:
-        canon_tool = canonicalize_pkg_name(tool)
+        canon_tool = util.canonicalize_pkg_name(tool)
         matched_pin = frozen_env.get(canon_tool)
         _, ver, direct_url = split_frozen_pin(matched_pin) if matched_pin else ("", "", None)
         ver = ver or ""
@@ -1694,10 +1041,10 @@ def build_writefile_tool_entries(
 ) -> List[DependencyEntry]:
     """Builds commented DependencyEntry instances for dependencies inside %%writefile scripts."""
     entries: List[DependencyEntry] = []
-    primary_set = {canonicalize_pkg_name(imp) for imp in primary_imports}
+    primary_set = {util.canonicalize_pkg_name(imp) for imp in primary_imports}
     script_only = sorted([
         pkg for pkg in writefile_imports 
-        if canonicalize_pkg_name(pkg) not in primary_set and pkg.lower() not in STD_LIB
+        if util.canonicalize_pkg_name(pkg) not in primary_set and pkg.lower() not in STD_LIB
     ])
 
     if not script_only:
@@ -1711,7 +1058,7 @@ def build_writefile_tool_entries(
     ))
     for pkg in script_only:
         pypi_name = IMPORT_TO_PYPI_MAP.get(pkg, pkg)
-        canon_pypi = canonicalize_pkg_name(pypi_name)
+        canon_pypi = util.canonicalize_pkg_name(pypi_name)
         matched_pin = frozen_env.get(canon_pypi)
         _, ver, direct_url = split_frozen_pin(matched_pin) if matched_pin else ("", "", None)
         ver = ver or ""
@@ -1796,7 +1143,7 @@ def resolve_pypi_package_and_extras(
     if not pypi_name:
         pypi_name = IMPORT_TO_PYPI_MAP.get(imp, imp)
 
-    canon_pypi = canonicalize_pkg_name(pypi_name)
+    canon_pypi = util.canonicalize_pkg_name(pypi_name)
     matched_pin = frozen_env.get(canon_pypi)
 
     pin_version: Optional[str] = None
@@ -1889,7 +1236,7 @@ def resolve_pypi_package_and_extras(
     return DependencyEntry(name=pkg_part, version=ver_part, status=DependencyStatus.PINNED), None
 
 
-@_memoize_for_run
+@util._memoize_for_run
 def build_manifest_entries(
     imports: Any, 
     submodules: Dict[str, Set[str]], 
@@ -2045,7 +1392,7 @@ def _read_direct_reference_pins() -> Dict[str, str]:
             url = f"{vcs_info['vcs']}+{url}"
             if vcs_info.get("commit_id"):
                 url = f"{url}@{vcs_info['commit_id']}"
-        pins.setdefault(canonicalize_pkg_name(name), f"{name} @ {url}")
+        pins.setdefault(util.canonicalize_pkg_name(name), f"{name} @ {url}")
     return pins
 
 
@@ -2067,10 +1414,10 @@ def get_installed_environment() -> Tuple[Dict[str, str], List[str]]:
             continue  # comments and `-e path` lines; editable installs are read from metadata instead
         if " @ " in stripped:
             name, _, _ = split_frozen_pin(stripped)
-            frozen[canonicalize_pkg_name(name)] = stripped
+            frozen[util.canonicalize_pkg_name(name)] = stripped
         elif "==" in stripped:
             pkg, ver = stripped.split("==", 1)
-            canon = canonicalize_pkg_name(pkg)
+            canon = util.canonicalize_pkg_name(pkg)
             frozen[canon] = stripped
             frozen[pkg.lower()] = stripped
 
@@ -2131,7 +1478,7 @@ def build_dependency_entries(
     for dep in dependencies:
         if not dep.is_comment and dep.name:
             matched_flags: List[str] = []
-            canon_name = canonicalize_pkg_name(dep.name)
+            canon_name = util.canonicalize_pkg_name(dep.name)
             for candidate in (dep.name, dep.name.lower(), canon_name):
                 if candidate in flags_map:
                     matched_flags = flags_map[candidate]
@@ -2214,7 +1561,7 @@ def _fetch_pypi_json(url: str) -> Tuple[str, Optional[Dict[str, Any]], Optional[
         return FetchStatus.NETWORK_ERROR, None, str(e)
 
 
-@_memoize_for_run
+@util._memoize_for_run
 def fetch_pypi_version_metadata(name: str, version: str) -> PypiVersionMetadata:
     """Looks up one exact pinned release. Cache key: (name, version) -- invariant across notebooks."""
     status, payload, error_detail = _fetch_pypi_json(f"https://pypi.org/pypi/{name}/{version}/json")
@@ -2233,7 +1580,7 @@ def fetch_pypi_version_metadata(name: str, version: str) -> PypiVersionMetadata:
     )
 
 
-@_memoize_for_run
+@util._memoize_for_run
 def fetch_pypi_package_metadata(name: str) -> PypiPackageMetadata:
     """Looks up a package's project-level data (latest version, full release history). Cache key: name alone."""
     status, payload, error_detail = _fetch_pypi_json(f"https://pypi.org/pypi/{name}/json")
@@ -2263,49 +1610,6 @@ def fetch_pypi_package_metadata(name: str) -> PypiPackageMetadata:
 # against corpus data yet -- easy to revisit once Check mode runs against
 # real notebooks.
 STALE_THRESHOLD_DAYS = 730  # ~2 years with no release anywhere in the project
-
-
-@dataclass
-class DriftFinding:
-    """One drift-check finding for a single pinned dependency.
-
-    severity separates "confirmed" (yanked, removed, declared conflict) from
-    "heuristic" (stale, major-bump) per the report's required visual split,
-    plus "error" for a pin that couldn't be checked at all (never collapsed
-    into "no drift found").
-    """
-    package: str
-    version: str
-    signal: str  # "conflict" | "yanked" | "removed" | "stale" | "major_bump" | "unsupported_python" | "check_error" | ...
-    severity: str  # "confirmed" | "heuristic" | "error" | "notice" (a known custom source; see classify_against_baseline)
-    message: str
-    details: Dict[str, Any] = field(default_factory=dict)
-    # Set only on a check-drift finding, and only when the manifest carries a usable baseline:
-    # "known" (present at generation), "new", or "not_checked_at_generation".
-    baseline_status: Optional[str] = None
-    # Facts that identify a finding (they feed finding_baseline_key), so explicit fields rather
-    # than entries in the display-only `details` bag. Both still appear under "details" in JSON.
-    latest_version: Optional[str] = None  # major_bump: the newest version on PyPI
-    parent: Optional[str] = None  # conflict: the package whose requirement conflicted ("" = a direct pin)
-
-    def to_dict(self) -> Dict[str, Any]:
-        details = dict(self.details)
-        if self.latest_version is not None:
-            details["latest_version"] = self.latest_version
-        if self.parent is not None:
-            details["parent"] = self.parent
-        out = {
-            "package": self.package,
-            "version": self.version,
-            "signal": self.signal,
-            "severity": self.severity,
-            "message": self.message,
-            "details": details,
-            "key": list(finding_identity_key(self)),
-        }
-        if self.baseline_status is not None:
-            out["baseline_status"] = self.baseline_status
-        return out
 
 
 def _split_pin_extras(name: str) -> Tuple[str, FrozenSet[str]]:
@@ -2569,10 +1873,10 @@ class _ResolutionCandidate:
 
 def _resolution_identifier(name: str, extras) -> str:
     """Graph node id: the canonical name, plus a sorted extras suffix when extras are requested."""
-    base = canonicalize_pkg_name(name)
+    base = util.canonicalize_pkg_name(name)
     if not extras:
         return base
-    return f"{base}[{','.join(sorted(canonicalize_pkg_name(e) for e in extras))}]"
+    return f"{base}[{','.join(sorted(util.canonicalize_pkg_name(e) for e in extras))}]"
 
 
 class _PyPIResolutionProvider(AbstractProvider):
@@ -2712,12 +2016,12 @@ def check_transitive_signals(
         return findings  # unresolvable -- conflict findings already built
 
     direct_names = {
-        canonicalize_pkg_name(_split_pin_name(d.name)[0])
+        util.canonicalize_pkg_name(_split_pin_name(d.name)[0])
         for d in dependencies if d.name
     }
 
     for name, version in resolved.items():
-        if canonicalize_pkg_name(name) in direct_names:
+        if util.canonicalize_pkg_name(name) in direct_names:
             continue
         findings.extend(check_yanked_or_removed(name, version))
         findings.extend(check_staleness(name, version))
@@ -2763,39 +2067,6 @@ def run_pin_checks(dependencies: List[PinnedDependency], python_version: Dict[st
 # could not be checked back then, so "new" would be a claim we can't make). Each signal
 # keys on exactly the facts that define the problem: a changed fact is a new finding.
 
-# Per-release facts: fixed for a given package version.
-_PER_VERSION_SIGNALS = frozenset({
-    Signal.YANKED, Signal.REMOVED, Signal.NOT_FOUND_ON_PYPI, Signal.UNSUPPORTED_PYTHON,
-    Signal.UNVERIFIABLE_CUSTOM_INDEX,
-})
-
-
-def finding_baseline_key(finding: DriftFinding) -> Optional[FindingKey]:
-    """The facts that make this finding 'the same problem' across runs; None if it has no
-    generation-time counterpart (tamper, local-module and check-error findings)."""
-    signal = finding.signal
-    if signal in _PER_VERSION_SIGNALS:
-        return (signal, finding.package, finding.version)
-    if signal == Signal.STALE:
-        return (signal, finding.package)  # the day count changes every run; the problem doesn't
-    if signal == Signal.MAJOR_BUMP:
-        latest = finding.latest_version or ""
-        try:
-            major = str(Version(latest).major)
-        except InvalidVersion:
-            major = latest
-        return (signal, finding.package, major)  # a still-newer major is a different finding
-    if signal == Signal.CONFLICT:
-        return (signal, finding.package, finding.version, finding.parent or "")
-    return None
-
-
-def finding_identity_key(finding: DriftFinding) -> FindingKey:
-    """A stable identity for any finding, for comparing two reports without touching messages or
-    dates. Equal to the baseline key wherever one exists; findings with no baseline counterpart
-    (tamper, local-module, check-error) fall back to signal, package and version."""
-    return finding_baseline_key(finding) or (finding.signal, finding.package, finding.version)
-
 
 def build_baseline(findings: List[DriftFinding]) -> Baseline:
     """Compact, sorted record of generation-time findings, plus the packages that could not
@@ -2806,7 +2077,7 @@ def build_baseline(findings: List[DriftFinding]) -> Baseline:
         if f.severity == Severity.ERROR:
             errored.add(f.package)
             continue
-        key = finding_baseline_key(f)
+        key = models.finding_baseline_key(f)
         if key is not None:
             keys.add(key)
     return Baseline(findings=tuple(sorted(keys)), errors=tuple(sorted(errored)))
@@ -2818,16 +2089,16 @@ def classify_against_baseline(findings: List[DriftFinding], manifest: SteadyPyMa
     if manifest.baseline is None:
         return False
     known = set(manifest.baseline.findings)
-    errored = {canonicalize_pkg_name(e) if e else "" for e in manifest.baseline.errors}
+    errored = {util.canonicalize_pkg_name(e) if e else "" for e in manifest.baseline.errors}
     direct = {
-        canonicalize_pkg_name(_split_pin_name(d.name)[0]) for d in manifest.dependencies if d.name
+        util.canonicalize_pkg_name(_split_pin_name(d.name)[0]) for d in manifest.dependencies if d.name
     }
     graph_check_failed = "" in errored
     for f in findings:
-        key = finding_baseline_key(f)
+        key = models.finding_baseline_key(f)
         if key is None:
             continue
-        canon = canonicalize_pkg_name(f.package)
+        canon = util.canonicalize_pkg_name(f.package)
         if key in known:
             f.baseline_status = BaselineStatus.KNOWN
             if f.signal == Signal.NOT_FOUND_ON_PYPI:
@@ -3113,7 +2384,7 @@ def build_batch_validation(reports: List[Tuple[str, "DriftCheckReport"]]) -> Bat
             errors=len(report.errors),
         ))
         for f in report.confirmed + report.heuristic + report.errors:
-            key = finding_identity_key(f)
+            key = models.finding_identity_key(f)
             gkey = (f.severity, tuple(key), f.message)
             group = groups.get(gkey)
             if group is None:
@@ -3345,7 +2616,7 @@ def probe_torch_gpu() -> Optional[GpuProbeResult]:
 def probe_tensorflow_gpu() -> Optional[GpuProbeResult]:
     """Probes TensorFlow for GPU acceleration while silencing C++ CUDA driver noise."""
     try:
-        with silence_fd2_stderr():
+        with util.silence_fd2_stderr():
             import tensorflow as tf
             gpus = tf.config.list_physical_devices('GPU')
             if not gpus:
@@ -3367,7 +2638,7 @@ def probe_tensorflow_gpu() -> Optional[GpuProbeResult]:
 def probe_jax_gpu() -> Optional[GpuProbeResult]:
     """Probes JAX for GPU/TPU acceleration while silencing C++ CUDA driver noise."""
     try:
-        with silence_fd2_stderr():
+        with util.silence_fd2_stderr():
             import jax
             accelerators = [d for d in jax.devices() if d.platform.lower() in ("gpu", "tpu", "metal")]
             if not accelerators:
@@ -3849,7 +3120,7 @@ def build_single_notebook_report(
         local_ctx=local_ctx
     )
 
-    timeline_pkgs = {canonicalize_pkg_name(d.name) for d in timeline_res.dependencies if d.name}
+    timeline_pkgs = {util.canonicalize_pkg_name(d.name) for d in timeline_res.dependencies if d.name}
     aux_entries = build_auxiliary_tool_entries(scan_res.harvested_pkgs - timeline_pkgs, scan_res.imports, frozen_env)    
     writefile_entries = build_writefile_tool_entries(scan_res.writefile_imports, scan_res.imports, frozen_env)
 
@@ -3938,7 +3209,7 @@ def analyze_batch_repository(
                     continue
                 pypi_name = dep.name or (dep.comment_text.split()[1] if len(dep.comment_text.split()) > 1 else "")
                 if pypi_name:
-                    canon = canonicalize_pkg_name(pypi_name)
+                    canon = util.canonicalize_pkg_name(pypi_name)
                     target_map = canonical_guarded_map if dep.status == DependencyStatus.GUARDED else canonical_missing_map
                     target_map.setdefault(canon, []).append(Path(nb_report.notebook_path).name)
                     display_name = pypi_name.replace("_", "-")
