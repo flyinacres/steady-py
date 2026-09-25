@@ -22,6 +22,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
+from steady_py import installed
 
 
 KERNEL_META = {
@@ -59,7 +60,7 @@ def minimal_environment(monkeypatch):
     """No packages pre-installed; isolates local-module resolution from
     unrelated missing/matched-package noise, and prevents any real
     subprocess calls (pip list / pip freeze) during generation."""
-    monkeypatch.setattr(spy, "get_installed_environment", lambda: ({}, []))
+    monkeypatch.setattr(installed, "get_installed_environment", lambda: ({}, []))
     monkeypatch.setattr(spy, "resolve_opencv_variant", lambda submodules=None: "opencv-python")
     monkeypatch.setattr(
         "subprocess.run",

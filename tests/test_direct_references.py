@@ -20,6 +20,7 @@ import types
 import pytest
 
 import steady_py.core as spy
+from steady_py import installed
 
 REMOTE_URL = "git+https://example.com/org/zzq-remote.git@0123456789abcdef"
 LOCAL_DIR = "/home/ron/src/zzq-local"
@@ -58,7 +59,7 @@ def fake_environment(tmp_path, monkeypatch):
     })
     monkeypatch.syspath_prepend(str(site))
     monkeypatch.setattr(
-        spy.subprocess, "run",
+        installed.subprocess, "run",
         lambda *a, **k: types.SimpleNamespace(returncode=0, stdout=FREEZE_TEXT, stderr=""),
     )
     return site
@@ -68,17 +69,17 @@ def fake_environment(tmp_path, monkeypatch):
 
 class TestInstalledEnvironmentParsing:
     def test_no_garbage_entries_from_comment_or_editable_lines(self, fake_environment):
-        frozen, _ = spy.get_installed_environment()
+        frozen, _ = installed.get_installed_environment()
         assert frozen["numpy"] == "numpy==1.26.4"
         bad = [k for k in frozen if k.startswith(("#", "-")) or " " in k or "install with no" in k]
         assert bad == []
 
     def test_remote_direct_reference_recorded_with_commit(self, fake_environment):
-        frozen, _ = spy.get_installed_environment()
+        frozen, _ = installed.get_installed_environment()
         assert frozen["zzq-remote"] == REMOTE_PIN
 
     def test_local_and_editable_recorded_as_direct_references(self, fake_environment):
-        frozen, _ = spy.get_installed_environment()
+        frozen, _ = installed.get_installed_environment()
         assert frozen["zzq-local"] == LOCAL_PIN
         assert frozen["zzq-editable"] == "zzq-editable @ file:///home/ron/src/zzq-editable"
 
@@ -134,14 +135,14 @@ class TestSameDirectSource:
         ("GIT+HTTPS://EXAMPLE.COM/org/x.git", "git+https://example.com/org/x.git@abc"),
     ])
     def test_same_source_different_ref(self, a, b):
-        assert spy.same_direct_source(a, b)
+        assert installed.same_direct_source(a, b)
 
     @pytest.mark.parametrize("a,b", [
         ("git+https://example.com/org/x.git@v1", "git+https://example.com/org/y.git@v1"),
         ("git+https://example.com/org/x.git", "git+https://other.example.com/org/x.git"),
     ])
     def test_different_source(self, a, b):
-        assert not spy.same_direct_source(a, b)
+        assert not installed.same_direct_source(a, b)
 
 
 # --- end to end through the generator -------------------------------------------

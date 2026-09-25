@@ -6,7 +6,7 @@ import pytest
 from pathlib import Path
 
 import steady_py.core as spy
-from steady_py import models
+from steady_py import installed, models
 
 _SRC = str(Path(__file__).resolve().parents[1] / "src")
 SUBPROCESS_ENV = {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [_SRC, os.environ.get("PYTHONPATH")]))}
@@ -23,7 +23,7 @@ def mock_frozen_env(monkeypatch):
         "requests": "requests==2.31.0"
     }
     monkeypatch.setattr(
-        spy, 
+        installed, 
         "get_installed_environment", 
         lambda: (mock_env, ["pandas==2.1.0", "numpy==1.25.0", "requests==2.31.0"])
     )

@@ -10,7 +10,7 @@ from typing import Dict, Any
 import pytest
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import constants, models
+from steady_py import constants, installed, models
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def mock_json_env(monkeypatch):
         "torch": ["torch"],
         "sklearn": ["scikit-learn"],
     }
-    monkeypatch.setattr(spy, "get_installed_environment", lambda: (frozen_env, raw_freeze))
+    monkeypatch.setattr(installed, "get_installed_environment", lambda: (frozen_env, raw_freeze))
     return frozen_env, pkg_dist_map
 
 

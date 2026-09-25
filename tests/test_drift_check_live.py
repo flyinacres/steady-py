@@ -24,7 +24,7 @@ import os
 import pytest
 
 import steady_py.core as spy
-from steady_py import models
+from steady_py import models, pypi
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("RUN_LIVE_PYPI_TESTS"),
@@ -34,54 +34,54 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(autouse=True)
 def _clear_caches():
-    spy.fetch_pypi_version_metadata.cache_clear()
-    spy.fetch_pypi_package_metadata.cache_clear()
+    pypi.fetch_pypi_version_metadata.cache_clear()
+    pypi.fetch_pypi_package_metadata.cache_clear()
     yield
 
 
 class TestLiveVersionMetadataShape:
     def test_known_yanked_release(self):
         """requests 2.32.0 was yanked for CVE-2024-35195 -- permanent historical record."""
-        meta = spy.fetch_pypi_version_metadata("requests", "2.32.0")
+        meta = pypi.fetch_pypi_version_metadata("requests", "2.32.0")
         assert meta.status == "found"
         assert meta.yanked is True
         assert meta.yanked_reason and "35195" in meta.yanked_reason
 
     def test_known_requires_python(self):
         """A published release's own requires_python does not change after the fact."""
-        meta = spy.fetch_pypi_version_metadata("pandas", "2.2.1")
+        meta = pypi.fetch_pypi_version_metadata("pandas", "2.2.1")
         assert meta.status == "found"
         assert meta.requires_python == ">=3.9"
 
     def test_known_requires_dist_contains_expected_dependency(self):
-        meta = spy.fetch_pypi_version_metadata("pandas", "2.2.1")
+        meta = pypi.fetch_pypi_version_metadata("pandas", "2.2.1")
         assert meta.status == "found"
         assert any(r.startswith("numpy") for r in meta.requires_dist)
 
     def test_nonexistent_version_of_real_package(self):
-        meta = spy.fetch_pypi_version_metadata("pandas", "999.999.999")
+        meta = pypi.fetch_pypi_version_metadata("pandas", "999.999.999")
         assert meta.status == "not_found"
 
     def test_nonexistent_package(self):
-        meta = spy.fetch_pypi_version_metadata("fake_pkg_does_not_exist_xyz123", "1.0.0")
+        meta = pypi.fetch_pypi_version_metadata("fake_pkg_does_not_exist_xyz123", "1.0.0")
         assert meta.status == "not_found"
 
 
 class TestLivePackageMetadataShape:
     def test_found_package_has_releases_and_latest_version(self):
-        meta = spy.fetch_pypi_package_metadata("pandas")
+        meta = pypi.fetch_pypi_package_metadata("pandas")
         assert meta.status == "found"
         assert meta.latest_version
         assert "2.2.1" in meta.releases
         assert meta.releases["2.2.1"]["upload_time"]
 
     def test_yanked_release_visible_in_package_level_releases(self):
-        meta = spy.fetch_pypi_package_metadata("requests")
+        meta = pypi.fetch_pypi_package_metadata("requests")
         assert meta.status == "found"
         assert meta.releases["2.32.0"]["yanked"] is True
 
     def test_nonexistent_package(self):
-        meta = spy.fetch_pypi_package_metadata("fake_pkg_does_not_exist_xyz123")
+        meta = pypi.fetch_pypi_package_metadata("fake_pkg_does_not_exist_xyz123")
         assert meta.status == "not_found"
 
 
@@ -90,14 +90,14 @@ class TestLiveRemovedVsYankedDisambiguation:
     a 404 alone is ambiguous, and disambiguating requires both endpoints."""
 
     def test_version_removed_but_project_alive(self):
-        version_meta = spy.fetch_pypi_version_metadata("pandas", "999.999.999")
-        package_meta = spy.fetch_pypi_package_metadata("pandas")
+        version_meta = pypi.fetch_pypi_version_metadata("pandas", "999.999.999")
+        package_meta = pypi.fetch_pypi_package_metadata("pandas")
         assert version_meta.status == "not_found"
         assert package_meta.status == "found"
 
     def test_whole_project_removed(self):
-        version_meta = spy.fetch_pypi_version_metadata("fake_pkg_does_not_exist_xyz123", "1.0.0")
-        package_meta = spy.fetch_pypi_package_metadata("fake_pkg_does_not_exist_xyz123")
+        version_meta = pypi.fetch_pypi_version_metadata("fake_pkg_does_not_exist_xyz123", "1.0.0")
+        package_meta = pypi.fetch_pypi_package_metadata("fake_pkg_does_not_exist_xyz123")
         assert version_meta.status == "not_found"
         assert package_meta.status == "not_found"
 

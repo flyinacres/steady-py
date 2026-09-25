@@ -21,7 +21,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import constants, models
+from steady_py import constants, installed, models
 from steady_py.constants import StatusLabel
 from steady_py.core import BlueprintResult
 from steady_py.models import GpuInfo
@@ -348,7 +348,7 @@ class TestDualPathIngestion:
         nb_path: Path = tmp_path / "test_uninstalled.ipynb"
         nb_path.write_text(json.dumps(nb), encoding="utf-8")
 
-        monkeypatch.setattr(spy, "get_installed_environment", lambda: ({}, []))
+        monkeypatch.setattr(installed, "get_installed_environment", lambda: ({}, []))
         monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(nb_path)])
 
         with pytest.raises(SystemExit):

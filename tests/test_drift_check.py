@@ -15,7 +15,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import constants, models
+from steady_py import constants, models, pypi
 from steady_py.results import Environment
 
 
@@ -189,12 +189,12 @@ def make_fake_fetch(packages):
 def _mock_pypi(monkeypatch):
     """Applies to every test in this module: no real network calls, and the
     memoization caches never leak state between tests."""
-    monkeypatch.setattr(spy, "_fetch_pypi_json", make_fake_fetch(FAKE_PACKAGES))
-    spy.fetch_pypi_version_metadata.cache_clear()
-    spy.fetch_pypi_package_metadata.cache_clear()
+    monkeypatch.setattr(pypi, "_fetch_pypi_json", make_fake_fetch(FAKE_PACKAGES))
+    pypi.fetch_pypi_version_metadata.cache_clear()
+    pypi.fetch_pypi_package_metadata.cache_clear()
     yield
-    spy.fetch_pypi_version_metadata.cache_clear()
-    spy.fetch_pypi_package_metadata.cache_clear()
+    pypi.fetch_pypi_version_metadata.cache_clear()
+    pypi.fetch_pypi_package_metadata.cache_clear()
 
 
 REQ_PY_311 = {"major": 3, "minor": 11}
@@ -206,61 +206,61 @@ REQ_PY_311 = {"major": 3, "minor": 11}
 
 class TestPypiVersionMetadata:
     def test_found(self):
-        meta = spy.fetch_pypi_version_metadata("pandas", "2.2.1")
+        meta = pypi.fetch_pypi_version_metadata("pandas", "2.2.1")
         assert meta.status == "found"
         assert meta.requires_python == ">=3.9"
         assert meta.yanked is False
         assert len(meta.requires_dist) == 4
 
     def test_yanked_with_reason(self):
-        meta = spy.fetch_pypi_version_metadata("requests", "2.32.0")
+        meta = pypi.fetch_pypi_version_metadata("requests", "2.32.0")
         assert meta.status == "found"
         assert meta.yanked is True
         assert meta.yanked_reason == "CVE-2024-35195 mitigation conflict"
 
     def test_version_not_found(self):
-        meta = spy.fetch_pypi_version_metadata("old-package", "0.9.0")
+        meta = pypi.fetch_pypi_version_metadata("old-package", "0.9.0")
         assert meta.status == "not_found"
 
     def test_whole_package_not_found(self):
-        meta = spy.fetch_pypi_version_metadata("fake-package-xyz", "1.0.0")
+        meta = pypi.fetch_pypi_version_metadata("fake-package-xyz", "1.0.0")
         assert meta.status == "not_found"
 
     def test_network_error_is_distinct_from_not_found(self):
-        meta = spy.fetch_pypi_version_metadata("flaky-package", "1.0.0")
+        meta = pypi.fetch_pypi_version_metadata("flaky-package", "1.0.0")
         assert meta.status == "network_error"
         assert meta.error_detail
 
     def test_memoized_within_run(self, monkeypatch):
         calls = []
-        real_fetch = spy._fetch_pypi_json
+        real_fetch = pypi._fetch_pypi_json
         def counting_fetch(url):
             calls.append(url)
             return real_fetch(url)
-        monkeypatch.setattr(spy, "_fetch_pypi_json", counting_fetch)
+        monkeypatch.setattr(pypi, "_fetch_pypi_json", counting_fetch)
 
-        spy.fetch_pypi_version_metadata("pandas", "2.2.1")
-        spy.fetch_pypi_version_metadata("pandas", "2.2.1")
+        pypi.fetch_pypi_version_metadata("pandas", "2.2.1")
+        pypi.fetch_pypi_version_metadata("pandas", "2.2.1")
         assert len(calls) == 1
 
 
 class TestPypiPackageMetadata:
     def test_found(self):
-        meta = spy.fetch_pypi_package_metadata("numpy")
+        meta = pypi.fetch_pypi_package_metadata("numpy")
         assert meta.status == "found"
         assert meta.latest_version == "2.5.3"
         assert meta.releases["1.26.4"]["yanked"] is False
 
     def test_yanked_release_surfaces_in_releases_dict(self):
-        meta = spy.fetch_pypi_package_metadata("requests")
+        meta = pypi.fetch_pypi_package_metadata("requests")
         assert meta.releases["2.32.0"]["yanked"] is True
 
     def test_not_found(self):
-        meta = spy.fetch_pypi_package_metadata("fake-package-xyz")
+        meta = pypi.fetch_pypi_package_metadata("fake-package-xyz")
         assert meta.status == "not_found"
 
     def test_network_error(self):
-        meta = spy.fetch_pypi_package_metadata("flaky-package")
+        meta = pypi.fetch_pypi_package_metadata("flaky-package")
         assert meta.status == "network_error"
 
 
@@ -767,9 +767,9 @@ def _change_world(monkeypatch, mutate):
     """Swaps in a copy of the fake PyPI that mutate() has altered -- 'time has passed'."""
     world = copy.deepcopy(FAKE_PACKAGES)
     mutate(world)
-    monkeypatch.setattr(spy, "_fetch_pypi_json", make_fake_fetch(world))
-    spy.fetch_pypi_version_metadata.cache_clear()
-    spy.fetch_pypi_package_metadata.cache_clear()
+    monkeypatch.setattr(pypi, "_fetch_pypi_json", make_fake_fetch(world))
+    pypi.fetch_pypi_version_metadata.cache_clear()
+    pypi.fetch_pypi_package_metadata.cache_clear()
 
 
 def _by_signal(report, bucket, signal):

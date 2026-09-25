@@ -44,9 +44,6 @@ import subprocess
 import tempfile
 import importlib.metadata
 import importlib.util
-import urllib.request
-import urllib.error
-import urllib.parse
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -97,7 +94,7 @@ from steady_py.models import (
     SteadyPyManifest,
     TimelineResult,
 )
-from steady_py import models, util
+from steady_py import installed, models, pypi, util
 
 
 # Diagnostics go through this logger. Importing the module must not touch process-global state
@@ -1002,7 +999,7 @@ def build_auxiliary_tool_entries(
     for tool in unimported_tools:
         canon_tool = util.canonicalize_pkg_name(tool)
         matched_pin = frozen_env.get(canon_tool)
-        _, ver, direct_url = split_frozen_pin(matched_pin) if matched_pin else ("", "", None)
+        _, ver, direct_url = installed.split_frozen_pin(matched_pin) if matched_pin else ("", "", None)
         ver = ver or ""
         if direct_url:
             aux_entries.append(DependencyEntry(
@@ -1010,7 +1007,7 @@ def build_auxiliary_tool_entries(
                 source="pip_command",
                 status=DependencyStatus.AUXILIARY_TOOL,
                 is_comment=True,
-                comment_text=f"# {tool}  (installed via cell command; {direct_reference_note(direct_url)})"
+                comment_text=f"# {tool}  (installed via cell command; {installed.direct_reference_note(direct_url)})"
             ))
         elif matched_pin:
             aux_entries.append(DependencyEntry(
@@ -1060,7 +1057,7 @@ def build_writefile_tool_entries(
         pypi_name = IMPORT_TO_PYPI_MAP.get(pkg, pkg)
         canon_pypi = util.canonicalize_pkg_name(pypi_name)
         matched_pin = frozen_env.get(canon_pypi)
-        _, ver, direct_url = split_frozen_pin(matched_pin) if matched_pin else ("", "", None)
+        _, ver, direct_url = installed.split_frozen_pin(matched_pin) if matched_pin else ("", "", None)
         ver = ver or ""
         if direct_url:
             entries.append(DependencyEntry(
@@ -1068,7 +1065,7 @@ def build_writefile_tool_entries(
                 source="writefile_script",
                 status=DependencyStatus.WRITEFILE_SCRIPT,
                 is_comment=True,
-                comment_text=f"# {pypi_name}  (imported inside script generated via %%writefile; {direct_reference_note(direct_url)})"
+                comment_text=f"# {pypi_name}  (imported inside script generated via %%writefile; {installed.direct_reference_note(direct_url)})"
             ))
         elif matched_pin:
             entries.append(DependencyEntry(
@@ -1149,7 +1146,7 @@ def resolve_pypi_package_and_extras(
     pin_version: Optional[str] = None
     direct_url: Optional[str] = None
     if matched_pin:
-        _, pin_version, direct_url = split_frozen_pin(matched_pin)
+        _, pin_version, direct_url = installed.split_frozen_pin(matched_pin)
 
     if is_guarded:
         if direct_url:
@@ -1158,7 +1155,7 @@ def resolve_pypi_package_and_extras(
                 version="",
                 status=DependencyStatus.GUARDED,
                 is_comment=True,
-                comment_text=f"# {pypi_name} (optional or conditional dependency inside try/except block; {direct_reference_note(direct_url)})"
+                comment_text=f"# {pypi_name} (optional or conditional dependency inside try/except block; {installed.direct_reference_note(direct_url)})"
             ), None
         if matched_pin:
             return DependencyEntry(
@@ -1186,8 +1183,8 @@ def resolve_pypi_package_and_extras(
         ), None
 
     if direct_url:
-        note = direct_reference_note(direct_url)
-        if is_local_direct_url(direct_url):
+        note = installed.direct_reference_note(direct_url)
+        if installed.is_local_direct_url(direct_url):
             return DependencyEntry(
                 name=pypi_name,
                 status=DependencyStatus.SYSTEM_PATH,
@@ -1301,129 +1298,6 @@ def resolve_opencv_variant(submodules: Optional[Set[str]] = None) -> str:
     return "opencv-contrib-python" if has_contrib else "opencv-python"
 
 
-_VCS_URL_PREFIXES = ("git+", "hg+", "svn+", "bzr+")
-
-
-def split_frozen_pin(pin: str) -> Tuple[str, Optional[str], Optional[str]]:
-    """Splits one frozen-environment entry into (name, version, direct_url).
-
-    'name==1.2' -> (name, '1.2', None). 'name @ url' (a package installed from a
-    direct reference, not PyPI) -> (name, None, url). Every consumer of a frozen
-    entry goes through this, so none of them can assume the '==' shape.
-    """
-    if " @ " in pin:
-        name, url = pin.split(" @ ", 1)
-        return name.strip(), None, url.strip()
-    if "==" in pin:
-        name, version = pin.split("==", 1)
-        return name.strip(), version.strip(), None
-    return pin.strip(), None, None
-
-
-def _strip_vcs_prefix(spec: str) -> str:
-    lowered = spec.lower()
-    for prefix in _VCS_URL_PREFIXES:
-        if lowered.startswith(prefix):
-            return spec[len(prefix):]
-    return spec
-
-
-def is_local_direct_url(url: str) -> bool:
-    """True for a direct reference that lives on this machine (file:// or git+file://)."""
-    return _strip_vcs_prefix(url).lower().startswith("file:")
-
-
-def _direct_source_key(spec: str) -> Tuple[str, str]:
-    """Host and path of a direct-reference spec, ignoring VCS prefix, @ref, #fragment and .git."""
-    parts = urllib.parse.urlsplit(_strip_vcs_prefix(spec.strip().strip("'\"")))
-    path = parts.path
-    head, sep, tail = path.rpartition("@")
-    if sep and "/" not in tail:  # a trailing @ref; user@host lives in netloc, not here
-        path = head
-    path = path.rstrip("/")
-    if path.lower().endswith(".git"):
-        path = path[:-4]
-    return parts.netloc.lower(), path.lower()
-
-
-def same_direct_source(a: str, b: str) -> bool:
-    """True if two direct-reference specs point at the same repository/archive, whatever ref each pins."""
-    return _direct_source_key(a) == _direct_source_key(b)
-
-
-def direct_reference_note(direct_url: str) -> str:
-    """Plain-language description of where a non-PyPI package came from, for generated comments.
-    Never includes the URL or path itself."""
-    if is_local_direct_url(direct_url):
-        return ("found on a system-dependent path, which can't and shouldn't be shared directly. "
-                "Publish it or host it at a shared URL so others can install it")
-    return ("installed from a direct URL, not PyPI; it is installed from the non-standard sources "
-            "list, so make sure anyone running this notebook can reach that source")
-
-
-def _read_direct_reference_pins() -> Dict[str, str]:
-    """Finds installed packages that came from a direct reference (PEP 610 direct_url.json).
-
-    Covers git, archive URL, local directory and editable installs uniformly, which
-    parsing `pip freeze` text does not (an editable install prints a comment line and a
-    bare `-e path`). Returns canonical name -> 'name @ url', with VCS installs written
-    as 'vcs+url@commit' the way pip freeze does.
-    """
-    pins: Dict[str, str] = {}
-    for dist in importlib.metadata.distributions():
-        try:
-            raw = dist.read_text("direct_url.json")
-            name = dist.metadata["Name"]
-        except (OSError, ValueError) as e:
-            logger.debug(f"Could not read direct_url.json for a distribution: {e}")
-            continue
-        if not raw or not name:
-            continue
-        try:
-            info = json.loads(raw)
-        except json.JSONDecodeError as e:
-            logger.debug(f"Malformed direct_url.json for {name}: {e}")
-            continue
-        url = info.get("url") if isinstance(info, dict) else None
-        if not url:
-            continue
-        vcs_info = info.get("vcs_info")
-        if isinstance(vcs_info, dict) and vcs_info.get("vcs"):
-            url = f"{vcs_info['vcs']}+{url}"
-            if vcs_info.get("commit_id"):
-                url = f"{url}@{vcs_info['commit_id']}"
-        pins.setdefault(util.canonicalize_pkg_name(name), f"{name} @ {url}")
-    return pins
-
-
-def get_installed_environment() -> Tuple[Dict[str, str], List[str]]:
-    """Runs pip freeze to get precise version snapshots of the active runtime.
-
-    Ordinary installs map to 'name==version'. Packages installed from a direct
-    reference (git/URL/local path/editable) map to 'name @ url'; see split_frozen_pin.
-    """
-    res = subprocess.run([sys.executable, "-m", "pip", "freeze"], capture_output=True, text=True)
-    if res.returncode != 0:
-        logger.warning(f"⚠️ 'pip freeze' execution failed (exit code {res.returncode}). Active environment versions could not be captured.")
-        return {}, []
-
-    frozen: Dict[str, str] = {}
-    for line in res.stdout.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith(("#", "-")):
-            continue  # comments and `-e path` lines; editable installs are read from metadata instead
-        if " @ " in stripped:
-            name, _, _ = split_frozen_pin(stripped)
-            frozen[util.canonicalize_pkg_name(name)] = stripped
-        elif "==" in stripped:
-            pkg, ver = stripped.split("==", 1)
-            canon = util.canonicalize_pkg_name(pkg)
-            frozen[canon] = stripped
-            frozen[pkg.lower()] = stripped
-
-    frozen.update(_read_direct_reference_pins())
-    return frozen, res.stdout.splitlines()
-
 
 def process_package_requirements(
     pinned_list: List[str], 
@@ -1507,102 +1381,6 @@ def build_dependency_entries(
 
     return all_entries, local_tagged_info, warnings_out
 
-
-# =====================================================================
-# DRIFT-CHECK: PYPI METADATA CLIENT
-# =====================================================================
-# Read-only lookups against live PyPI JSON metadata, used by drift-check
-# (Check mode). Never installs, never executes anything from a response.
-# Two independent caches, scoped to a single run only (cleared per process,
-# never persisted): version-specific data and package-level data answer
-# different questions and are fetched from different PyPI endpoints.
-
-PYPI_REQUEST_TIMEOUT = 10
-PYPI_USER_AGENT = f"steady-py-drift-check/{TOOL_VERSION}"
-
-# Lookup status: "found", "not_found" (404), or "network_error" (offline,
-# timeout, malformed response). "not_found" and "network_error" are kept
-# distinct from each other and from a clean "found" -- a network failure
-# must never be reported or treated as "no drift found."
-
-
-@dataclass
-class PypiVersionMetadata:
-    """Result of looking up one exact (package, version) pin."""
-    status: str
-    requires_dist: List[str] = field(default_factory=list)
-    requires_python: Optional[str] = None
-    yanked: bool = False
-    yanked_reason: Optional[str] = None
-    project_urls: Dict[str, str] = field(default_factory=dict)
-    error_detail: Optional[str] = None
-
-
-@dataclass
-class PypiPackageMetadata:
-    """Result of looking up a package's project-level (version-independent) data."""
-    status: str
-    latest_version: Optional[str] = None
-    releases: Dict[str, Dict[str, Any]] = field(default_factory=dict)  # version -> {"upload_time": str, "yanked": bool}
-    error_detail: Optional[str] = None
-
-
-def _fetch_pypi_json(url: str) -> Tuple[str, Optional[Dict[str, Any]], Optional[str]]:
-    """Shared HTTP GET against a PyPI JSON endpoint. Returns (status, payload, error_detail)."""
-    req = urllib.request.Request(url, headers={"User-Agent": PYPI_USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=PYPI_REQUEST_TIMEOUT) as resp:
-            return FetchStatus.FOUND, json.loads(resp.read()), None
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return FetchStatus.NOT_FOUND, None, None
-        return FetchStatus.NETWORK_ERROR, None, f"HTTP {e.code}"
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
-        return FetchStatus.NETWORK_ERROR, None, str(e)
-
-
-@util._memoize_for_run
-def fetch_pypi_version_metadata(name: str, version: str) -> PypiVersionMetadata:
-    """Looks up one exact pinned release. Cache key: (name, version) -- invariant across notebooks."""
-    status, payload, error_detail = _fetch_pypi_json(f"https://pypi.org/pypi/{name}/{version}/json")
-    if status != FetchStatus.FOUND:
-        return PypiVersionMetadata(status=status, error_detail=error_detail)
-    assert payload is not None  # _fetch_pypi_json returns a payload whenever the status is FOUND
-
-    info = payload.get("info", {})
-    return PypiVersionMetadata(
-        status=FetchStatus.FOUND,
-        requires_dist=info.get("requires_dist") or [],
-        requires_python=info.get("requires_python"),
-        yanked=info.get("yanked", False),
-        yanked_reason=info.get("yanked_reason"),
-        project_urls=info.get("project_urls") or {},
-    )
-
-
-@util._memoize_for_run
-def fetch_pypi_package_metadata(name: str) -> PypiPackageMetadata:
-    """Looks up a package's project-level data (latest version, full release history). Cache key: name alone."""
-    status, payload, error_detail = _fetch_pypi_json(f"https://pypi.org/pypi/{name}/json")
-    if status != FetchStatus.FOUND:
-        return PypiPackageMetadata(status=status, error_detail=error_detail)
-    assert payload is not None  # _fetch_pypi_json returns a payload whenever the status is FOUND
-
-    info = payload.get("info", {})
-    releases: Dict[str, Dict[str, Any]] = {}
-    for ver, files in (payload.get("releases") or {}).items():
-        if not files:
-            continue
-        releases[ver] = {
-            "upload_time": files[0].get("upload_time_iso_8601"),
-            "yanked": any(f.get("yanked") for f in files),
-        }
-
-    return PypiPackageMetadata(
-        status=FetchStatus.FOUND,
-        latest_version=info.get("version"),
-        releases=releases,
-    )
 
 
 # --- Direct-pin checks ---------------------------------------------------
@@ -1715,7 +1493,7 @@ def check_yanked_or_removed(name: str, version: str) -> List[DriftFinding]:
     whole project gone -> removed (project-level); any network failure -> check_error, not silence.
     """
     name, _ = _split_pin_name(name)
-    version_meta = fetch_pypi_version_metadata(name, version)
+    version_meta = pypi.fetch_pypi_version_metadata(name, version)
 
     if version_meta.status == FetchStatus.NETWORK_ERROR:
         return [DriftFinding(
@@ -1734,7 +1512,7 @@ def check_yanked_or_removed(name: str, version: str) -> List[DriftFinding]:
         return []
 
     # version_meta.status == FetchStatus.NOT_FOUND: disambiguate version-removed vs. project-removed
-    package_meta = fetch_pypi_package_metadata(name)
+    package_meta = pypi.fetch_pypi_package_metadata(name)
     if package_meta.status == FetchStatus.NETWORK_ERROR:
         return [DriftFinding(
             package=name, version=version, signal=Signal.CHECK_ERROR, severity=Severity.ERROR,
@@ -1762,7 +1540,7 @@ def check_yanked_or_removed(name: str, version: str) -> List[DriftFinding]:
 def check_staleness(name: str, version: str) -> List[DriftFinding]:
     """Heuristic: no release anywhere in the project within STALE_THRESHOLD_DAYS."""
     name, _ = _split_pin_name(name)
-    package_meta = fetch_pypi_package_metadata(name)
+    package_meta = pypi.fetch_pypi_package_metadata(name)
     if package_meta.status == FetchStatus.NETWORK_ERROR:
         return [DriftFinding(
             package=name, version=version, signal=Signal.CHECK_ERROR, severity=Severity.ERROR,
@@ -1798,7 +1576,7 @@ def check_staleness(name: str, version: str) -> List[DriftFinding]:
 def check_major_bump(name: str, version: str) -> List[DriftFinding]:
     """Heuristic: a newer major version exists than the one pinned -- worth reviewing, not a failure."""
     name, _ = _split_pin_name(name)
-    package_meta = fetch_pypi_package_metadata(name)
+    package_meta = pypi.fetch_pypi_package_metadata(name)
     if package_meta.status == FetchStatus.NETWORK_ERROR:
         return [DriftFinding(
             package=name, version=version, signal=Signal.CHECK_ERROR, severity=Severity.ERROR,
@@ -1823,7 +1601,7 @@ def check_major_bump(name: str, version: str) -> List[DriftFinding]:
 def check_python_support(name: str, version: str, required_python: Dict[str, int]) -> List[DriftFinding]:
     """Confirms the pinned release declares support for the notebook's REQUIRED_PYTHON."""
     name, _ = _split_pin_name(name)
-    version_meta = fetch_pypi_version_metadata(name, version)
+    version_meta = pypi.fetch_pypi_version_metadata(name, version)
     if version_meta.status == FetchStatus.NETWORK_ERROR:
         return [DriftFinding(
             package=name, version=version, signal=Signal.CHECK_ERROR, severity=Severity.ERROR,
@@ -1897,7 +1675,7 @@ class _PyPIResolutionProvider(AbstractProvider):
             return []
         name = reqs[0].name
         extras = frozenset(reqs[0].extras)  # identical across reqs: extras are part of the identifier
-        pkg_meta = fetch_pypi_package_metadata(name)
+        pkg_meta = pypi.fetch_pypi_package_metadata(name)
         if pkg_meta.status != FetchStatus.FOUND:
             return []
         excluded = {c.version for c in incompatibilities[identifier]}
@@ -1929,7 +1707,7 @@ class _PyPIResolutionProvider(AbstractProvider):
         else:
             envs = [_marker_environment(self.required_python, extra=None)]  # base install: no extras active
 
-        meta = fetch_pypi_version_metadata(candidate.name, candidate.version)
+        meta = pypi.fetch_pypi_version_metadata(candidate.name, candidate.version)
         if meta.status != FetchStatus.FOUND:
             return deps
         for raw in meta.requires_dist:
@@ -1961,7 +1739,7 @@ def resolve_transitive_graph(
         if _has_local_version_identifier(version):
             continue  # not on PyPI by definition -- can't be a root requirement here
         name, extras = _split_pin_extras(raw_name)
-        if fetch_pypi_package_metadata(name).status != FetchStatus.FOUND:
+        if pypi.fetch_pypi_package_metadata(name).status != FetchStatus.FOUND:
             # Custom-index/local-only package: not resolvable via this PyPI-only
             # provider, and not a real conflict -- check_yanked_or_removed already
             # reports on it directly (not_found_on_pypi), so silently excluding it
@@ -2831,7 +2609,7 @@ def generate_production_blueprint(
 
     # Classify custom-sourced pins (local-version-identifier or not found on PyPI)
     # up front so the runtime failure path can point to the right guidance if
-    # install ever fails. fetch_pypi_package_metadata is memoized, so this costs
+    # install ever fails. pypi.fetch_pypi_package_metadata is memoized, so this costs
     # nothing extra -- run_pin_checks below reaches the same pins.
     custom_sourced_names: List[str] = []
     for dep in normalized_items:
@@ -2839,14 +2617,14 @@ def generate_production_blueprint(
         if not name or not version:
             continue
         bare_name, _extra = _split_pin_name(name)
-        if _has_local_version_identifier(version) or fetch_pypi_package_metadata(bare_name).status != FetchStatus.FOUND:
+        if _has_local_version_identifier(version) or pypi.fetch_pypi_package_metadata(bare_name).status != FetchStatus.FOUND:
             custom_sourced_names.append(name)
 
     # Installed from a remote direct reference with no matching install line in the
     # notebook itself: carry the recorded source, unless the notebook already names it.
     merged_raw_installs: List[str] = list(raw_installs) if raw_installs else []
     for spec in direct_reference_specs:
-        if not any(same_direct_source(spec, existing) for existing in merged_raw_installs):
+        if not any(installed.same_direct_source(spec, existing) for existing in merged_raw_installs):
             merged_raw_installs.append(spec)
 
     # Check pins against live PyPI at generation time, not only via a later,

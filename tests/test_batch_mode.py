@@ -9,7 +9,7 @@ import pytest
 from pathlib import Path
 
 import steady_py.core as spy
-from steady_py import constants, util
+from steady_py import constants, installed, util
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def mock_batch_env(monkeypatch):
         "sklearn": ["scikit-learn"],
         "umap": ["umap-learn"]
     }
-    monkeypatch.setattr(spy, "get_installed_environment", lambda: (frozen_env, raw_freeze))
+    monkeypatch.setattr(installed, "get_installed_environment", lambda: (frozen_env, raw_freeze))
     return frozen_env, pkg_dist_map
 
 

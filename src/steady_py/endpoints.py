@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple
 
 import sys
 
-from steady_py import constants, core, delta, models, util
+from steady_py import constants, core, delta, installed, models, util
 from steady_py.results import (
     CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SetupCells, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -25,7 +25,7 @@ DEFAULT_COMPANION_SUFFIX = "_merged"
 
 def detect_environment() -> Environment:
     """The environment this process is running in."""
-    frozen_env, raw_full_freeze = core.get_installed_environment()
+    frozen_env, raw_full_freeze = installed.get_installed_environment()
     pkg_dist_map = importlib.metadata.packages_distributions() if hasattr(importlib.metadata, "packages_distributions") else {}
     return Environment(frozen_env=frozen_env, pkg_dist_map=pkg_dist_map, raw_full_freeze=raw_full_freeze)
 

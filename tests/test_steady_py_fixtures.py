@@ -13,7 +13,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import constants
+from steady_py import constants, installed
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures//unit"
@@ -38,7 +38,7 @@ def mock_environment(monkeypatch):
         "torch": "torch==2.3.1+cu121",
     }
     raw_freeze = list(frozen_env.values())
-    monkeypatch.setattr(spy, "get_installed_environment", lambda: (frozen_env, raw_freeze))
+    monkeypatch.setattr(installed, "get_installed_environment", lambda: (frozen_env, raw_freeze))
     monkeypatch.setattr(spy, "resolve_opencv_variant", lambda submodules=None: "opencv-python")
 
     fake_packages_distributions = {
@@ -132,7 +132,7 @@ class TestKitchenSinkNotebook:
             "umap-learn": "umap-learn==0.5.5",
         }
         mock_raw_freeze = list(mock_frozen_env.values())
-        monkeypatch.setattr(spy, "get_installed_environment", lambda: (mock_frozen_env, mock_raw_freeze))
+        monkeypatch.setattr(installed, "get_installed_environment", lambda: (mock_frozen_env, mock_raw_freeze))
         monkeypatch.setattr(spy, "resolve_opencv_variant", lambda submodules=None: "opencv-python")
         monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
         monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(kitchen_sink_notebook)])

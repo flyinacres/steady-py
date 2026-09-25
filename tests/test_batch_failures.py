@@ -15,7 +15,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import util
+from steady_py import installed, util
 from steady_py.constants import StatusLabel
 
 
@@ -35,7 +35,7 @@ def mock_batch_env(
         "pandas": ["pandas"],
         "torch": ["torch"],
     }
-    monkeypatch.setattr(spy, "get_installed_environment", lambda: (frozen_env, raw_freeze))
+    monkeypatch.setattr(installed, "get_installed_environment", lambda: (frozen_env, raw_freeze))
     return frozen_env, pkg_dist_map
 
 
