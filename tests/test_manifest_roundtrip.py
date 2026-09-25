@@ -22,7 +22,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import models, scanning
+from steady_py import analyze, models, scanning
 
 
 FIXTURE_DIR = Path("tests/fixtures")
@@ -187,7 +187,7 @@ def _write_and_generate_real_notebook(tmp_path, cell_source, filename="local_mod
     nb_path.write_text(json.dumps(nb), encoding="utf-8")
 
     ext_res = scanning.extract_from_file(str(nb_path))
-    scan_res = spy.NotebookScanResult(
+    scan_res = analyze.NotebookScanResult(
         path=nb_path,
         is_python=True,
         lang_label="python",
@@ -241,7 +241,7 @@ class TestLocalModulePersistence:
         nb_path.write_text(json.dumps(nb), encoding="utf-8")
 
         ext_res = scanning.extract_from_file(str(nb_path))
-        scan_res = spy.NotebookScanResult(
+        scan_res = analyze.NotebookScanResult(
             path=nb_path, is_python=True, lang_label="python",
             imports=ext_res.imports, submodules=ext_res.submodules,
             guarded_imports=ext_res.guarded_imports, code_sources=ext_res.code_sources,

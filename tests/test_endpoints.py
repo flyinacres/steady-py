@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import steady_py.core as spy
-from steady_py import accelerator, constants, drift, installed, localmodules, models, scanning, util
+from steady_py import accelerator, analyze, constants, drift, installed, localmodules, models, scanning, util
 from steady_py.endpoints import check, scan, snapshot
 from steady_py.results import CheckOptions, Environment, PackageChange, ScanOptions, SnapshotOptions, TargetKind, WriteMode
 
@@ -252,8 +252,8 @@ class TestSnapshot:
 
     def test_the_analysis_runs_once_however_the_result_is_delivered(self, tmp_path, isolated, monkeypatch):
         calls = []
-        original = spy.build_single_notebook_report
-        monkeypatch.setattr(spy, "build_single_notebook_report", lambda *a, **k: calls.append(1) or original(*a, **k))
+        original = analyze.build_single_notebook_report
+        monkeypatch.setattr(analyze, "build_single_notebook_report", lambda *a, **k: calls.append(1) or original(*a, **k))
         snapshot(_source(tmp_path), SnapshotOptions(write_mode=WriteMode.COMPANION), ENV)
         assert len(calls) == 1
 

@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple
 
 import sys
 
-from steady_py import accelerator, constants, core, delta, drift, installed, localmodules, models, scanning, util
+from steady_py import accelerator, analyze, constants, core, delta, drift, installed, localmodules, models, scanning, util
 from steady_py.results import (
     CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SetupCells, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -40,7 +40,7 @@ def _read_manifest(path: object) -> Tuple[Optional[models.SteadyPyManifest], Opt
 
 
 def _provisional_manifest(
-    scan_result: core.NotebookScanResult, report: models.NotebookAnalysisReport, hardware: Optional[models.GpuInfo],
+    scan_result: analyze.NotebookScanResult, report: models.NotebookAnalysisReport, hardware: Optional[models.GpuInfo],
 ) -> models.SteadyPyManifest:
     """What a snapshot would record, as far as it can be known without contacting PyPI: the pins,
     the Python version and the accelerator. It has no baseline, custom-sourced list or hash."""
@@ -54,7 +54,7 @@ def _provisional_manifest(
 
 
 def _scan_notebook(
-    scan_result: core.NotebookScanResult, report: models.NotebookAnalysisReport, hardware: Optional[models.GpuInfo],
+    scan_result: analyze.NotebookScanResult, report: models.NotebookAnalysisReport, hardware: Optional[models.GpuInfo],
 ) -> NotebookScan:
     """One analyzed notebook, compared with the manifest it already carries, if any."""
     manifest, manifest_error = _read_manifest(scan_result.path)
@@ -71,7 +71,7 @@ class _Analysis:
     kind: str
     report: models.NotebookAnalysisReport
     environment: Environment
-    scan_result: Optional[core.NotebookScanResult] = None  # None when the file could not be read
+    scan_result: Optional[analyze.NotebookScanResult] = None  # None when the file could not be read
     hardware: Optional[models.GpuInfo] = None                # the probed accelerator
     root_dir: str = "."
     error: Optional[str] = None
@@ -101,8 +101,8 @@ def _analyze(target: Optional[str], environment: Optional[Environment]) -> _Anal
         path, kind, root_dir = Path("session.ipynb"), TargetKind.SESSION, "."
 
     hardware = accelerator.inspect_gpu_environment(list(dict.fromkeys(ext_res.imports)))
-    scan_result = core.build_scan_result(path, ext_res)
-    report = core.build_single_notebook_report(
+    scan_result = analyze.build_scan_result(path, ext_res)
+    report = analyze.build_single_notebook_report(
         scan_result, environment.frozen_env, environment.pkg_dist_map, hardware, root_dir=root_dir,
     )
     return _Analysis(
@@ -165,7 +165,7 @@ def snapshot(
 
 
 def _snapshot_notebook(
-    scan_result: core.NotebookScanResult,
+    scan_result: analyze.NotebookScanResult,
     report: models.NotebookAnalysisReport,
     hardware: Optional[models.GpuInfo],
     options: SnapshotOptions,
@@ -204,7 +204,7 @@ def _snapshot_notebook(
 @dataclass
 class _DirectoryAnalysis:
     """The one analysis of a directory of notebooks that scan and snapshot both build on."""
-    repo_map: core.RepoEnvironmentMap
+    repo_map: analyze.RepoEnvironmentMap
     summary: models.BatchAnalysisSummary
     environment: Environment
     hardware: Optional[models.GpuInfo]
@@ -212,9 +212,9 @@ class _DirectoryAnalysis:
 
 def _analyze_directory(target: str, environment: Optional[Environment], skip_suffix: Optional[str]) -> _DirectoryAnalysis:
     environment = environment or detect_environment()
-    repo_map = core.walk_and_scan_directory(target, skip_suffix=skip_suffix)
+    repo_map = analyze.walk_and_scan_directory(target, skip_suffix=skip_suffix)
     hardware = accelerator.inspect_gpu_environment(list(dict.fromkeys(repo_map.global_imports)))
-    summary = core.analyze_batch_repository(repo_map, environment.frozen_env, environment.pkg_dist_map, hardware)
+    summary = analyze.analyze_batch_repository(repo_map, environment.frozen_env, environment.pkg_dist_map, hardware)
     return _DirectoryAnalysis(repo_map=repo_map, summary=summary, environment=environment, hardware=hardware)
 
 
@@ -224,7 +224,7 @@ def _skip_suffix(suffix: Optional[str], in_place: bool) -> Optional[str]:
     return None if in_place else (suffix if suffix is not None else DEFAULT_COMPANION_SUFFIX)
 
 
-def _unreadable(repo_map: core.RepoEnvironmentMap) -> List[Tuple[str, models.NotebookAnalysisReport, str]]:
+def _unreadable(repo_map: analyze.RepoEnvironmentMap) -> List[Tuple[str, models.NotebookAnalysisReport, str]]:
     """(path, report, cause) for each notebook that could not be read."""
     out = []
     for err in repo_map.parse_errors:
@@ -298,7 +298,7 @@ def check(target: str, options: Optional[CheckOptions] = None) -> CheckResult:
 
 def _check_directory(target: str, options: CheckOptions) -> CheckResult:
     options = CheckOptions(root_dir=options.root_dir or target)
-    notebooks = [_check_file(str(path), options) for path in core.iter_notebook_paths(target)]
+    notebooks = [_check_file(str(path), options) for path in analyze.iter_notebook_paths(target)]
     reports = [(util.relative_notebook_path(Path(n.path), target), n.report) for n in notebooks if n.report is not None]
     validation = drift.build_batch_validation(reports) if reports else None
     return CheckResult(target=target, kind=TargetKind.DIRECTORY, notebooks=notebooks, validation=validation)

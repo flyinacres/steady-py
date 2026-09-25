@@ -20,7 +20,7 @@ import types
 import pytest
 
 import steady_py.core as spy
-from steady_py import installed, resolution
+from steady_py import analyze, installed, resolution
 
 REMOTE_URL = "git+https://example.com/org/zzq-remote.git@0123456789abcdef"
 LOCAL_DIR = "/home/ron/src/zzq-local"
@@ -156,7 +156,7 @@ def _generate(tmp_path, code_sources, imports, frozen_env, pkg_dist_map, raw_ins
                      "language_info": {"name": "python"}},
         "nbformat": 4, "nbformat_minor": 5,
     }))
-    scan_res = spy.NotebookScanResult(
+    scan_res = analyze.NotebookScanResult(
         path=nb_path, is_python=True, lang_label="python",
         imports=imports, code_sources=code_sources,
         raw_installs=list(raw_installs or []),

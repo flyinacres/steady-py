@@ -9,7 +9,7 @@ import pytest
 from pathlib import Path
 
 import steady_py.core as spy
-from steady_py import constants, installed, scanning, util
+from steady_py import analyze, constants, installed, scanning, util
 
 
 @pytest.fixture
@@ -77,7 +77,7 @@ class TestPrimaryIndexSelection:
             "https://index.a.com": [Path("01.ipynb"), Path("02.ipynb"), Path("03.ipynb")],
             "https://index.b.com": [Path("04.ipynb")]
         }
-        best_url, reason = spy.select_primary_index_url(url_map)
+        best_url, reason = analyze.select_primary_index_url(url_map)
         assert best_url == "https://index.a.com"
 
     def test_alphabetical_filename_tie_break(self):
@@ -85,7 +85,7 @@ class TestPrimaryIndexSelection:
             "https://index.b.com": [Path("02_file.ipynb")],
             "https://index.a.com": [Path("01_file.ipynb")]
         }
-        best_url, reason = spy.select_primary_index_url(url_map)
+        best_url, reason = analyze.select_primary_index_url(url_map)
         assert best_url == "https://index.a.com"
 
     def test_alphabetical_url_tie_break(self):
@@ -93,7 +93,7 @@ class TestPrimaryIndexSelection:
             "https://z_index.com": [Path("01_same.ipynb")],
             "https://a_index.com": [Path("01_same.ipynb")]
         }
-        best_url, reason = spy.select_primary_index_url(url_map)
+        best_url, reason = analyze.select_primary_index_url(url_map)
         assert best_url == "https://a_index.com"
 
 
@@ -113,7 +113,7 @@ class TestBatchOrchestration:
         nb_r = {"metadata": {"kernelspec": {"language": "R"}}, "cells": []}
         (tmp_path / "02_r.ipynb").write_text(json.dumps(nb_r))
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert is_clean is True
@@ -131,7 +131,7 @@ class TestBatchOrchestration:
         nb_path = tmp_path / "analysis.ipynb"
         nb_path.write_text(json.dumps(nb))
 
-        res = spy.NotebookScanResult(
+        res = analyze.NotebookScanResult(
             path=nb_path,
             is_python=True,
             lang_label="python",
@@ -164,7 +164,7 @@ class TestBatchOrchestration:
         nb_path = tmp_path / "inplace_test.ipynb"
         nb_path.write_text(json.dumps(nb))
 
-        res = spy.NotebookScanResult(
+        res = analyze.NotebookScanResult(
             path=nb_path,
             is_python=True,
             lang_label="python",
@@ -194,7 +194,7 @@ class TestBatchOrchestration:
         nb_path = tmp_path / "magic_test.ipynb"
         nb_path.write_text(json.dumps(nb))
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         assert len(repo_map.scan_results) == 1
         
         res = repo_map.scan_results[0]
@@ -213,7 +213,7 @@ class TestBatchOrchestration:
         nb_path = tmp_path / "unimported_magic.ipynb"
         nb_path.write_text(json.dumps(nb))
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert "gdown" in report
@@ -228,7 +228,7 @@ class TestBatchOrchestration:
         nb_path = tmp_path / "magic_manifest.ipynb"
         nb_path.write_text(json.dumps(nb))
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         uni_manifest = spy.generate_universal_manifest(repo_map, frozen_env, pkg_dist_map)
 
         assert "gdown" in uni_manifest
@@ -243,7 +243,7 @@ class TestBatchOrchestration:
         nb_path = tmp_path / "tagged_build.ipynb"
         nb_path.write_text(json.dumps(nb))
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert is_clean is True
@@ -259,7 +259,7 @@ class TestBatchOrchestration:
         nb_path = tmp_path / "pseudo_test.ipynb"
         nb_path.write_text(json.dumps(nb), encoding="utf-8")
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert "Packages not resolvable via pip-freeze or local file scan: 0" in report
@@ -276,7 +276,7 @@ class TestBatchOrchestration:
         nb_path = tmp_path / "local_import_test.ipynb"
         nb_path.write_text(json.dumps(nb), encoding="utf-8")
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert "Packages not resolvable via pip-freeze or local file scan: 0" in report
@@ -315,8 +315,8 @@ class TestBatchOrchestration:
         (tmp_path / "01_nb.ipynb").write_text(json.dumps(nb1), encoding="utf-8")
         (tmp_path / "02_nb.ipynb").write_text(json.dumps(nb2), encoding="utf-8")
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
-        summary = spy.analyze_batch_repository(
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
+        summary = analyze.analyze_batch_repository(
             repo_map=repo_map,
             frozen_env={},
             pkg_dist_map={},
@@ -342,7 +342,7 @@ def test_batch_report_surfaces_hardware_tag_warnings(tmp_path):
 
     mock_env = {"torch": "torch==2.1.0+cu121"}
     
-    scan_res = spy.NotebookScanResult(
+    scan_res = analyze.NotebookScanResult(
         path=nb_path,
         is_python=True,
         lang_label="python",
@@ -350,7 +350,7 @@ def test_batch_report_surfaces_hardware_tag_warnings(tmp_path):
         code_sources=["import torch"]
     )
     
-    repo_map = spy.RepoEnvironmentMap(str(tmp_path))
+    repo_map = analyze.RepoEnvironmentMap(str(tmp_path))
     repo_map.add_result(scan_res)
     
     report_text, _ = spy.generate_batch_analysis_report(repo_map, mock_env, {}, None)
@@ -375,7 +375,7 @@ def test_batch_mode_scopes_local_modules_to_notebook_subdirectory(tmp_path):
     with open(nb_path, "w", encoding="utf-8") as f:
         json.dump(nb_data, f)
 
-    scan_res = spy.NotebookScanResult(
+    scan_res = analyze.NotebookScanResult(
         path=nb_path,
         is_python=True,
         lang_label="python",
@@ -383,10 +383,10 @@ def test_batch_mode_scopes_local_modules_to_notebook_subdirectory(tmp_path):
         code_sources=["import cookbook"]
     )
 
-    repo_map = spy.RepoEnvironmentMap(str(tmp_path))
+    repo_map = analyze.RepoEnvironmentMap(str(tmp_path))
     repo_map.add_result(scan_res)
 
-    summary = spy.analyze_batch_repository(repo_map, {}, {}, None)
+    summary = analyze.analyze_batch_repository(repo_map, {}, {}, None)
 
     assert "cookbook" not in summary.missing_packages
 
@@ -403,10 +403,10 @@ def test_batch_hardware_tag_warnings_use_unified_dependency_pipeline(tmp_path: P
     with open(nb_path, "w", encoding="utf-8") as f:
         json.dump(nb_data, f)
 
-    repo_map = spy.walk_and_scan_directory(str(tmp_path))
+    repo_map = analyze.walk_and_scan_directory(str(tmp_path))
     frozen_env = {"torch": "torch==2.3.1+cu121"}
     
-    summary = spy.analyze_batch_repository(repo_map, frozen_env=frozen_env, pkg_dist_map={}, batch_hw_cache=None)
+    summary = analyze.analyze_batch_repository(repo_map, frozen_env=frozen_env, pkg_dist_map={}, batch_hw_cache=None)
     
     assert "torch==2.3.1+cu121" in summary.batch_hardware_warnings
     assert summary.batch_hardware_warnings["torch==2.3.1+cu121"] == ["hw_test.ipynb"]

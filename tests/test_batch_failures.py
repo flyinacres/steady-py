@@ -15,7 +15,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import installed, util
+from steady_py import analyze, installed, util
 from steady_py.constants import StatusLabel
 
 
@@ -59,7 +59,7 @@ class TestBatchFailureModes:
 
         (tmp_path / "02_corrupted.ipynb").write_text("{ unquoted_json: True ", encoding="utf-8")
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert is_clean is False
@@ -75,7 +75,7 @@ class TestBatchFailureModes:
         bad_schema = {"metadata": {"kernelspec": {"language": "python"}}}
         (tmp_path / "no_cells.ipynb").write_text(json.dumps(bad_schema), encoding="utf-8")
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
 
         assert len(repo_map.parse_errors) == 1
         assert repo_map.parse_errors[0].lang_label in (StatusLabel.CORRUPTED, StatusLabel.ERROR)
@@ -105,7 +105,7 @@ class TestBatchFailureModes:
         venv_dir.mkdir(parents=True)
         (venv_dir / "ignored.ipynb").write_text("{ corrupted venv json ", encoding="utf-8")
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
 
         assert len(repo_map.parse_errors) == 0
         assert len(repo_map.scan_results) == 1
@@ -133,7 +133,7 @@ class TestBatchFailureModes:
         (tmp_path / "script.jl.ipynb").write_text(json.dumps(julia_nb), encoding="utf-8")
         (tmp_path / "conflict.ipynb").write_text(json.dumps(conflict_nb), encoding="utf-8")
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert is_clean is True
@@ -162,7 +162,7 @@ class TestBatchFailureModes:
         mock_batch_env: Tuple[Dict[str, str], Dict[str, List[str]]]
     ) -> None:
         frozen_env, pkg_dist_map = mock_batch_env
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         header = spy.generate_universal_manifest(
             repo_map, frozen_env, pkg_dist_map, skipped=[("sub/bad.ipynb", "Invalid JSON:\nline 1")]
         ).splitlines()[:3]
@@ -191,7 +191,7 @@ class TestBatchFailureModes:
         (tmp_path / "01.ipynb").write_text(json.dumps(nb1), encoding="utf-8")
         (tmp_path / "02.ipynb").write_text(json.dumps(nb2), encoding="utf-8")
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         manifest = spy.generate_universal_manifest(repo_map, frozen_env, pkg_dist_map)
 
         assert "--extra-index-url https://index.a.com" in manifest
@@ -205,7 +205,7 @@ class TestBatchFailureModes:
         }
         (tmp_path / "req_warn.ipynb").write_text(json.dumps(nb))
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert is_clean is True
@@ -219,7 +219,7 @@ class TestBatchFailureModes:
         }
         (tmp_path / "conda_notice.ipynb").write_text(json.dumps(nb))
 
-        repo_map = spy.walk_and_scan_directory(str(tmp_path))
+        repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert is_clean is True
