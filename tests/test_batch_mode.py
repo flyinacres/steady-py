@@ -8,8 +8,7 @@ import types
 import pytest
 from pathlib import Path
 
-import steady_py.core as spy
-from steady_py import analyze, constants, generate, installed, scanning, util
+from steady_py import analyze, constants, generate, installed, reporting, scanning, util
 
 
 @pytest.fixture
@@ -114,7 +113,7 @@ class TestBatchOrchestration:
         (tmp_path / "02_r.ipynb").write_text(json.dumps(nb_r))
 
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
-        report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
+        report, is_clean = reporting.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert is_clean is True
         assert len(repo_map.scan_results) == 1
@@ -214,7 +213,7 @@ class TestBatchOrchestration:
         nb_path.write_text(json.dumps(nb))
 
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
-        report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
+        report, is_clean = reporting.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert "gdown" in report
 
@@ -244,7 +243,7 @@ class TestBatchOrchestration:
         nb_path.write_text(json.dumps(nb))
 
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
-        report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
+        report, is_clean = reporting.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert is_clean is True
         assert "torch" in report
@@ -260,7 +259,7 @@ class TestBatchOrchestration:
         nb_path.write_text(json.dumps(nb), encoding="utf-8")
 
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
-        report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
+        report, is_clean = reporting.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert "Packages not resolvable via pip-freeze or local file scan: 0" in report
 
@@ -277,7 +276,7 @@ class TestBatchOrchestration:
         nb_path.write_text(json.dumps(nb), encoding="utf-8")
 
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
-        report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
+        report, is_clean = reporting.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert "Packages not resolvable via pip-freeze or local file scan: 0" in report
 
@@ -353,7 +352,7 @@ def test_batch_report_surfaces_hardware_tag_warnings(tmp_path):
     repo_map = analyze.RepoEnvironmentMap(str(tmp_path))
     repo_map.add_result(scan_res)
     
-    report_text, _ = spy.generate_batch_analysis_report(repo_map, mock_env, {}, None)
+    report_text, _ = reporting.generate_batch_analysis_report(repo_map, mock_env, {}, None)
     
     assert "Custom Build Tag Warnings:" in report_text
 

@@ -1,5 +1,5 @@
 """steady-py: reproducible environment setup and drift checking for notebooks and Python projects."""
-from steady_py.core import install, InstallResult
+from steady_py.runtime import install, InstallResult
 from steady_py.endpoints import check, scan, snapshot
 from steady_py.results import (
     CheckOptions,

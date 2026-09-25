@@ -14,8 +14,7 @@ from typing import Dict, List, Tuple
 import pytest
 
 import steady_py.cli as cli
-import steady_py.core as spy
-from steady_py import analyze, generate, installed, util
+from steady_py import analyze, generate, installed, reporting, util
 from steady_py.constants import StatusLabel
 
 
@@ -60,7 +59,7 @@ class TestBatchFailureModes:
         (tmp_path / "02_corrupted.ipynb").write_text("{ unquoted_json: True ", encoding="utf-8")
 
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
-        report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
+        report, is_clean = reporting.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert is_clean is False
         assert len(repo_map.parse_errors) == 1
@@ -134,7 +133,7 @@ class TestBatchFailureModes:
         (tmp_path / "conflict.ipynb").write_text(json.dumps(conflict_nb), encoding="utf-8")
 
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
-        report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
+        report, is_clean = reporting.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert is_clean is True
         assert len(repo_map.scan_results) == 0
@@ -206,7 +205,7 @@ class TestBatchFailureModes:
         (tmp_path / "req_warn.ipynb").write_text(json.dumps(nb))
 
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
-        report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
+        report, is_clean = reporting.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert is_clean is True
         assert "requirements file" in report.lower()
@@ -220,7 +219,7 @@ class TestBatchFailureModes:
         (tmp_path / "conda_notice.ipynb").write_text(json.dumps(nb))
 
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
-        report, is_clean = spy.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
+        report, is_clean = reporting.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
         assert is_clean is True
         assert "conda" in report.lower()

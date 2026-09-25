@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
-from steady_py import constants, core, endpoints, localmodules, models, resolution, util
+from steady_py import constants, core, endpoints, localmodules, models, reporting, resolution, util
 from steady_py.results import (
     CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -57,7 +57,7 @@ def check_exit_code(result: CheckResult) -> int:
 def _notebook_check_json(notebook: NotebookCheck) -> str:
     """The JSON for one notebook: the drift report, or a small object saying why there is none."""
     if notebook.report is not None:
-        return core.format_json_drift_report(notebook.report)
+        return reporting.format_json_drift_report(notebook.report)
     return json.dumps({
         "schema_version": constants.SCHEMA_VERSION, "tool_version": constants.TOOL_VERSION, "mode": "check_drift",
         "target": notebook.path, "manifest_found": False, "error": notebook.error,
@@ -89,7 +89,7 @@ def _format_check_directory(result: CheckResult, output_format: str) -> Tuple[st
     out = [f"Checked {len(notebooks)} notebook(s) in {result.target}: {len(with_manifest)} with a manifest, "
            f"{without} without (nothing to check), {len(unreadable)} could not be read."]
     if result.validation is not None:
-        out += ["", core.format_console_batch_validation(result.validation)]
+        out += ["", reporting.format_console_batch_validation(result.validation)]
     errors = [f"⚠️ {util.relative_notebook_path(Path(n.path), result.target)}: {n.error}" for n in unreadable]
     return "\n".join(out), "\n".join(errors)
 
@@ -110,7 +110,7 @@ def format_check_result(result: CheckResult, output_format: str = "text") -> Tup
         elif notebook.report is None:
             out_parts.append(f"No STEADY_PY_MANIFEST found in {notebook.path} -- nothing to check.")
         else:
-            out_parts.append(core.format_console_drift_report(notebook.report))
+            out_parts.append(reporting.format_console_drift_report(notebook.report))
     return "\n".join(out_parts), "\n".join(err_parts)
 
 
@@ -192,7 +192,7 @@ def format_directory_deltas(result: Union[ScanResult, SnapshotResult]) -> str:
 def format_scan_result(result: ScanResult) -> str:
     """The JSON report for a scanned notebook."""
     notebook = result.notebooks[0]
-    return core.format_json_single_report(notebook.report, delta=notebook.delta.to_dict() if notebook.delta else None)
+    return reporting.format_json_single_report(notebook.report, delta=notebook.delta.to_dict() if notebook.delta else None)
 
 
 def format_snapshot_result(result: SnapshotResult, output_format: str = "text") -> str:
@@ -203,7 +203,7 @@ def format_snapshot_result(result: SnapshotResult, output_format: str = "text") 
     notebook = result.notebooks[0]
     written = notebook.written_path is not None
     if output_format == "json":
-        return core.format_json_single_report(
+        return reporting.format_json_single_report(
             notebook.report,
             artifacts_written={"locked_notebook": notebook.written_path} if written else None,
             drift_report=notebook.drift_report if written else None,
@@ -214,7 +214,7 @@ def format_snapshot_result(result: SnapshotResult, output_format: str = "text") 
     delta_text = format_delta(notebook.delta, notebook.path) if notebook.delta else ""
     has_pins = bool(notebook.drift_report.manifest.dependencies)
     if written:
-        report_text = core.format_console_drift_report(notebook.drift_report) if has_pins else ""
+        report_text = reporting.format_console_drift_report(notebook.drift_report) if has_pins else ""
         return "\n\n".join(part for part in (delta_text, report_text) if part)
     parts = ([delta_text, ""] if delta_text else []) + [
         "--- [ STEP 1: PASTE INTO CELL 1 (MARKDOWN) ] ---\n",
@@ -225,7 +225,7 @@ def format_snapshot_result(result: SnapshotResult, output_format: str = "text") 
         "\n" + "=" * 80,
     ]
     if has_pins:
-        parts += ["", core.format_console_drift_report(notebook.drift_report)]
+        parts += ["", reporting.format_console_drift_report(notebook.drift_report)]
     return "\n".join(parts)
 
 
@@ -293,7 +293,7 @@ def _log_failures(result: Union[ScanResult, SnapshotResult]) -> None:
 def _report_unreadable(notebook: Union[NotebookScan, NotebookSnapshot], is_json: bool) -> None:
     logger.error(f"❌ Error: {notebook.error}")
     if is_json:
-        print(core.format_json_single_report(notebook.report))
+        print(reporting.format_json_single_report(notebook.report))
 
 
 def run_scan_file(args: argparse.Namespace, environment: Optional[Environment] = None) -> int:
@@ -362,9 +362,9 @@ def run_scan_directory(args: argparse.Namespace, environment: Optional[Environme
     assert scanned.batch_summary is not None
     deltas = {rel: d.to_dict() for rel, d in _directory_deltas(scanned).items()} or None
     if is_json:
-        print(core.format_json_batch_report(scanned.batch_summary, deltas=deltas))
+        print(reporting.format_json_batch_report(scanned.batch_summary, deltas=deltas))
     else:
-        print(core.format_console_report(scanned.batch_summary))
+        print(reporting.format_console_report(scanned.batch_summary))
         if deltas:
             print("\n" + format_directory_deltas(scanned))
         _log_failures(scanned)
@@ -395,7 +395,7 @@ def run_snapshot_directory(args: argparse.Namespace, environment: Optional[Envir
     summary = result.batch_summary
     deltas = {rel: d.to_dict() for rel, d in _directory_deltas(result).items()} or None
     if not is_json:
-        print(core.format_console_report(summary))
+        print(reporting.format_console_report(summary))
         if deltas:
             print("\n" + format_directory_deltas(result))
 
@@ -415,11 +415,11 @@ def run_snapshot_directory(args: argparse.Namespace, environment: Optional[Envir
         if written:
             logger.info("✅ Batch output complete.")
         if result.validation is not None and not is_json:
-            print(core.format_console_batch_validation(result.validation))
+            print(reporting.format_console_batch_validation(result.validation))
 
     _log_failures(result)
     if is_json:
-        print(core.format_json_batch_report(
+        print(reporting.format_json_batch_report(
             summary, artifacts_written=artifacts_written if artifacts_written else None, validation=result.validation,
             deltas=deltas,
         ))

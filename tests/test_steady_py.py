@@ -21,7 +21,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import accelerator, constants, generate, installed, localmodules, magics, models, resolution, scanning
+from steady_py import accelerator, constants, generate, installed, localmodules, magics, models, resolution, runtime, scanning
 from steady_py.constants import StatusLabel
 from steady_py.generate import BlueprintResult
 from steady_py.models import GpuInfo
@@ -642,7 +642,7 @@ class TestSequentialExecutionEngine:
             return types.SimpleNamespace(returncode=1)
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        spy.install(manifest)
+        runtime.install(manifest)
 
         captured = capsys.readouterr().out
         assert "❌" in captured
@@ -667,7 +667,7 @@ class TestSequentialExecutionEngine:
             return types.SimpleNamespace(returncode=0, stderr="", stdout="")
 
         monkeypatch.setattr(subprocess, "run", mock_run)
-        spy.install(manifest)
+        runtime.install(manifest)
 
         captured = capsys.readouterr().out
         assert "❌" in captured and "fail_pkg" in captured
@@ -691,7 +691,7 @@ class TestSequentialExecutionEngine:
             return types.SimpleNamespace(returncode=0, stderr="", stdout="")
 
         monkeypatch.setattr(subprocess, "run", mock_run)
-        result = spy.install(manifest)
+        result = runtime.install(manifest)
 
         assert result.total == 2
         assert result.installed == 1
@@ -704,7 +704,7 @@ class TestSequentialExecutionEngine:
             "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
         }
         monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0, stderr="", stdout=""))
-        result = spy.install(manifest)
+        result = runtime.install(manifest)
         assert result.total == 1 and result.installed == 1 and result.failed == [] and result.ok is True
 
     def test_explicit_install_anchors_position_over_earlier_bare_import(self) -> None:
@@ -861,7 +861,7 @@ def test_install_failure_prints_troubleshooting_steps(monkeypatch, capsys):
         "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
     }
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=1))
-    spy.install(manifest)
+    runtime.install(manifest)
     out = capsys.readouterr().out
     assert "Internet Access" in out
     assert constants.HELP_URL in out

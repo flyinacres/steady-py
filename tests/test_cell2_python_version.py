@@ -5,8 +5,7 @@ import sys
 
 import pytest
 
-import steady_py.core as spy
-from steady_py import generate
+from steady_py import generate, runtime
 
 CURRENT = (sys.version_info.major, sys.version_info.minor)
 
@@ -19,13 +18,13 @@ def _manifest(required):
 
 
 def test_a_matching_python_prints_no_warning(capsys):
-    spy.install(_manifest(CURRENT))
+    runtime.install(_manifest(CURRENT))
     assert "created with Python" not in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("required", [(CURRENT[0], CURRENT[1] + 1), (2, 7), (4, CURRENT[1]), (2, CURRENT[1])])
 def test_any_other_python_warns_and_carries_on(required, capsys):
-    spy.install(_manifest(required))
+    runtime.install(_manifest(required))
     out = capsys.readouterr().out
     label = f"{required[0]}.{required[1]}"
     assert f"This code was created with Python {label}. You are trying to run it with {CURRENT[0]}.{CURRENT[1]}." in out

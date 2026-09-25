@@ -53,7 +53,7 @@ def test_failed_opencv_probe_falls_back_and_is_logged_at_debug(monkeypatch, capl
     def boom(*args, **kwargs):
         raise OSError("pip is unavailable")
 
-    monkeypatch.setattr(spy.subprocess, "run", boom)
+    monkeypatch.setattr(resolution.subprocess, "run", boom)
     caplog.set_level(logging.DEBUG, logger="steady_py")
     assert resolution.resolve_opencv_variant() == "opencv-python"
     assert "Could not inspect installed OpenCV variants" in caplog.text

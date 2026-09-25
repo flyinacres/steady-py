@@ -10,7 +10,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import accelerator, constants, drift, generate, models
+from steady_py import accelerator, constants, drift, generate, models, reporting
 import steady_py.endpoints as endpoints
 from steady_py.results import (
     CheckResult, Delta, Environment, PackageChange, NotebookCheck, NotebookScan, NotebookSnapshot, ScanResult, SetupCells,
@@ -88,12 +88,12 @@ class TestFormatCheckResult:
     def test_text_is_the_console_drift_report(self):
         checked = _checked(_finding(constants.Signal.YANKED, constants.Severity.CONFIRMED))
         out, err = cli.format_check_result(_result(checked))
-        assert out == spy.format_console_drift_report(checked.report) and err == ""
+        assert out == reporting.format_console_drift_report(checked.report) and err == ""
 
     def test_json_is_the_json_drift_report(self):
         checked = _checked()
         out, _ = cli.format_check_result(_result(checked), "json")
-        assert out == spy.format_json_drift_report(checked.report)
+        assert out == reporting.format_json_drift_report(checked.report)
         assert json.loads(out)["target"] == "a.ipynb"
 
     def test_json_for_a_notebook_with_no_manifest_is_json_not_text(self):
@@ -225,12 +225,12 @@ class TestFormatSnapshotResult:
         out = cli.format_snapshot_result(result)
         assert out.startswith("--- [ STEP 1: PASTE INTO CELL 1 (MARKDOWN) ] ---\n\n")
         assert cells.markdown in out and cells.code in out and "--- [ STEP 2: PASTE INTO CELL 2 (CODE) ] ---" in out
-        assert out.endswith(spy.format_console_drift_report(drift_report))
+        assert out.endswith(reporting.format_console_drift_report(drift_report))
 
     def test_written_text_is_only_the_validation_report(self, tmp_path, isolated):
         from steady_py.results import SnapshotOptions
         result = self._result(tmp_path, options=SnapshotOptions(write_mode=WriteMode.COMPANION))
-        assert cli.format_snapshot_result(result) == spy.format_console_drift_report(result.notebooks[0].drift_report)
+        assert cli.format_snapshot_result(result) == reporting.format_console_drift_report(result.notebooks[0].drift_report)
 
     def test_json_names_the_written_notebook_and_includes_the_validation_report(self, tmp_path, isolated):
         from steady_py.results import SnapshotOptions
@@ -241,11 +241,11 @@ class TestFormatSnapshotResult:
 
     def test_unwritten_json_is_the_analysis_report_alone(self, tmp_path, isolated):
         result = self._result(tmp_path)
-        assert cli.format_snapshot_result(result, "json") == spy.format_json_single_report(result.notebooks[0].report)
+        assert cli.format_snapshot_result(result, "json") == reporting.format_json_single_report(result.notebooks[0].report)
 
     def test_scan_json_is_the_analysis_report(self, tmp_path, isolated):
         scanned = endpoints.scan(_write_notebook(tmp_path), ENV)
-        assert cli.format_scan_result(scanned) == spy.format_json_single_report(scanned.notebooks[0].report)
+        assert cli.format_scan_result(scanned) == reporting.format_json_single_report(scanned.notebooks[0].report)
 
 
 class TestRunScanFile:
@@ -591,7 +591,7 @@ class TestDeltaInOutput:
         path = self._locked(tmp_path)
         result = endpoints.snapshot(path, SnapshotOptions(write_mode=WriteMode.COMPANION), self.NEWER)
         out = cli.format_snapshot_result(result)
-        assert out.startswith("Changes since") and out.endswith(spy.format_console_drift_report(result.notebooks[0].drift_report))
+        assert out.startswith("Changes since") and out.endswith(reporting.format_console_drift_report(result.notebooks[0].drift_report))
 
     def test_a_notebook_without_a_manifest_prints_no_delta(self, tmp_path):
         path = _write_notebook(tmp_path)
@@ -679,7 +679,7 @@ class TestFormatCheckDirectory:
         result = _dir_result(_drifted("a.ipynb"), _clean("b.ipynb"), NotebookCheck(path="plain.ipynb"))
         out, err = cli.format_check_result(result)
         assert out.startswith("Checked 3 notebook(s) in repo: 2 with a manifest, 1 without (nothing to check), 0 could not be read.")
-        assert out.endswith(spy.format_console_batch_validation(result.validation)) and err == ""
+        assert out.endswith(reporting.format_console_batch_validation(result.validation)) and err == ""
 
     def test_unreadable_manifests_are_named_on_stderr(self):
         result = _dir_result(_clean("a.ipynb"), NotebookCheck(path="repo/bad.ipynb", error="boom"))

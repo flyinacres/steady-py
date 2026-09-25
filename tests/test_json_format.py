@@ -9,8 +9,7 @@ from typing import Dict, Any
 
 import pytest
 import steady_py.cli as cli
-import steady_py.core as spy
-from steady_py import constants, installed, models
+from steady_py import constants, installed, models, reporting
 
 
 @pytest.fixture
@@ -269,7 +268,7 @@ class TestJsonRendererUnit:
         report = models.NotebookAnalysisReport(
             notebook_path="x.ipynb", is_python=True, lang_label="python", dependencies=deps
         )
-        payload = json.loads(spy.format_json_single_report(report))
+        payload = json.loads(reporting.format_json_single_report(report))
         by_name = {d["name"]: d for d in payload["dependencies"]}
 
         torch = by_name["torch"]
@@ -311,7 +310,7 @@ class TestJsonRendererUnit:
                 models.DiagnosticEvent(type="system_command", detail="d", cell_idx=0, line_idx=2, level="notice"),
             ],
         )
-        payload = json.loads(spy.format_json_single_report(report))
+        payload = json.loads(reporting.format_json_single_report(report))
 
         dyn = next(w for w in payload["warnings"] if w["type"] == "dynamic_import")
         assert dyn["cell_idx"] == 3 and dyn["line_idx"] == 1
@@ -340,8 +339,8 @@ class TestJsonRendererUnit:
         with_gpu = models.NotebookAnalysisReport(notebook_path="x.ipynb", is_python=True, lang_label="python", gpu=gpu)
         without_gpu = models.NotebookAnalysisReport(notebook_path="x.ipynb", is_python=True, lang_label="python", gpu=None)
 
-        payload_with = json.loads(spy.format_json_single_report(with_gpu))
-        payload_without = json.loads(spy.format_json_single_report(without_gpu))
+        payload_with = json.loads(reporting.format_json_single_report(with_gpu))
+        payload_without = json.loads(reporting.format_json_single_report(without_gpu))
 
         assert payload_with["gpu"] == {
             "has_gpu": True, "framework": "PyTorch", "device_name": "RTX 3090",
@@ -352,14 +351,14 @@ class TestJsonRendererUnit:
     def test_artifacts_written_passthrough(self):
         report = models.NotebookAnalysisReport(notebook_path="x.ipynb", is_python=True, lang_label="python")
 
-        assert json.loads(spy.format_json_single_report(report))["artifacts_written"] is None
+        assert json.loads(reporting.format_json_single_report(report))["artifacts_written"] is None
 
         written = {"locked_notebook": "x_merged.ipynb"}
-        assert json.loads(spy.format_json_single_report(report, artifacts_written=written))["artifacts_written"] == written
+        assert json.loads(reporting.format_json_single_report(report, artifacts_written=written))["artifacts_written"] == written
 
     def test_schema_and_tool_version_constants(self):
         report = models.NotebookAnalysisReport(notebook_path="x.ipynb", is_python=True, lang_label="python")
-        payload = json.loads(spy.format_json_single_report(report))
+        payload = json.loads(reporting.format_json_single_report(report))
         assert payload["schema_version"] == constants.SCHEMA_VERSION
         assert payload["tool_version"] == constants.TOOL_VERSION
         assert isinstance(payload["tool_version"], str)
@@ -382,7 +381,7 @@ class TestJsonRendererUnit:
             primary_url_reason="Sole index URL harvested across batch (1 notebook(s))",
             notebooks=[nb_report],
         )
-        payload = json.loads(spy.format_json_batch_report(summary))
+        payload = json.loads(reporting.format_json_batch_report(summary))
 
         assert payload["mode"] == "batch"
         assert payload["target_dir"] == "./repo"
@@ -424,8 +423,8 @@ class TestConsoleJsonParity:
             notebooks=[nb_report],
         )
 
-        console_text = spy.format_console_report(summary)
-        json_payload = json.loads(spy.format_json_batch_report(summary))
+        console_text = reporting.format_console_report(summary)
+        json_payload = json.loads(reporting.format_json_batch_report(summary))
 
         # Matched/missing package counts must agree between renderers.
         assert json_payload["summary"]["total_python_notebooks"] == 1
