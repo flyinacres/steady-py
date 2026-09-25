@@ -15,7 +15,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import analyze, installed, util
+from steady_py import analyze, generate, installed, util
 from steady_py.constants import StatusLabel
 
 
@@ -163,12 +163,12 @@ class TestBatchFailureModes:
     ) -> None:
         frozen_env, pkg_dist_map = mock_batch_env
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
-        header = spy.generate_universal_manifest(
+        header = generate.generate_universal_manifest(
             repo_map, frozen_env, pkg_dist_map, skipped=[("sub/bad.ipynb", "Invalid JSON:\nline 1")]
         ).splitlines()[:3]
         assert header[0] == "# !!! INCOMPLETE: 1 notebook(s) could not be read and are NOT covered by this file:"
         assert header[1] == "#   sub/bad.ipynb: Invalid JSON: line 1"
-        complete = spy.generate_universal_manifest(repo_map, frozen_env, pkg_dist_map)
+        complete = generate.generate_universal_manifest(repo_map, frozen_env, pkg_dist_map)
         assert "INCOMPLETE" not in complete
 
     def test_multiple_extra_index_urls_aggregated(
@@ -192,7 +192,7 @@ class TestBatchFailureModes:
         (tmp_path / "02.ipynb").write_text(json.dumps(nb2), encoding="utf-8")
 
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
-        manifest = spy.generate_universal_manifest(repo_map, frozen_env, pkg_dist_map)
+        manifest = generate.generate_universal_manifest(repo_map, frozen_env, pkg_dist_map)
 
         assert "--extra-index-url https://index.a.com" in manifest
         assert "--extra-index-url https://index.b.com" in manifest

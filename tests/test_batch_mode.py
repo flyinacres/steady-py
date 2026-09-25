@@ -9,7 +9,7 @@ import pytest
 from pathlib import Path
 
 import steady_py.core as spy
-from steady_py import analyze, constants, installed, scanning, util
+from steady_py import analyze, constants, generate, installed, scanning, util
 
 
 @pytest.fixture
@@ -120,7 +120,7 @@ class TestBatchOrchestration:
         assert len(repo_map.scan_results) == 1
         assert len(repo_map.non_python_files) == 1
 
-        uni_manifest = spy.generate_universal_manifest(repo_map, frozen_env, pkg_dist_map)
+        uni_manifest = generate.generate_universal_manifest(repo_map, frozen_env, pkg_dist_map)
         assert "numpy==1.26.4" in uni_manifest
         assert "https://index.foo.com" in uni_manifest
 
@@ -138,7 +138,7 @@ class TestBatchOrchestration:
             imports=["pandas"],
             code_sources=["import pandas as pd"]
         )
-        written_path, _ = spy.apply_output_to_notebook(res, frozen_env, pkg_dist_map, None, suffix="_merged")
+        written_path, _ = generate.apply_output_to_notebook(res, frozen_env, pkg_dist_map, None, suffix="_merged")
 
         assert written_path.exists()
         assert written_path.name == "analysis_merged.ipynb"
@@ -171,7 +171,7 @@ class TestBatchOrchestration:
             imports=["pandas"],
             code_sources=["import pandas as pd"]
         )
-        written_path, _ = spy.apply_output_to_notebook(res, frozen_env, pkg_dist_map, None, in_place=True)
+        written_path, _ = generate.apply_output_to_notebook(res, frozen_env, pkg_dist_map, None, in_place=True)
 
         out_nb = json.loads(written_path.read_text())
         assert len(out_nb["cells"]) == 3
@@ -229,7 +229,7 @@ class TestBatchOrchestration:
         nb_path.write_text(json.dumps(nb))
 
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
-        uni_manifest = spy.generate_universal_manifest(repo_map, frozen_env, pkg_dist_map)
+        uni_manifest = generate.generate_universal_manifest(repo_map, frozen_env, pkg_dist_map)
 
         assert "gdown" in uni_manifest
 

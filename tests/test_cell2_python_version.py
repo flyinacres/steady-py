@@ -6,6 +6,7 @@ import sys
 import pytest
 
 import steady_py.core as spy
+from steady_py import generate
 
 CURRENT = (sys.version_info.major, sys.version_info.minor)
 
@@ -33,5 +34,5 @@ def test_any_other_python_warns_and_carries_on(required, capsys):
 
 
 def test_the_template_no_longer_contains_a_hard_stop():
-    code = spy.generate_production_blueprint([])["step2_code"]
+    code = generate.generate_production_blueprint([])["step2_code"]
     assert "sys.exit(" not in code

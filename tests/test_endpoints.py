@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import steady_py.core as spy
-from steady_py import accelerator, analyze, constants, drift, installed, localmodules, models, scanning, util
+from steady_py import accelerator, analyze, constants, drift, generate, installed, localmodules, models, scanning, util
 from steady_py.endpoints import check, scan, snapshot
 from steady_py.results import CheckOptions, Environment, PackageChange, ScanOptions, SnapshotOptions, TargetKind, WriteMode
 
@@ -26,7 +26,7 @@ def _notebook(tmp_path, source, name="nb.ipynb"):
 
 
 def _notebook_with_manifest(tmp_path, deps=DEPS):
-    return _notebook(tmp_path, spy.generate_production_blueprint(deps)["step2_code"])
+    return _notebook(tmp_path, generate.generate_production_blueprint(deps)["step2_code"])
 
 
 class TestCheck:
@@ -92,7 +92,7 @@ class TestCheckDirectory:
         for rel in ("a.ipynb", "sub/b.ipynb", "plain.ipynb"):
             target = root / rel
             if rel in with_manifest:
-                _notebook(target.parent, spy.generate_production_blueprint(DEPS)["step2_code"], target.name)
+                _notebook(target.parent, generate.generate_production_blueprint(DEPS)["step2_code"], target.name)
             else:
                 _notebook(target.parent, "import requests", target.name)
         return str(root)
@@ -109,7 +109,7 @@ class TestCheckDirectory:
 
     def test_generated_companion_files_are_checked_too(self, tmp_path, offline):
         root = self._tree(tmp_path, with_manifest=())
-        _notebook(tmp_path / "repo", spy.generate_production_blueprint(DEPS)["step2_code"], "plain_merged.ipynb")
+        _notebook(tmp_path / "repo", generate.generate_production_blueprint(DEPS)["step2_code"], "plain_merged.ipynb")
         found = {Path(n.path).name: n.manifest_found for n in check(root).notebooks}
         assert found["plain_merged.ipynb"] is True
 
@@ -190,7 +190,7 @@ class TestScan:
         def refuse(*args, **kwargs):
             raise AssertionError("scan must not check pins")
         monkeypatch.setattr(drift, "run_pin_checks", refuse)
-        monkeypatch.setattr(spy, "generate_production_blueprint", refuse)
+        monkeypatch.setattr(generate, "generate_production_blueprint", refuse)
         scan(_source(tmp_path), environment=ENV)
 
     def test_an_unreadable_file_is_an_error_with_a_report_carrying_it(self, tmp_path, isolated):
@@ -400,13 +400,13 @@ class TestDirectorySnapshot:
 
     def test_a_write_that_fails_costs_only_that_notebook(self, tmp_path, isolated, monkeypatch):
         root = _repo(tmp_path)
-        original = spy.write_locked_notebook
+        original = generate.write_locked_notebook
 
         def flaky(scan_res, *args, **kwargs):
             if scan_res.path.name == "a.ipynb":
                 raise OSError("disk full")
             return original(scan_res, *args, **kwargs)
-        monkeypatch.setattr(spy, "write_locked_notebook", flaky)
+        monkeypatch.setattr(generate, "write_locked_notebook", flaky)
         result = snapshot(root, SnapshotOptions(write_mode=WriteMode.COMPANION), ENV)
         assert [(Path(n.path).name, "disk full" in n.error) for n in result.failed] == [("a.ipynb", True)]
         assert [Path(n.written_path).name for n in result.notebooks if n.written_path] == ["b_merged.ipynb"]

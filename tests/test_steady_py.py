@@ -21,9 +21,9 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import accelerator, constants, installed, localmodules, magics, models, resolution, scanning
+from steady_py import accelerator, constants, generate, installed, localmodules, magics, models, resolution, scanning
 from steady_py.constants import StatusLabel
-from steady_py.core import BlueprintResult
+from steady_py.generate import BlueprintResult
 from steady_py.models import GpuInfo
 
 
@@ -535,13 +535,13 @@ class TestPackageRequirements:
 class TestBlueprintGeneration:
     def test_returns_both_sections(self) -> None:
         manifest_items = [models.PinnedDependency("numpy", "1.26.0")]
-        blueprint: BlueprintResult = spy.generate_production_blueprint(manifest_items)
+        blueprint: BlueprintResult = generate.generate_production_blueprint(manifest_items)
         assert "step1_markdown" in blueprint
         assert "step2_code" in blueprint
 
     def test_python_version_guard_matches_runtime(self) -> None:
         manifest_items = [models.PinnedDependency("numpy", "1.26.0")]
-        blueprint: BlueprintResult = spy.generate_production_blueprint(manifest_items)
+        blueprint: BlueprintResult = generate.generate_production_blueprint(manifest_items)
         expected_guard: str = f"'major': {sys.version_info.major}, 'minor': {sys.version_info.minor}"
         assert expected_guard in blueprint["step2_code"]
 
@@ -553,17 +553,17 @@ class TestBlueprintGeneration:
             frameworks=["torch"],
         )
         manifest_items = [models.PinnedDependency("torch", "2.3.1")]
-        blueprint: BlueprintResult = spy.generate_production_blueprint(manifest_items, gpu_info=gpu_info)
+        blueprint: BlueprintResult = generate.generate_production_blueprint(manifest_items, gpu_info=gpu_info)
         assert "RTX 3090" in blueprint["step1_markdown"]
 
     def test_gpu_section_omitted_when_no_gpu(self) -> None:
         manifest_items = [models.PinnedDependency("numpy", "1.26.0")]
-        blueprint: BlueprintResult = spy.generate_production_blueprint(manifest_items, gpu_info=None)
+        blueprint: BlueprintResult = generate.generate_production_blueprint(manifest_items, gpu_info=None)
         assert "Hardware Acceleration" not in blueprint["step1_markdown"]
 
     def test_full_freeze_appended_after_manifest(self) -> None:
         manifest_items = [models.PinnedDependency("numpy", "1.26.0")]
-        blueprint: BlueprintResult = spy.generate_production_blueprint(
+        blueprint: BlueprintResult = generate.generate_production_blueprint(
             manifest_items, full_freeze_lines=["# certifi==2024.2.2"]
         )
         code: str = blueprint["step2_code"]
@@ -585,7 +585,7 @@ class TestSequentialExecutionEngine:
             models.PinnedDependency("torch", "2.3.1+cu121", ("--extra-index-url", "https://download.pytorch.org/whl/cu121")),
             models.PinnedDependency("pandas", "2.2.1")
         ]
-        blueprint = spy.generate_production_blueprint(manifest_items)
+        blueprint = generate.generate_production_blueprint(manifest_items)
         code = blueprint["step2_code"]
 
         # Must contain structured iterable data, not just raw text block
@@ -597,7 +597,7 @@ class TestSequentialExecutionEngine:
         """Task 13: Cell 2 installs the exact pinned steady-py helper and calls install() --
         the actual installer loop lives in core.py now, not duplicated into the generated cell."""
         manifest_items = [models.PinnedDependency("numpy", "1.26.0")]
-        blueprint = spy.generate_production_blueprint(manifest_items)
+        blueprint = generate.generate_production_blueprint(manifest_items)
         code = blueprint["step2_code"]
 
         assert f"steady-py=={constants.TOOL_VERSION}" in code
@@ -623,7 +623,7 @@ class TestSequentialExecutionEngine:
         """Task 15: the manifest gets its own schema_version, separate from SCHEMA_VERSION
         (which versions the CLI's --format json report structure, a different concern)."""
         manifest_items = [models.PinnedDependency("numpy", "1.26.0")]
-        blueprint = spy.generate_production_blueprint(manifest_items)
+        blueprint = generate.generate_production_blueprint(manifest_items)
         manifest = blueprint["drift_report"].manifest
         assert manifest.schema_version == constants.MANIFEST_SCHEMA_VERSION
         assert "'schema_version':" in blueprint["step2_code"]

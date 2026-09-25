@@ -5,8 +5,7 @@ import subprocess
 import pytest
 from pathlib import Path
 
-import steady_py.core as spy
-from steady_py import analyze, installed, models, scanning
+from steady_py import analyze, generate, installed, models, scanning
 
 _SRC = str(Path(__file__).resolve().parents[1] / "src")
 SUBPROCESS_ENV = {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [_SRC, os.environ.get("PYTHONPATH")]))}
@@ -81,7 +80,7 @@ def test_apply_output_companion_file(sample_notebook_file, mock_frozen_env):
         code_sources=["import pandas as pd\nimport numpy as np"]
     )
 
-    out_path, _ = spy.apply_output_to_notebook(scan_res, mock_frozen_env, {}, None, suffix="_merged", in_place=False)
+    out_path, _ = generate.apply_output_to_notebook(scan_res, mock_frozen_env, {}, None, suffix="_merged", in_place=False)
 
     assert out_path.exists()
     assert out_path.name == "test_notebook_merged.ipynb"
@@ -112,10 +111,10 @@ def test_apply_output_companion_overwrite_existing(sample_notebook_file, mock_fr
     )
 
     # First run
-    spy.apply_output_to_notebook(scan_res, mock_frozen_env, {}, None, suffix="_merged", in_place=False)
+    generate.apply_output_to_notebook(scan_res, mock_frozen_env, {}, None, suffix="_merged", in_place=False)
 
     # Second run (overwriting existing _merged.ipynb)
-    out_path2, _ = spy.apply_output_to_notebook(scan_res, mock_frozen_env, {}, None, suffix="_merged", in_place=False)
+    out_path2, _ = generate.apply_output_to_notebook(scan_res, mock_frozen_env, {}, None, suffix="_merged", in_place=False)
 
     assert out_path2.exists()
     with open(out_path2, "r", encoding="utf-8") as f:
@@ -141,7 +140,7 @@ def test_apply_output_gpu_misattribution_prevented(sample_notebook_file, mock_fr
         frameworks=["torch", "tensorflow"]
     )
 
-    out_path, _ = spy.apply_output_to_notebook(
+    out_path, _ = generate.apply_output_to_notebook(
         scan_res, 
         mock_frozen_env, 
         {}, 
@@ -167,7 +166,7 @@ def test_apply_output_inplace(sample_notebook_file, mock_frozen_env):
         code_sources=["import pandas as pd"]
     )
 
-    out_path, _ = spy.apply_output_to_notebook(scan_res, mock_frozen_env, {}, None, in_place=True)
+    out_path, _ = generate.apply_output_to_notebook(scan_res, mock_frozen_env, {}, None, in_place=True)
 
     assert out_path == sample_notebook_file
     with open(sample_notebook_file, "r", encoding="utf-8") as f:
@@ -192,7 +191,7 @@ def test_inplace_idempotency_rerun(sample_notebook_file, mock_frozen_env):
         dynamic_warnings=dyn1,
         code_sources=sources1
     )
-    spy.apply_output_to_notebook(scan_res1, mock_frozen_env, {}, None, in_place=True)
+    generate.apply_output_to_notebook(scan_res1, mock_frozen_env, {}, None, in_place=True)
 
     # Verify First Run Output
     with open(sample_notebook_file, "r", encoding="utf-8") as f:
@@ -211,7 +210,7 @@ def test_inplace_idempotency_rerun(sample_notebook_file, mock_frozen_env):
         dynamic_warnings=dyn2,
         code_sources=sources2
     )
-    spy.apply_output_to_notebook(scan_res2, mock_frozen_env, {}, None, in_place=True)
+    generate.apply_output_to_notebook(scan_res2, mock_frozen_env, {}, None, in_place=True)
 
     # Verify Second Run Output: Cell count must remain 3 (2 managed + 1 original user cell)
     with open(sample_notebook_file, "r", encoding="utf-8") as f:
@@ -266,13 +265,13 @@ def _setup_cells(data):
 @pytest.mark.parametrize("in_place", [True, False], ids=["in_place", "companion_file"])
 def test_untagged_prior_setup_cells_are_fully_replaced(sample_notebook_file, mock_frozen_env, in_place):
     """A prior manifest must be replaced entirely even when its cells carry no managed tag."""
-    spy.apply_output_to_notebook(_scan(sample_notebook_file), mock_frozen_env, {}, None, in_place=True)
+    generate.apply_output_to_notebook(_scan(sample_notebook_file), mock_frozen_env, {}, None, in_place=True)
     _strip_steady_py_metadata(sample_notebook_file)
 
     # The environment changes between generations, so a surviving old manifest is distinguishable.
     mock_frozen_env["pandas"] = "pandas==2.2.0"
 
-    out_path, _ = spy.apply_output_to_notebook(
+    out_path, _ = generate.apply_output_to_notebook(
         _scan(sample_notebook_file), mock_frozen_env, {}, None, suffix="_merged", in_place=in_place
     )
 
@@ -287,7 +286,7 @@ def test_untagged_prior_setup_cells_are_fully_replaced(sample_notebook_file, moc
     user_cells = [c for c in data["cells"] if "".join(c["source"]) == "import pandas as pd\nimport numpy as np\n"]
     assert len(user_cells) == 1, "the user's own cell must be preserved"
 
-    manifest, error = spy.extract_manifest_from_file(str(out_path))
+    manifest, error = generate.extract_manifest_from_file(str(out_path))
     assert error is None
     assert {d.name: d.version for d in manifest.dependencies}.get("pandas") == "2.2.0"
 
@@ -310,7 +309,7 @@ def test_inplace_keeps_user_cells_that_only_mention_the_manifest(sample_notebook
     with open(sample_notebook_file, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=1)
 
-    spy.apply_output_to_notebook(_scan(sample_notebook_file), mock_frozen_env, {}, None, in_place=True)
+    generate.apply_output_to_notebook(_scan(sample_notebook_file), mock_frozen_env, {}, None, in_place=True)
 
     with open(sample_notebook_file, "r", encoding="utf-8") as f:
         result = json.load(f)
@@ -425,7 +424,7 @@ def test_apply_output_multi_framework_gpu_resolution(sample_notebook_file, mock_
         }
     )
 
-    out_path, _ = spy.apply_output_to_notebook(
+    out_path, _ = generate.apply_output_to_notebook(
         scan_res, 
         mock_frozen_env, 
         {}, 

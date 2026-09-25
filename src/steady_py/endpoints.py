@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple
 
 import sys
 
-from steady_py import accelerator, analyze, constants, core, delta, drift, installed, localmodules, models, scanning, util
+from steady_py import accelerator, analyze, constants, delta, drift, generate, installed, localmodules, models, scanning, util
 from steady_py.results import (
     CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SetupCells, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -35,7 +35,7 @@ def _read_manifest(path: object) -> Tuple[Optional[models.SteadyPyManifest], Opt
     none or is not a file, and (None, reason) when it has one that cannot be read."""
     if not os.path.isfile(str(path)):
         return None, None
-    manifest, error = core.extract_manifest_from_file(str(path))
+    manifest, error = generate.extract_manifest_from_file(str(path))
     return manifest, error or None
 
 
@@ -174,7 +174,7 @@ def _snapshot_notebook(
 ) -> NotebookSnapshot:
     """The cells and manifest for one analyzed notebook, written as the options say."""
     previous, _ = _read_manifest(scan_result.path)   # before any write: an in-place snapshot replaces it
-    blueprint = core.build_blueprint_for_notebook(
+    blueprint = generate.build_blueprint_for_notebook(
         scan_result, report, hardware, install_timeout=options.install_timeout, full_freeze_lines=full_freeze_lines,
     )
     notebook = NotebookSnapshot(
@@ -186,7 +186,7 @@ def _snapshot_notebook(
     )
     if options.write_mode != WriteMode.NONE:
         try:
-            written = core.write_locked_notebook(
+            written = generate.write_locked_notebook(
                 scan_result, blueprint,
                 suffix=options.suffix,
                 in_place=options.write_mode == WriteMode.IN_PLACE,
@@ -259,7 +259,7 @@ def _snapshot_directory(target: str, options: SnapshotOptions, environment: Opti
         out_file = Path(target) / options.universal
         try:
             out_file.write_text(
-                core.generate_universal_manifest(repo_map, analysis.environment.frozen_env, analysis.environment.pkg_dist_map, skipped),
+                generate.generate_universal_manifest(repo_map, analysis.environment.frozen_env, analysis.environment.pkg_dist_map, skipped),
                 encoding="utf-8",
             )
             result.universal_path = str(out_file)
@@ -305,7 +305,7 @@ def _check_directory(target: str, options: CheckOptions) -> CheckResult:
 
 
 def _check_file(path: str, options: CheckOptions) -> NotebookCheck:
-    manifest, error = core.extract_manifest_from_file(path)
+    manifest, error = generate.extract_manifest_from_file(path)
     if error:
         return NotebookCheck(path=path, error=error)
     if manifest is None:

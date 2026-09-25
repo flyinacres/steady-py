@@ -3,12 +3,14 @@ pyproject.toml
 src/steady_py/__init__.py
 src/steady_py/__main__.py
 src/steady_py/accelerator.py
+src/steady_py/analyze.py
 src/steady_py/cli.py
 src/steady_py/constants.py
 src/steady_py/core.py
 src/steady_py/delta.py
 src/steady_py/drift.py
 src/steady_py/endpoints.py
+src/steady_py/generate.py
 src/steady_py/installed.py
 src/steady_py/localmodules.py
 src/steady_py/magics.py

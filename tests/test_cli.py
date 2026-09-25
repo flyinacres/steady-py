@@ -10,7 +10,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import accelerator, constants, drift, models
+from steady_py import accelerator, constants, drift, generate, models
 import steady_py.endpoints as endpoints
 from steady_py.results import (
     CheckResult, Delta, Environment, PackageChange, NotebookCheck, NotebookScan, NotebookSnapshot, ScanResult, SetupCells,
@@ -121,7 +121,7 @@ class TestRunCheck:
         return str(path)
 
     def test_prints_the_report_and_returns_the_code(self, tmp_path, capsys):
-        path = self._write(tmp_path, spy.generate_production_blueprint([PIN])["step2_code"])
+        path = self._write(tmp_path, generate.generate_production_blueprint([PIN])["step2_code"])
         assert cli.run_check(path) == 0
         assert capsys.readouterr().out.strip() != ""
 
@@ -424,13 +424,13 @@ class TestRunSnapshotDirectory:
 
     def test_a_write_that_fails_is_named_and_the_rest_are_written(self, tmp_path, monkeypatch, caplog):
         root = self._repo(tmp_path)
-        original = spy.write_locked_notebook
+        original = generate.write_locked_notebook
 
         def flaky(scan_res, *args, **kwargs):
             if scan_res.path.name == "a.ipynb":
                 raise OSError("disk full")
             return original(scan_res, *args, **kwargs)
-        monkeypatch.setattr(spy, "write_locked_notebook", flaky)
+        monkeypatch.setattr(generate, "write_locked_notebook", flaky)
         with caplog.at_level(logging.INFO, logger="steady_py"):
             assert self._run(root, output=True) == 1
         assert [p.name for p in root.glob("*_merged.ipynb")] == ["b_merged.ipynb"]
@@ -704,7 +704,7 @@ class TestFormatCheckDirectory:
 class TestRunCheckDirectory:
     def test_prints_the_summary_and_returns_the_worst_case_rule(self, tmp_path, capsys, monkeypatch):
         monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [])
-        _write_notebook(tmp_path, spy.generate_production_blueprint([PIN])["step2_code"], "a.ipynb")
+        _write_notebook(tmp_path, generate.generate_production_blueprint([PIN])["step2_code"], "a.ipynb")
         _write_notebook(tmp_path, "import requests", "plain.ipynb")
         assert cli.run_check(str(tmp_path)) == 0
         out = capsys.readouterr().out

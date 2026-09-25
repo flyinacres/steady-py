@@ -48,7 +48,7 @@ from e2e_harness import (
 )
 
 sys.path.insert(0, str(WORKSPACE_ROOT / "src"))
-import steady_py.core as spy  # noqa: E402  (needs WORKSPACE_ROOT/src on sys.path)
+from steady_py import generate  # noqa: E402  (needs WORKSPACE_ROOT/src on sys.path)
 
 DIST_NAME = "rawpkg-probe"
 IMPORT_NAME = "rawpkg_probe"
@@ -112,7 +112,7 @@ def remove_package(step: str, verify: bool = False) -> None:
               shown.returncode != 0)
 
 
-def generate(step: str, code_cells: list[str], name: str):
+def snapshot_notebook(step: str, code_cells: list[str], name: str):
     """Runs steady-py snapshot --output on a temporary notebook. Returns (merged_path, manifest, cell2_source, raw_text)."""
     nb_path = FIXTURES_DIR / f"temp_raw_installs_{name}.ipynb"
     merged_path = nb_path.with_name(nb_path.stem + "_merged.ipynb")
@@ -122,7 +122,7 @@ def generate(step: str, code_cells: list[str], name: str):
             fail_test(step, "steady-py snapshot --output failed", stdout=result.stdout, stderr=result.stderr)
         if not merged_path.exists():
             fail_test(step, f"merged notebook was not written: {merged_path}", stdout=result.stdout)
-    manifest, error = spy.extract_manifest_from_file(str(merged_path))
+    manifest, error = generate.extract_manifest_from_file(str(merged_path))
     if error:
         fail_test(step, f"could not read the generated manifest: {error}")
     return merged_path, manifest, get_cell_source(load_notebook(merged_path), 1), merged_path.read_text(encoding="utf-8")
@@ -216,7 +216,7 @@ def main() -> None:
         step = begin(1, "Explicit path", "notebook has '%pip install <wheel path>'; package installed by hand first")
         remove_package(step)
         pip(step, "install", str(wheel))
-        merged, manifest, cell2, text = generate(step, [f"%pip install {wheel}\n", verify_code("explicit-path")], "explicit")
+        merged, manifest, cell2, text = snapshot_notebook(step, [f"%pip install {wheel}\n", verify_code("explicit-path")], "explicit")
         merged_files.append(merged)
         show("raw_installs", manifest.raw_installs)
         show("pinned", [d.name for d in manifest.dependencies])
@@ -239,7 +239,7 @@ def main() -> None:
         step = begin(2, "Inferred URL", "installed by hand from a URL; the notebook has no install line")
         remove_package(step)
         pip(step, "install", url)
-        merged, manifest, cell2, text = generate(step, [verify_code("inferred-url")], "inferred_url")
+        merged, manifest, cell2, text = snapshot_notebook(step, [verify_code("inferred-url")], "inferred_url")
         merged_files.append(merged)
         inferred_url_notebook = merged
         show("raw_installs", manifest.raw_installs)
@@ -275,7 +275,7 @@ def main() -> None:
         step = begin(4, "Inferred local path", "installed by hand from a local path; the notebook has no install line")
         remove_package(step)
         pip(step, "install", str(wheel))
-        merged, manifest, cell2, text = generate(step, [verify_code("local-path")], "local_path")
+        merged, manifest, cell2, text = snapshot_notebook(step, [verify_code("local-path")], "local_path")
         merged_files.append(merged)
         show("raw_installs", manifest.raw_installs)
         show("Cell 2 says", line_with(cell2, DIST_NAME))

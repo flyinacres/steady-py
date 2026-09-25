@@ -15,7 +15,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import constants, drift, localmodules, models, pypi
+from steady_py import constants, drift, generate, localmodules, models, pypi
 from steady_py.results import Environment
 
 
@@ -657,7 +657,7 @@ class TestManifestHashVerification:
         assert exit_code == 0
 
     def test_freshly_generated_manifest_verifies(self, tmp_path, capsys):
-        result = spy.generate_production_blueprint([CLEAN_DEP])
+        result = generate.generate_production_blueprint([CLEAN_DEP])
         exit_code, report = _check(_write_literal(tmp_path, result["drift_report"].manifest.to_dict()), capsys)
         assert [f for f in report["confirmed"] if f["signal"] == "tampered"] == []
         assert exit_code == 0
@@ -670,7 +670,7 @@ class TestManifestHashVerification:
         assert exit_code == 1
 
     def test_deleting_a_field_is_detected(self, tmp_path, capsys):
-        result = spy.generate_production_blueprint([CLEAN_DEP])
+        result = generate.generate_production_blueprint([CLEAN_DEP])
         manifest = result["drift_report"].manifest.to_dict()
         del manifest["local_modules"]
         _, report = _check(_write_literal(tmp_path, manifest), capsys)
@@ -710,7 +710,7 @@ class TestPinChecksAreSharedBetweenGenerationAndCheckDrift:
         generated, checked = [], []
 
         self._record_calls(monkeypatch, generated)
-        result = spy.generate_production_blueprint(deps)
+        result = generate.generate_production_blueprint(deps)
         path = _write_literal(tmp_path, result["drift_report"].manifest.to_dict())
 
         self._record_calls(monkeypatch, checked)
@@ -722,7 +722,7 @@ class TestPinChecksAreSharedBetweenGenerationAndCheckDrift:
 
     def test_local_version_pin_yields_the_same_finding_in_both_paths(self, tmp_path, capsys):
         deps = [models.PinnedDependency("torch", "2.3.1+cu121")]
-        result = spy.generate_production_blueprint(deps)
+        result = generate.generate_production_blueprint(deps)
         at_generation = [f.to_dict() for f in result["drift_report"].heuristic]
         path = _write_literal(tmp_path, result["drift_report"].manifest.to_dict())
         _, report = _check(path, capsys)
@@ -745,7 +745,7 @@ class TestGenerationOrdering:
             return real_hash(self)
 
         monkeypatch.setattr(models.SteadyPyManifest, "compute_and_set_hash", record_hash)
-        spy.generate_production_blueprint([CLEAN_DEP])
+        generate.generate_production_blueprint([CLEAN_DEP])
         assert "checks" in order and "hash" in order
         assert order.index("checks") < order.index("hash")
 
@@ -758,7 +758,7 @@ import copy
 
 
 def _generate_file(tmp_path, deps, python_version=None):
-    result = spy.generate_production_blueprint(deps)
+    result = generate.generate_production_blueprint(deps)
     manifest = result["drift_report"].manifest
     return _write_literal(tmp_path, manifest.to_dict()), manifest
 
@@ -824,22 +824,22 @@ class TestBaselineKeys:
 
 class TestGenerationRecordsBaseline:
     def test_findings_at_generation_are_recorded(self):
-        baseline = spy.generate_production_blueprint([REQUESTS_YANKED])["drift_report"].manifest.baseline
+        baseline = generate.generate_production_blueprint([REQUESTS_YANKED])["drift_report"].manifest.baseline
         assert ("yanked", "requests", "2.32.0") in baseline.findings
         assert ("stale", "requests") in baseline.findings
         assert baseline.errors == ()
 
     def test_clean_generation_records_an_empty_baseline_not_none(self):
-        manifest = spy.generate_production_blueprint([CLEAN_DEP])["drift_report"].manifest
+        manifest = generate.generate_production_blueprint([CLEAN_DEP])["drift_report"].manifest
         assert manifest.baseline == models.Baseline()
 
     def test_packages_that_could_not_be_checked_are_recorded(self):
         deps = [models.PinnedDependency("flaky-package", "1.0.0")]
-        baseline = spy.generate_production_blueprint(deps)["drift_report"].manifest.baseline
+        baseline = generate.generate_production_blueprint(deps)["drift_report"].manifest.baseline
         assert baseline.errors == ("flaky-package",)
 
     def test_generation_report_findings_are_not_tagged(self):
-        report = spy.generate_production_blueprint([REQUESTS_YANKED])["drift_report"]
+        report = generate.generate_production_blueprint([REQUESTS_YANKED])["drift_report"]
         assert report.confirmed and all(f.baseline_status is None for f in report.confirmed + report.heuristic)
 
     def test_baseline_is_covered_by_the_hash(self, tmp_path, capsys):
@@ -978,7 +978,7 @@ PRIVATE_PKG = models.PinnedDependency("my-private-pkg", "1.0.0")  # not on the f
 
 class TestKnownCustomSources:
     def test_generation_still_reports_it_as_a_confirmed_finding(self):
-        report = spy.generate_production_blueprint([PRIVATE_PKG])["drift_report"]
+        report = generate.generate_production_blueprint([PRIVATE_PKG])["drift_report"]
         assert [f.signal for f in report.confirmed] == ["not_found_on_pypi"]
         assert report.confirmed[0].baseline_status is None
 
@@ -1189,7 +1189,7 @@ class TestBaselineType:
         )
 
     def test_manifest_holds_a_typed_baseline_and_persists_it_as_a_dict(self):
-        manifest = spy.generate_production_blueprint([REQUESTS_YANKED])["drift_report"].manifest
+        manifest = generate.generate_production_blueprint([REQUESTS_YANKED])["drift_report"].manifest
         assert isinstance(manifest.baseline, models.Baseline)
         assert manifest.to_dict()["baseline"] == manifest.baseline.to_dict()
         assert models.SteadyPyManifest.from_literal(manifest.to_dict()).baseline == manifest.baseline
@@ -1227,7 +1227,7 @@ class TestDriftFindingExplicitFields:
 
 class TestNotebookValidationCounts:
     def test_batch_validation_holds_typed_per_notebook_counts(self):
-        report = spy.generate_production_blueprint([REQUESTS_YANKED])["drift_report"]
+        report = generate.generate_production_blueprint([REQUESTS_YANKED])["drift_report"]
         validation = drift.build_batch_validation([("a.ipynb", report)])
         (counts,) = validation.notebooks
         assert isinstance(counts, drift.NotebookValidationCounts)

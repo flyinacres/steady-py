@@ -21,8 +21,7 @@ from pathlib import Path
 import pytest
 
 import steady_py.cli as cli
-import steady_py.core as spy
-from steady_py import analyze, models, scanning
+from steady_py import analyze, generate, models, scanning
 
 
 FIXTURE_DIR = Path("tests/fixtures")
@@ -32,7 +31,7 @@ KITCHEN_SINK_PATH = FIXTURE_DIR / "unit" / "kitchen_sink.ipynb"
 def _write_notebook_with_manifest(tmp_path, dependencies, filename="generated.ipynb"):
     """Builds a real .ipynb on disk with a genuinely-generated STEADY_PY_MANIFEST --
     via the actual generator, not hand-authored JSON."""
-    result = spy.generate_production_blueprint(dependencies)
+    result = generate.generate_production_blueprint(dependencies)
     nb = {
         "cells": [{
             "cell_type": "code", "source": [result["step2_code"]],
@@ -52,7 +51,7 @@ class TestManifestRoundTrip:
         deps = [models.PinnedDependency("requests", "2.32.1")]
         path, result = _write_notebook_with_manifest(tmp_path, deps)
 
-        extracted, error = spy.extract_manifest_from_file(str(path))
+        extracted, error = generate.extract_manifest_from_file(str(path))
         assert error is None
         assert extracted is not None
 
@@ -66,7 +65,7 @@ class TestManifestRoundTrip:
 
     def test_raw_installs_round_trip(self, tmp_path):
         """raw_installs (git/URL/local-path) must survive generate -> write -> extract intact."""
-        result = spy.generate_production_blueprint([], raw_installs=["git+https://github.com/foo/bar.git@v1.2.0"])
+        result = generate.generate_production_blueprint([], raw_installs=["git+https://github.com/foo/bar.git@v1.2.0"])
         nb = {
             "cells": [{"cell_type": "code", "source": [result["step2_code"]],
                        "metadata": {}, "outputs": [], "execution_count": None}],
@@ -76,7 +75,7 @@ class TestManifestRoundTrip:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(nb, f)
 
-        extracted, error = spy.extract_manifest_from_file(str(path))
+        extracted, error = generate.extract_manifest_from_file(str(path))
         assert error is None
         assert extracted.raw_installs == ["git+https://github.com/foo/bar.git@v1.2.0"]
         assert extracted.dependency_hash == result["drift_report"].manifest.dependency_hash
@@ -87,7 +86,7 @@ class TestManifestRoundTrip:
         through the generator."""
         if not KITCHEN_SINK_PATH.exists():
             pytest.fail(f"Fixture notebook not found at {KITCHEN_SINK_PATH}.")
-        manifest, error = spy.extract_manifest_from_file(str(KITCHEN_SINK_PATH))
+        manifest, error = generate.extract_manifest_from_file(str(KITCHEN_SINK_PATH))
         assert manifest is None
         assert error is None
 
@@ -96,7 +95,7 @@ class TestManifestRoundTrip:
         '!pip install' line in an unrelated cell must not block extraction of
         a manifest that lives in a different cell."""
         deps = [models.PinnedDependency("requests", "2.32.1")]
-        result = spy.generate_production_blueprint(deps)
+        result = generate.generate_production_blueprint(deps)
         nb = {
             "cells": [
                 {"cell_type": "code", "source": ["!pip install something-unrelated\n"],
@@ -110,7 +109,7 @@ class TestManifestRoundTrip:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(nb, f)
 
-        manifest, error = spy.extract_manifest_from_file(str(path))
+        manifest, error = generate.extract_manifest_from_file(str(path))
         assert error is None
         assert manifest is not None
         assert manifest.dependencies == deps
@@ -196,7 +195,7 @@ def _write_and_generate_real_notebook(tmp_path, cell_source, filename="local_mod
         guarded_imports=ext_res.guarded_imports,
         code_sources=ext_res.code_sources,
     )
-    written_path, drift_report = spy.apply_output_to_notebook(scan_res, {}, {}, None, in_place=True)
+    written_path, drift_report = generate.apply_output_to_notebook(scan_res, {}, {}, None, in_place=True)
     return written_path, drift_report
 
 
@@ -221,7 +220,7 @@ class TestLocalModulePersistence:
         (tmp_path / "cookbook.py").write_text("# local helper", encoding="utf-8")
         written_path, _ = _write_and_generate_real_notebook(tmp_path, "import cookbook\n")
 
-        extracted, error = spy.extract_manifest_from_file(str(written_path))
+        extracted, error = generate.extract_manifest_from_file(str(written_path))
         assert error is None
         assert extracted.local_modules == [{"name": "cookbook", "anchor": "notebook_dir"}]
 
@@ -246,7 +245,7 @@ class TestLocalModulePersistence:
             imports=ext_res.imports, submodules=ext_res.submodules,
             guarded_imports=ext_res.guarded_imports, code_sources=ext_res.code_sources,
         )
-        _, drift_report = spy.apply_output_to_notebook(scan_res, {}, {}, None, in_place=True, root_dir=str(tmp_path))
+        _, drift_report = generate.apply_output_to_notebook(scan_res, {}, {}, None, in_place=True, root_dir=str(tmp_path))
 
         assert drift_report.manifest.local_modules == [{"name": "shared_utils", "anchor": "root_dir"}]
 
@@ -302,22 +301,22 @@ class TestPinnedDependencyType:
         assert entry.to_pin() == models.PinnedDependency("requests", "2.32.3", ("--pre",))
 
     def test_generation_records_typed_pins(self):
-        result = spy.generate_production_blueprint([models.PinnedDependency("core-dep", "1.0.0"), "plain==2.0"])
+        result = generate.generate_production_blueprint([models.PinnedDependency("core-dep", "1.0.0"), "plain==2.0"])
         assert result["drift_report"].manifest.dependencies == [
             models.PinnedDependency("core-dep", "1.0.0"), models.PinnedDependency("plain", "2.0"),
         ]
 
     def test_from_literal_builds_typed_pins_and_keeps_the_hash_over_the_stored_dicts(self):
-        manifest = spy.generate_production_blueprint([models.PinnedDependency("core-dep", "1.0.0")])["drift_report"].manifest
+        manifest = generate.generate_production_blueprint([models.PinnedDependency("core-dep", "1.0.0")])["drift_report"].manifest
         loaded = models.SteadyPyManifest.from_literal(manifest.to_dict())
         assert loaded.dependencies == [models.PinnedDependency("core-dep", "1.0.0")]
         assert loaded.verified_hash == loaded.dependency_hash
 
     @pytest.mark.parametrize("bad_deps", ["core-dep==1.0.0", [{"name": "core-dep"}], ["core-dep==1.0.0"]])
     def test_extraction_reports_a_malformed_dependency_list(self, tmp_path, bad_deps):
-        literal = spy.generate_production_blueprint([models.PinnedDependency("core-dep", "1.0.0")])["drift_report"].manifest.to_dict()
+        literal = generate.generate_production_blueprint([models.PinnedDependency("core-dep", "1.0.0")])["drift_report"].manifest.to_dict()
         literal["dependencies"] = bad_deps
         path = tmp_path / "nb.py"
         path.write_text(f"STEADY_PY_MANIFEST = {literal!r}\n", encoding="utf-8")
-        manifest, error = spy.extract_manifest_from_file(str(path))
+        manifest, error = generate.extract_manifest_from_file(str(path))
         assert manifest is None and "unexpected shape" in error
