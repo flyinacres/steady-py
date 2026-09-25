@@ -10,7 +10,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import constants, models
+from steady_py import accelerator, constants, models
 import steady_py.endpoints as endpoints
 from steady_py.results import (
     CheckResult, Delta, Environment, PackageChange, NotebookCheck, NotebookScan, NotebookSnapshot, ScanResult, SetupCells,
@@ -153,7 +153,7 @@ def _args(**overrides):
 @pytest.fixture
 def isolated(monkeypatch):
     monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
-    monkeypatch.setattr(spy, "inspect_gpu_environment", lambda imports: None)
+    monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
     monkeypatch.setattr(endpoints, "detect_environment", lambda: ENV)
 
 
@@ -321,7 +321,7 @@ class TestRunScanDirectory:
     @pytest.fixture(autouse=True)
     def offline(self, monkeypatch):
         monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
-        monkeypatch.setattr(spy, "inspect_gpu_environment", lambda imports: None)
+        monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
 
     def _repo(self, tmp_path, corrupt=False):
         root = tmp_path / "repo"
@@ -361,7 +361,7 @@ class TestRunSnapshotDirectory:
     @pytest.fixture(autouse=True)
     def offline(self, monkeypatch):
         monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
-        monkeypatch.setattr(spy, "inspect_gpu_environment", lambda imports: None)
+        monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
 
     def _repo(self, tmp_path, corrupt=False):
         root = tmp_path / "repo"
@@ -571,7 +571,7 @@ class TestDeltaInOutput:
     @pytest.fixture(autouse=True)
     def offline(self, monkeypatch):
         monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
-        monkeypatch.setattr(spy, "inspect_gpu_environment", lambda imports: None)
+        monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
 
     NEWER = Environment(frozen_env={"requests": "requests==2.32.4"}, pkg_dist_map={"requests": ["requests"]})
 

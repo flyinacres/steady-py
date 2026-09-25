@@ -21,7 +21,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import constants, installed, magics, models, scanning
+from steady_py import accelerator, constants, installed, localmodules, magics, models, scanning
 from steady_py.constants import StatusLabel
 from steady_py.core import BlueprintResult
 from steady_py.models import GpuInfo
@@ -401,7 +401,7 @@ def _install_fake_module(monkeypatch: pytest.MonkeyPatch, name: str, module: Any
 
 class TestGpuInspection:
     def test_no_frameworks_imported_skips_check(self) -> None:
-        result: Optional[GpuInfo] = spy.inspect_gpu_environment({"pandas", "requests"})
+        result: Optional[GpuInfo] = accelerator.inspect_gpu_environment({"pandas", "requests"})
         assert result is None
 
     def test_torch_cuda_active(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -413,7 +413,7 @@ class TestGpuInspection:
         fake_torch.backends = types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: False))
         _install_fake_module(monkeypatch, "torch", fake_torch)
 
-        result: Optional[GpuInfo] = spy.inspect_gpu_environment({"torch"})
+        result: Optional[GpuInfo] = accelerator.inspect_gpu_environment({"torch"})
         assert result is not None
         assert result.has_gpu is True
         assert result.active_framework == "PyTorch"
@@ -425,7 +425,7 @@ class TestGpuInspection:
         fake_torch.backends = types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: True))
         _install_fake_module(monkeypatch, "torch", fake_torch)
 
-        result: Optional[GpuInfo] = spy.inspect_gpu_environment({"torch"})
+        result: Optional[GpuInfo] = accelerator.inspect_gpu_environment({"torch"})
         assert result is not None
         assert result.has_gpu is True
         assert "Metal" in result.device_name
@@ -436,7 +436,7 @@ class TestGpuInspection:
         fake_torch.backends = types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: False))
         _install_fake_module(monkeypatch, "torch", fake_torch)
 
-        result: Optional[GpuInfo] = spy.inspect_gpu_environment({"torch"})
+        result: Optional[GpuInfo] = accelerator.inspect_gpu_environment({"torch"})
         assert result is not None
         assert result.has_gpu is False
         assert result.frameworks == ["torch"]
@@ -452,7 +452,7 @@ class TestGpuInspection:
         )
         _install_fake_module(monkeypatch, "tensorflow", fake_tf)
 
-        result: Optional[GpuInfo] = spy.inspect_gpu_environment({"tensorflow"})
+        result: Optional[GpuInfo] = accelerator.inspect_gpu_environment({"tensorflow"})
         assert result is not None
         assert result.has_gpu is True
         assert result.active_framework == "TensorFlow"
@@ -464,7 +464,7 @@ class TestGpuInspection:
         fake_jax.devices = lambda: [fake_device]
         _install_fake_module(monkeypatch, "jax", fake_jax)
 
-        result: Optional[GpuInfo] = spy.inspect_gpu_environment({"jax"})
+        result: Optional[GpuInfo] = accelerator.inspect_gpu_environment({"jax"})
         assert result is not None
         assert result.has_gpu is True
         assert result.active_framework == "JAX"
@@ -476,7 +476,7 @@ class TestGpuInspection:
         fake_jax.devices = lambda: [fake_device]
         _install_fake_module(monkeypatch, "jax", fake_jax)
 
-        result: Optional[GpuInfo] = spy.inspect_gpu_environment({"jax"})
+        result: Optional[GpuInfo] = accelerator.inspect_gpu_environment({"jax"})
         assert result is not None
         assert result.has_gpu is True
         assert result.active_framework == "JAX"
@@ -484,7 +484,7 @@ class TestGpuInspection:
 
     def test_framework_not_installed_falls_back_gracefully(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setitem(sys.modules, "torch", None)
-        result: Optional[GpuInfo] = spy.inspect_gpu_environment({"torch"})
+        result: Optional[GpuInfo] = accelerator.inspect_gpu_environment({"torch"})
         assert result is not None
         assert result.has_gpu is False
 
@@ -498,7 +498,7 @@ class TestGpuInspection:
         _install_fake_module(monkeypatch, "torch", fake_torch)
 
         # Note: imported_packages contains 'fastai' but NOT 'torch' directly
-        result: Optional[GpuInfo] = spy.inspect_gpu_environment({"fastai"})
+        result: Optional[GpuInfo] = accelerator.inspect_gpu_environment({"fastai"})
         assert result is not None
         assert result.has_gpu is True
         assert result.active_framework == "PyTorch"
@@ -850,9 +850,9 @@ def test_resolve_local_module_top_level(tmp_path):
     (src_dir / "helpers.py").write_text("# helper module", encoding="utf-8")
     (tmp_path / "root_script.py").write_text("# root script", encoding="utf-8")
 
-    assert spy.resolve_local_module("src", str(tmp_path)) == "notebook_dir"
-    assert spy.resolve_local_module("root_script", str(tmp_path)) == "notebook_dir"
-    assert spy.resolve_local_module("helpers", str(tmp_path)) is None
+    assert localmodules.resolve_local_module("src", str(tmp_path)) == "notebook_dir"
+    assert localmodules.resolve_local_module("root_script", str(tmp_path)) == "notebook_dir"
+    assert localmodules.resolve_local_module("helpers", str(tmp_path)) is None
 
 def test_install_failure_prints_troubleshooting_steps(monkeypatch, capsys):
     """When any install fails, install() prints troubleshooting steps including HELP_URL."""
@@ -886,18 +886,18 @@ class TestMemoizeForRun:
         (tmp_path / "helper.py").write_text("# helper", encoding="utf-8")
 
         call_count = {"n": 0}
-        real_found = spy._found_in_dir
+        real_found = localmodules._found_in_dir
 
         def counting_found(*args, **kwargs):
             call_count["n"] += 1
             return real_found(*args, **kwargs)
 
-        monkeypatch.setattr(spy, "_found_in_dir", counting_found)
-        spy.resolve_local_module.cache_clear()
+        monkeypatch.setattr(localmodules, "_found_in_dir", counting_found)
+        localmodules.resolve_local_module.cache_clear()
 
-        r1 = spy.resolve_local_module("helper", str(tmp_path))
+        r1 = localmodules.resolve_local_module("helper", str(tmp_path))
         calls_after_first = call_count["n"]
-        r2 = spy.resolve_local_module("helper", str(tmp_path))
+        r2 = localmodules.resolve_local_module("helper", str(tmp_path))
 
         assert r1 == r2 == "notebook_dir"
         assert call_count["n"] == calls_after_first, "second identical call should not re-probe the filesystem"
@@ -910,30 +910,30 @@ class TestMemoizeForRun:
         (dir_a / "helper_a.py").write_text("# a", encoding="utf-8")
         (dir_b / "helper_b.py").write_text("# b", encoding="utf-8")
 
-        spy.resolve_local_module.cache_clear()
+        localmodules.resolve_local_module.cache_clear()
 
-        assert spy.resolve_local_module("helper_a", str(dir_a)) == "notebook_dir"
-        assert spy.resolve_local_module("helper_a", str(dir_b)) is None
-        assert spy.resolve_local_module("helper_b", str(dir_b)) == "notebook_dir"
-        assert spy.resolve_local_module("helper_b", str(dir_a)) is None
+        assert localmodules.resolve_local_module("helper_a", str(dir_a)) == "notebook_dir"
+        assert localmodules.resolve_local_module("helper_a", str(dir_b)) is None
+        assert localmodules.resolve_local_module("helper_b", str(dir_b)) == "notebook_dir"
+        assert localmodules.resolve_local_module("helper_b", str(dir_a)) is None
 
     def test_local_module_cache_clear_forces_recompute(self, tmp_path, monkeypatch):
         (tmp_path / "helper.py").write_text("# helper", encoding="utf-8")
 
         call_count = {"n": 0}
-        real_found = spy._found_in_dir
+        real_found = localmodules._found_in_dir
 
         def counting_found(*args, **kwargs):
             call_count["n"] += 1
             return real_found(*args, **kwargs)
 
-        monkeypatch.setattr(spy, "_found_in_dir", counting_found)
-        spy.resolve_local_module.cache_clear()
+        monkeypatch.setattr(localmodules, "_found_in_dir", counting_found)
+        localmodules.resolve_local_module.cache_clear()
 
-        spy.resolve_local_module("helper", str(tmp_path))
+        localmodules.resolve_local_module("helper", str(tmp_path))
         calls_before_clear = call_count["n"]
-        spy.resolve_local_module.cache_clear()
-        spy.resolve_local_module("helper", str(tmp_path))
+        localmodules.resolve_local_module.cache_clear()
+        localmodules.resolve_local_module("helper", str(tmp_path))
 
         assert call_count["n"] == calls_before_clear * 2, "cache_clear() must force a real recompute, not return stale data"
 
@@ -1042,7 +1042,7 @@ class TestMemoizeForRun:
         more than once within the same process, a later call doesn't return stale results
         left over from an earlier one."""
         cleared = {"local_modules": False, "manifest": False}
-        monkeypatch.setattr(spy.resolve_local_module, "cache_clear", lambda: cleared.__setitem__("local_modules", True))
+        monkeypatch.setattr(localmodules.resolve_local_module, "cache_clear", lambda: cleared.__setitem__("local_modules", True))
         monkeypatch.setattr(spy.build_manifest_entries, "cache_clear", lambda: cleared.__setitem__("manifest", True))
 
         # --output with no subcommand hits argparse's own required-subcommand

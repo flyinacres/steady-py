@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import steady_py.core as spy
-from steady_py import constants, installed, models, scanning, util
+from steady_py import accelerator, constants, installed, localmodules, models, scanning, util
 from steady_py.endpoints import check, scan, snapshot
 from steady_py.results import CheckOptions, Environment, PackageChange, ScanOptions, SnapshotOptions, TargetKind, WriteMode
 
@@ -72,7 +72,7 @@ class TestCheck:
 
     def test_root_dir_and_notebook_dir_reach_the_local_module_check(self, tmp_path, monkeypatch, offline):
         seen = {}
-        monkeypatch.setattr(spy, "check_local_modules", lambda manifest, notebook_dir, root_dir=None: seen.update(nb=notebook_dir, root=root_dir) or [])
+        monkeypatch.setattr(localmodules, "check_local_modules", lambda manifest, notebook_dir, root_dir=None: seen.update(nb=notebook_dir, root=root_dir) or [])
         path = _notebook_with_manifest(tmp_path)
         check(str(path), CheckOptions(root_dir="/repo"))
         assert seen == {"nb": str(tmp_path), "root": "/repo"}
@@ -136,7 +136,7 @@ class TestCheckDirectory:
 
     def test_the_directory_is_the_default_root_dir_and_an_explicit_one_wins(self, tmp_path, monkeypatch, offline):
         seen = []
-        monkeypatch.setattr(spy, "check_local_modules", lambda manifest, notebook_dir, root_dir=None: seen.append(root_dir) or [])
+        monkeypatch.setattr(localmodules, "check_local_modules", lambda manifest, notebook_dir, root_dir=None: seen.append(root_dir) or [])
         root = self._tree(tmp_path)
         check(root)
         assert set(seen) == {root}
@@ -163,7 +163,7 @@ ENV = Environment(
 def isolated(monkeypatch):
     """No PyPI, no accelerator probing, and no detection of the real environment."""
     monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
-    monkeypatch.setattr(spy, "inspect_gpu_environment", lambda imports: None)
+    monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
 
     def no_detection():
         raise AssertionError("the environment should have been passed in")
@@ -201,7 +201,7 @@ class TestScan:
         assert notebook.report.is_python is False
 
     def test_detects_the_environment_when_none_is_given(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(spy, "inspect_gpu_environment", lambda imports: None)
+        monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
         monkeypatch.setattr(installed, "get_installed_environment", lambda: ({"requests": "requests==2.32.3"}, []))
         notebook, = scan(_source(tmp_path)).notebooks
         assert [d.version for d in notebook.report.dependencies] == ["2.32.3"]

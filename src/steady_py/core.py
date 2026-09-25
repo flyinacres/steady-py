@@ -45,7 +45,7 @@ import importlib.util
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Set, FrozenSet, Dict, List, Tuple, Optional, Any, TypedDict, Callable, NamedTuple, Union, Mapping, Sequence, Iterator
+from typing import Set, FrozenSet, Dict, List, Tuple, Optional, Any, TypedDict, Union, Mapping, Sequence, Iterator
 from packaging.version import Version, InvalidVersion
 from packaging.specifiers import SpecifierSet, InvalidSpecifier
 from packaging.requirements import Requirement, InvalidRequirement
@@ -56,7 +56,6 @@ from resolvelib.resolvers import ResolutionImpossible
 from steady_py.constants import (
     BaselineStatus,
     BUILD_AND_PACKAGING_TOOLS,
-    CANONICAL_TO_FRAMEWORK_DISPLAY,
     DEFAULT_IGNORED_DIRS,
     DependencyStatus,
     FetchStatus,
@@ -70,9 +69,7 @@ from steady_py.constants import (
     Signal,
     StatusLabel,
     STD_LIB,
-    SUPPORTED_GPU_FRAMEWORKS,
     TOOL_VERSION,
-    TRANSITIVE_FRAMEWORK_MAP,
 )
 from steady_py.models import (
     Baseline,
@@ -90,7 +87,7 @@ from steady_py.models import (
     SteadyPyManifest,
     TimelineResult,
 )
-from steady_py import installed, magics, models, pypi, scanning, util
+from steady_py import accelerator, installed, localmodules, magics, models, pypi, scanning, util
 
 
 # Diagnostics go through this logger. Importing the module must not touch process-global state
@@ -157,67 +154,6 @@ class NotebookScanResult:
                 self.harvested_urls = set()
 
 
-class LocalModuleContext(NamedTuple):
-    """Carries the two directories local-sibling-module resolution may check against."""
-    notebook_dir: Optional[str] = None
-    root_dir: Optional[str] = None
-
-
-def _found_in_dir(name: str, directory: Optional[str]) -> bool:
-    """Checks whether `name` resolves as a top-level module/package inside `directory`,
-    without executing any code (top-level find_spec never runs __init__.py)."""
-    if not directory or not Path(directory).exists():
-        return False
-    try:
-        return importlib.machinery.PathFinder.find_spec(name, path=[directory]) is not None
-    except Exception as e:
-        logger.debug(f"[ModuleScan] find_spec probe failed for '{name}' in '{directory}': {e}")
-        return False
-
-
-@util._memoize_for_run
-def resolve_local_module(name: str, notebook_dir: Optional[str], root_dir: Optional[str] = None) -> Optional[str]:
-    """
-    Checks whether `name` resolves as a local sibling module, using the most
-    accurate mechanism available for how this process is running:
-
-    - Live IPython/Jupyter kernel (util.is_running_in_ipython() True): the tool's own
-      process IS (or is running inside) a real, already-verified environment, so
-      this asks the live interpreter directly via an unrestricted find_spec --
-      real sys.path, no guessing, correctly reflects platform-injected paths
-      (Databricks Repos root, PYTHONPATH, editable installs, etc.).
-    - External CLI/batch invocation: no live kernel exists for the target
-      notebook, so this checks only the two directories that are actually
-      knowable from outside -- the notebook's own directory and an optional
-      declared root_dir -- via PathFinder, without executing any code and
-      without mutating sys.path.
-
-    Returns the anchor it resolved against ("notebook_dir" or "root_dir"), or
-    None if not found by either. Only ever checks the top-level segment of a
-    dotted name, matching how import classification already operates elsewhere
-    in this file, and consistent with never executing package __init__ code.
-    """
-    top_level = name.split(".", 1)[0]
-
-    if util.is_running_in_ipython():
-        try:
-            spec = importlib.util.find_spec(top_level)
-        except Exception as e:
-            logger.debug(f"[ModuleScan] live find_spec failed for '{top_level}': {e}")
-            spec = None
-        if spec is None:
-            return None
-        if _found_in_dir(top_level, notebook_dir):
-            return "notebook_dir"
-        return "root_dir"
-
-    if _found_in_dir(top_level, notebook_dir):
-        return "notebook_dir"
-    if _found_in_dir(top_level, root_dir):
-        return "root_dir"
-    return None
-
-
 # =====================================================================
 # UNIFIED TIMELINE ENGINE
 # =====================================================================
@@ -227,7 +163,7 @@ def build_unified_timeline(
     frozen_env: Dict[str, str],
     pkg_dist_map: Optional[Mapping[str, List[str]]] = None,
     is_execution_ordered: bool = True,
-    local_ctx: Optional[LocalModuleContext] = None
+    local_ctx: Optional[localmodules.LocalModuleContext] = None
 ) -> TimelineResult:
     """
     Constructs the master sequence of DependencyEntry objects:
@@ -447,7 +383,7 @@ def resolve_pypi_package_and_extras(
     frozen_env: Dict[str, str], 
     pkg_dist_map: Optional[Mapping[str, List[str]]] = None,
     is_guarded: bool = False,
-    local_ctx: Optional[LocalModuleContext] = None
+    local_ctx: Optional[localmodules.LocalModuleContext] = None
 ) -> Tuple[DependencyEntry, Optional[PromotionDetail]]:
     """Resolves top-level import to a DependencyEntry."""
     if imp in PLATFORM_PSEUDO_MODULES:
@@ -466,7 +402,7 @@ def resolve_pypi_package_and_extras(
             comment_text=f"# {imp} (core Python build/packaging tool; excluded from requirement lockfiles)"
         ), None
 
-    resolved_anchor = resolve_local_module(imp, local_ctx.notebook_dir, local_ctx.root_dir) if local_ctx else None
+    resolved_anchor = localmodules.resolve_local_module(imp, local_ctx.notebook_dir, local_ctx.root_dir) if local_ctx else None
     if resolved_anchor:
         return DependencyEntry(
             name=imp,
@@ -592,7 +528,7 @@ def build_manifest_entries(
     frozen_env: Dict[str, str], 
     pkg_dist_map: Optional[Mapping[str, List[str]]] = None,
     guarded_imports: Optional[Set[str]] = None,
-    local_ctx: Optional[LocalModuleContext] = None
+    local_ctx: Optional[localmodules.LocalModuleContext] = None
 ) -> Tuple[List[str], List[str]]:
     """Builds string-formatted manifest lines for legacy/batch consumers while preserving order."""
     entries, promotions = build_dependency_objects(
@@ -609,7 +545,7 @@ def build_dependency_objects(
     frozen_env: Dict[str, str], 
     pkg_dist_map: Optional[Mapping[str, List[str]]] = None,
     guarded_imports: Optional[Set[str]] = None,
-    local_ctx: Optional[LocalModuleContext] = None
+    local_ctx: Optional[localmodules.LocalModuleContext] = None
 ) -> Tuple[List[DependencyEntry], List[PromotionDetail]]:
     """Generates typed DependencyEntry instances in first-encountered order."""
     entries: List[DependencyEntry] = []
@@ -1633,247 +1569,6 @@ def extract_manifest_from_file(path: str) -> Tuple[Optional[SteadyPyManifest], O
         return None, f"STEADY_PY_MANIFEST found in {path} but has an unexpected shape: {e}"
 
 
-# --- Check-drift pipeline ----------------------------------------------------
-
-def check_local_modules(
-    manifest: SteadyPyManifest, notebook_dir: Optional[str], root_dir: Optional[str] = None
-) -> List[DriftFinding]:
-    """Re-verifies each local module recorded at generation time by plain
-    filesystem existence -- never by import resolution, since drift-check must
-    give the same answer regardless of the environment it happens to run in.
-
-    Three outcomes per entry:
-    - still found at its recorded anchor -> no finding.
-    - anchor directory itself is gone (or a root_dir-anchored entry has no
-      root_dir supplied here) -> "error" severity: genuinely unverifiable,
-      not necessarily broken (the project may have just moved).
-    - anchor directory intact but this specific name is gone -> "confirmed"
-      severity: a real, specific finding.
-    """
-    findings: List[DriftFinding] = []
-
-    for entry in manifest.local_modules:
-        name = entry.get("name")
-        anchor = entry.get("anchor")
-        if not name:
-            continue
-
-        if anchor == "root_dir":
-            if root_dir is None:
-                findings.append(DriftFinding(
-                    package=name, version="", signal=Signal.LOCAL_MODULE_UNVERIFIABLE, severity=Severity.ERROR,
-                    message=f"'{name}' was recorded via a root_dir at generation time; none was supplied "
-                            f"for this check, so it can't be verified.",
-                ))
-                continue
-            anchor_dir: Optional[str] = root_dir
-        else:
-            anchor_dir = notebook_dir
-
-        if not anchor_dir or not Path(anchor_dir).exists():
-            findings.append(DriftFinding(
-                package=name, version="", signal=Signal.LOCAL_MODULE_UNVERIFIABLE, severity=Severity.ERROR,
-                message=f"Cannot verify '{name}': the recorded location's directory no longer exists. "
-                        f"If the project was moved, re-run generation to update.",
-            ))
-            continue
-
-        if _found_in_dir(name, anchor_dir):
-            continue
-
-        findings.append(DriftFinding(
-            package=name, version="", signal=Signal.LOCAL_MODULE_MISSING, severity=Severity.CONFIRMED,
-            message=f"'{name}' was originally found at {anchor_dir}; it can no longer be found there. "
-                    f"Check that it will still be available to users, or re-run generation if the "
-                    f"project structure changed.",
-        ))
-
-    return findings
-
-
-# =====================================================================
-# HARDWARE ACCELERATION INSPECTION
-# =====================================================================
-
-def expand_transitive_frameworks(imports: Any) -> Set[str]:
-    """Expands a set or list of import stems to include their base GPU framework."""
-    expanded = set(imports)
-    for pkg in imports:
-        base_fw = TRANSITIVE_FRAMEWORK_MAP.get(pkg)
-        if base_fw:
-            expanded.add(base_fw)
-        else:
-            try:
-                reqs = importlib.metadata.requires(pkg) or []
-                for req in reqs:
-                    req_lower = req.lower()
-                    for fw in SUPPORTED_GPU_FRAMEWORKS:
-                        if fw in req_lower:
-                            expanded.add(fw)
-            except importlib.metadata.PackageNotFoundError:
-                pass  # not installed here, so its requirements can't be read
-            except Exception as e:
-                logger.debug(f"Could not read the requirements of '{pkg}': {e}", exc_info=True)
-    return expanded
-
-
-class GpuProbeResult(NamedTuple):
-    """Result of a single framework's GPU/accelerator probe."""
-    accelerator_type: str
-    device_name: str
-
-
-def probe_torch_gpu() -> Optional[GpuProbeResult]:
-    """Probes PyTorch for CUDA or Apple Silicon MPS acceleration."""
-    try:
-        import torch
-    except ImportError:
-        return None
-    except Exception as e:
-        logger.debug(f"[HardwareProbe] PyTorch import failed: {e}")
-        raise
-
-    if torch.cuda.is_available():
-        dev_name = f"{torch.cuda.get_device_name(0)} (via PyTorch)"
-        return GpuProbeResult("NVIDIA CUDA", dev_name)
-    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        return GpuProbeResult("Apple Silicon MPS", "Apple Silicon GPU (Metal via PyTorch)")
-    return None
-
-
-def probe_tensorflow_gpu() -> Optional[GpuProbeResult]:
-    """Probes TensorFlow for GPU acceleration while silencing C++ CUDA driver noise."""
-    try:
-        with util.silence_fd2_stderr():
-            import tensorflow as tf
-            gpus = tf.config.list_physical_devices('GPU')
-            if not gpus:
-                return None
-            dev_name = "NVIDIA GPU (via TensorFlow)"
-            try:
-                details = tf.config.experimental.get_device_details(gpus[0])
-                dev_name = f"{details.get('device_name', 'NVIDIA GPU')} (via TensorFlow)"
-            except Exception:
-                pass  # keep the generic name; cannot log here, stderr (fd 2) is silenced inside this block
-            return GpuProbeResult("GPU", dev_name)
-    except ImportError:
-        return None
-    except Exception as e:
-        logger.debug(f"[HardwareProbe] TensorFlow GPU probe failed unexpectedly: {e}")
-        raise
-
-
-def probe_jax_gpu() -> Optional[GpuProbeResult]:
-    """Probes JAX for GPU/TPU acceleration while silencing C++ CUDA driver noise."""
-    try:
-        with util.silence_fd2_stderr():
-            import jax
-            accelerators = [d for d in jax.devices() if d.platform.lower() in ("gpu", "tpu", "metal")]
-            if not accelerators:
-                return None
-            first_accel = accelerators[0]
-            accel_type = first_accel.platform.upper()
-            dev_name = f"{accel_type} ({first_accel.device_kind}) via JAX"
-            return GpuProbeResult(accel_type, dev_name)
-    except ImportError:
-        return None
-    except Exception as e:
-        logger.debug(f"[HardwareProbe] JAX GPU probe failed unexpectedly: {e}")
-        raise
-
-
-GPU_PROBES: List[Tuple[str, Callable[[], Optional[GpuProbeResult]]]] = [
-    ("torch", probe_torch_gpu),
-    ("tensorflow", probe_tensorflow_gpu),
-    ("jax", probe_jax_gpu),
-]
-
-
-def inspect_gpu_environment(imported_packages: Any) -> Optional[GpuInfo]:
-    """Coordinates per-framework GPU/accelerator probing across PyTorch, TensorFlow, and JAX."""
-    expanded_imports = expand_transitive_frameworks(imported_packages)
-    found_frameworks = list(SUPPORTED_GPU_FRAMEWORKS.intersection(expanded_imports))
-    if not found_frameworks:
-        return None
-
-    framework_devices: Dict[str, Optional[str]] = {}
-    active_types: List[str] = []
-    probe_errors: List[str] = []
-    primary_fw: Optional[str] = None
-    primary_dev: Optional[str] = None
-
-    for fw_stem, probe in GPU_PROBES:
-        if fw_stem not in found_frameworks:
-            continue
-        try:
-            result = probe()
-            if result:
-                framework_devices[fw_stem] = result.device_name
-                active_types.append(result.accelerator_type)
-                if not primary_dev:
-                    primary_fw = CANONICAL_TO_FRAMEWORK_DISPLAY.get(fw_stem, fw_stem.capitalize())
-                    primary_dev = result.device_name
-            else:
-                framework_devices[fw_stem] = None
-        except Exception as e:
-            framework_devices[fw_stem] = None
-            fw_label = CANONICAL_TO_FRAMEWORK_DISPLAY.get(fw_stem, fw_stem.capitalize())
-            probe_errors.append(f"{fw_label} probe error: {e}")
-
-    has_gpu = primary_dev is not None
-
-    return GpuInfo(
-        has_gpu=has_gpu,
-        type=active_types[0] if active_types else None,
-        active_framework=primary_fw,
-        device_name=primary_dev,
-        frameworks=sorted(found_frameworks),
-        framework_devices=framework_devices,
-        probe_errors=probe_errors
-    )
-
-
-def resolve_notebook_gpu_info(nb_imports: Any, batch_hw_cache: Optional[GpuInfo]) -> Optional[GpuInfo]:
-    """Matches a notebook's specific imports against the active batch hardware cache."""
-    if not batch_hw_cache:
-        return None
-
-    expanded_nb_imports = expand_transitive_frameworks(nb_imports)
-    nb_fw = set(batch_hw_cache.frameworks).intersection(expanded_nb_imports)
-    if not nb_fw:
-        return None
-
-    fw_devices = batch_hw_cache.framework_devices
-    matched_fw = None
-    matched_device = None
-
-    for fw_stem in sorted(nb_fw):
-        if fw_devices.get(fw_stem):
-            matched_fw = fw_stem
-            matched_device = fw_devices[fw_stem]
-            break
-
-    if matched_device and matched_fw:
-        active_label = CANONICAL_TO_FRAMEWORK_DISPLAY.get(matched_fw, matched_fw.capitalize())
-        return GpuInfo(
-            has_gpu=True,
-            type=batch_hw_cache.type,
-            active_framework=active_label,
-            device_name=matched_device,
-            frameworks=sorted(nb_fw),
-            framework_devices=fw_devices
-        )
-    else:
-        return GpuInfo(
-            has_gpu=False,
-            type=None,
-            active_framework=None,
-            device_name=None,
-            frameworks=sorted(nb_fw),
-            framework_devices=fw_devices
-        )
-
-
 # =====================================================================
 # BLUEPRINT & SEQUENTIAL INSTALL SETUP GENERATOR
 # =====================================================================
@@ -2239,7 +1934,7 @@ def build_single_notebook_report(
     root_dir: Optional[str] = None
 ) -> NotebookAnalysisReport:
     """Builds a complete NotebookAnalysisReport object for a single notebook."""
-    local_ctx = LocalModuleContext(str(scan_res.path.parent), root_dir)
+    local_ctx = localmodules.LocalModuleContext(str(scan_res.path.parent), root_dir)
 
     timeline_res = build_unified_timeline(
         scan_res.code_sources,
@@ -2267,7 +1962,7 @@ def build_single_notebook_report(
 
     local_mods_detected = sorted([
         imp for imp in set(scan_res.imports)
-        if resolve_local_module(imp, local_ctx.notebook_dir, local_ctx.root_dir)
+        if localmodules.resolve_local_module(imp, local_ctx.notebook_dir, local_ctx.root_dir)
     ])
     pseudo_mods_detected = sorted(list(PLATFORM_PSEUDO_MODULES.intersection(set(scan_res.imports))))
     build_tools_detected = sorted(list(BUILD_AND_PACKAGING_TOOLS.intersection(set(scan_res.imports))))
@@ -2320,7 +2015,7 @@ def analyze_batch_repository(
     canonical_guarded_map: Dict[str, List[str]] = {}
 
     for res in repo_map.scan_results:
-        nb_gpu_info = resolve_notebook_gpu_info(res.imports, batch_hw_cache)
+        nb_gpu_info = accelerator.resolve_notebook_gpu_info(res.imports, batch_hw_cache)
 
         nb_report = build_single_notebook_report(
             res, frozen_env, pkg_dist_map, nb_gpu_info, root_dir=repo_map.target_dir
@@ -2595,7 +2290,7 @@ def generate_universal_manifest(
 
     pinned_entries_set: Set[str] = set()
     for res in repo_map.scan_results:
-        nb_local_ctx = LocalModuleContext(str(res.path.parent), repo_map.target_dir)
+        nb_local_ctx = localmodules.LocalModuleContext(str(res.path.parent), repo_map.target_dir)
         entries, _ = build_manifest_entries(
             res.imports, 
             res.submodules, 
@@ -2795,7 +2490,7 @@ def build_blueprint_for_notebook(
         report.dependencies,
         full_freeze_lines=full_freeze_lines,
         local_tagged_info=report.local_tagged,
-        gpu_info=resolve_notebook_gpu_info(scan_res.imports, hardware),
+        gpu_info=accelerator.resolve_notebook_gpu_info(scan_res.imports, hardware),
         install_timeout=install_timeout,
         raw_installs=scan_res.raw_installs,
     )

@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple
 
 import sys
 
-from steady_py import constants, core, delta, installed, models, scanning, util
+from steady_py import accelerator, constants, core, delta, installed, localmodules, models, scanning, util
 from steady_py.results import (
     CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SetupCells, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -44,7 +44,7 @@ def _provisional_manifest(
 ) -> models.SteadyPyManifest:
     """What a snapshot would record, as far as it can be known without contacting PyPI: the pins,
     the Python version and the accelerator. It has no baseline, custom-sourced list or hash."""
-    gpu = core.resolve_notebook_gpu_info(scan_result.imports, hardware)
+    gpu = accelerator.resolve_notebook_gpu_info(scan_result.imports, hardware)
     return models.SteadyPyManifest(
         python_version={"major": sys.version_info.major, "minor": sys.version_info.minor},
         dependencies=[dep.to_pin() for dep in report.dependencies if not dep.is_comment],
@@ -100,7 +100,7 @@ def _analyze(target: Optional[str], environment: Optional[Environment]) -> _Anal
         )
         path, kind, root_dir = Path("session.ipynb"), TargetKind.SESSION, "."
 
-    hardware = core.inspect_gpu_environment(list(dict.fromkeys(ext_res.imports)))
+    hardware = accelerator.inspect_gpu_environment(list(dict.fromkeys(ext_res.imports)))
     scan_result = core.build_scan_result(path, ext_res)
     report = core.build_single_notebook_report(
         scan_result, environment.frozen_env, environment.pkg_dist_map, hardware, root_dir=root_dir,
@@ -213,7 +213,7 @@ class _DirectoryAnalysis:
 def _analyze_directory(target: str, environment: Optional[Environment], skip_suffix: Optional[str]) -> _DirectoryAnalysis:
     environment = environment or detect_environment()
     repo_map = core.walk_and_scan_directory(target, skip_suffix=skip_suffix)
-    hardware = core.inspect_gpu_environment(list(dict.fromkeys(repo_map.global_imports)))
+    hardware = accelerator.inspect_gpu_environment(list(dict.fromkeys(repo_map.global_imports)))
     summary = core.analyze_batch_repository(repo_map, environment.frozen_env, environment.pkg_dist_map, hardware)
     return _DirectoryAnalysis(repo_map=repo_map, summary=summary, environment=environment, hardware=hardware)
 
@@ -325,7 +325,7 @@ def _check_file(path: str, options: CheckOptions) -> NotebookCheck:
             details={"stored_hash": stored_hash, "recomputed_hash": recomputed_hash},
         ))
 
-    findings.extend(core.check_local_modules(manifest, notebook_dir=str(Path(path).parent), root_dir=options.root_dir))
+    findings.extend(localmodules.check_local_modules(manifest, notebook_dir=str(Path(path).parent), root_dir=options.root_dir))
     findings.extend(core.run_pin_checks(manifest.dependencies, manifest.python_version))
 
     report = core.build_drift_check_report(path, manifest, findings)

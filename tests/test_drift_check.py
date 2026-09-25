@@ -15,7 +15,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import constants, models, pypi
+from steady_py import constants, localmodules, models, pypi
 from steady_py.results import Environment
 
 
@@ -541,7 +541,7 @@ class TestLocalModuleDriftCheck:
         (tmp_path / "cookbook.py").write_text("# helper", encoding="utf-8")
         manifest = self._manifest_with([{"name": "cookbook", "anchor": "notebook_dir"}])
 
-        findings = spy.check_local_modules(manifest, notebook_dir=str(tmp_path))
+        findings = localmodules.check_local_modules(manifest, notebook_dir=str(tmp_path))
         assert findings == []
 
     def test_notebook_dir_module_missing_is_confirmed(self, tmp_path):
@@ -550,7 +550,7 @@ class TestLocalModuleDriftCheck:
         so this must land as a genuine confirmed finding, not unverifiable."""
         manifest = self._manifest_with([{"name": "cookbook", "anchor": "notebook_dir"}])
 
-        findings = spy.check_local_modules(manifest, notebook_dir=str(tmp_path))
+        findings = localmodules.check_local_modules(manifest, notebook_dir=str(tmp_path))
         assert len(findings) == 1
         assert findings[0].signal == "local_module_missing"
         assert findings[0].severity == "confirmed"
@@ -559,7 +559,7 @@ class TestLocalModuleDriftCheck:
     def test_root_dir_module_not_supplied_is_unverifiable(self, tmp_path):
         manifest = self._manifest_with([{"name": "shared_utils", "anchor": "root_dir"}])
 
-        findings = spy.check_local_modules(manifest, notebook_dir=str(tmp_path), root_dir=None)
+        findings = localmodules.check_local_modules(manifest, notebook_dir=str(tmp_path), root_dir=None)
         assert len(findings) == 1
         assert findings[0].signal == "local_module_unverifiable"
         assert findings[0].severity == "error"
@@ -569,13 +569,13 @@ class TestLocalModuleDriftCheck:
         (tmp_path / "shared_utils.py").write_text("# shared", encoding="utf-8")
         manifest = self._manifest_with([{"name": "shared_utils", "anchor": "root_dir"}])
 
-        findings = spy.check_local_modules(manifest, notebook_dir=str(tmp_path / "nb_dir"), root_dir=str(tmp_path))
+        findings = localmodules.check_local_modules(manifest, notebook_dir=str(tmp_path / "nb_dir"), root_dir=str(tmp_path))
         assert findings == []
 
     def test_root_dir_module_deleted_is_confirmed(self, tmp_path):
         manifest = self._manifest_with([{"name": "shared_utils", "anchor": "root_dir"}])
 
-        findings = spy.check_local_modules(manifest, notebook_dir=str(tmp_path / "nb_dir"), root_dir=str(tmp_path))
+        findings = localmodules.check_local_modules(manifest, notebook_dir=str(tmp_path / "nb_dir"), root_dir=str(tmp_path))
         assert len(findings) == 1
         assert findings[0].signal == "local_module_missing"
         assert findings[0].severity == "confirmed"
@@ -587,7 +587,7 @@ class TestLocalModuleDriftCheck:
         missing_root = str(tmp_path / "does_not_exist")
         manifest = self._manifest_with([{"name": "shared_utils", "anchor": "root_dir"}])
 
-        findings = spy.check_local_modules(manifest, notebook_dir=str(tmp_path), root_dir=missing_root)
+        findings = localmodules.check_local_modules(manifest, notebook_dir=str(tmp_path), root_dir=missing_root)
         assert len(findings) == 1
         assert findings[0].signal == "local_module_unverifiable"
         assert findings[0].severity == "error"
@@ -600,13 +600,13 @@ class TestLocalModuleDriftCheck:
             {"name": "absent", "anchor": "notebook_dir"},
         ])
 
-        findings = spy.check_local_modules(manifest, notebook_dir=str(tmp_path))
+        findings = localmodules.check_local_modules(manifest, notebook_dir=str(tmp_path))
         assert len(findings) == 1
         assert findings[0].package == "absent"
 
     def test_entry_missing_name_key_is_skipped_not_crashed(self, tmp_path):
         manifest = self._manifest_with([{"anchor": "notebook_dir"}])
-        findings = spy.check_local_modules(manifest, notebook_dir=str(tmp_path))
+        findings = localmodules.check_local_modules(manifest, notebook_dir=str(tmp_path))
         assert findings == []
 
 # ---------------------------------------------------------------------------

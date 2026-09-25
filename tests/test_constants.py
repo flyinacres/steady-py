@@ -43,4 +43,4 @@ def test_constants_embed_in_the_manifest_literal_as_plain_strings():
 
 
 def test_scan_covers_every_module_in_the_package():
-    assert {"core.py", "cli.py", "endpoints.py", "results.py", "constants.py", "models.py", "util.py", "installed.py", "pypi.py", "scanning.py", "magics.py"} <= set(SOURCES)
+    assert {"core.py", "cli.py", "endpoints.py", "results.py", "constants.py", "models.py", "util.py", "installed.py", "pypi.py", "scanning.py", "magics.py", "localmodules.py", "accelerator.py"} <= set(SOURCES)
