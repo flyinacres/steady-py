@@ -5,8 +5,7 @@ import dataclasses
 import pytest
 
 import steady_py
-import steady_py.core as spy
-from steady_py import constants, models
+from steady_py import constants, drift, models
 from steady_py.results import (
     CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookScan, NotebookSnapshot,
     PackageChange, ScanResult, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -20,7 +19,7 @@ def _report(path="a.ipynb"):
 
 def _drift_report():
     manifest = models.SteadyPyManifest(python_version={"major": 3, "minor": 12}, dependencies=[], gpu=None, generated_at="t")
-    return spy.build_drift_check_report("a.ipynb", manifest, [], kind=constants.ReportKind.VALIDATION)
+    return drift.build_drift_check_report("a.ipynb", manifest, [], kind=constants.ReportKind.VALIDATION)
 
 
 class TestSnapshotOptions:
@@ -90,9 +89,9 @@ class TestTargetResults:
         assert result.failed == [unreadable]
 
     def test_snapshot_manifest_comes_from_the_drift_report(self):
-        drift = _drift_report()
-        snap = NotebookSnapshot(path="a.ipynb", report=_report(), drift_report=drift)
-        assert snap.manifest is drift.manifest
+        drift_report = _drift_report()
+        snap = NotebookSnapshot(path="a.ipynb", report=_report(), drift_report=drift_report)
+        assert snap.manifest is drift_report.manifest
         assert NotebookSnapshot(path="a.ipynb", report=_report()).manifest is None
 
     def test_check_options_default_has_no_root_dir(self):

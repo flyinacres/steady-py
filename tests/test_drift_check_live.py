@@ -23,8 +23,7 @@ target breaks on schedule, not on regression.
 import os
 import pytest
 
-import steady_py.core as spy
-from steady_py import models, pypi
+from steady_py import drift, models, pypi
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("RUN_LIVE_PYPI_TESTS"),
@@ -110,13 +109,13 @@ class TestLiveTransitiveResolution:
             models.PinnedDependency("pandas", "2.2.1"),
             models.PinnedDependency("numpy", "2.5.0"),
         ]
-        resolved, findings = spy.resolve_transitive_graph(deps, {"major": 3, "minor": 11})
+        resolved, findings = drift.resolve_transitive_graph(deps, {"major": 3, "minor": 11})
         assert resolved is None
         assert any(f.signal == "conflict" for f in findings)
 
     def test_real_resolvable_graph(self):
         deps = [models.PinnedDependency("pandas", "2.2.1")]
-        resolved, findings = spy.resolve_transitive_graph(deps, {"major": 3, "minor": 11})
+        resolved, findings = drift.resolve_transitive_graph(deps, {"major": 3, "minor": 11})
         assert findings == []
         assert resolved["pandas"] == "2.2.1"
         assert "numpy" in resolved
@@ -125,7 +124,7 @@ class TestLiveTransitiveResolution:
     def test_real_extra_is_expanded(self):
         """pandas 2.2.1 declares hypothesis under extra == "test" (historical, immutable)."""
         deps = [models.PinnedDependency("pandas[test]", "2.2.1")]
-        resolved, findings = spy.resolve_transitive_graph(deps, {"major": 3, "minor": 11})
+        resolved, findings = drift.resolve_transitive_graph(deps, {"major": 3, "minor": 11})
         assert findings == []
         assert resolved["pandas"] == "2.2.1"
         assert "hypothesis" in resolved

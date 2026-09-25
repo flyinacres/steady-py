@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 if TYPE_CHECKING:
-    from steady_py import core, models
+    from steady_py import drift, models
 
 # Plain string constants, not Enum members, for the same reason as constants.StatusLabel: they serialize
 # and format as ordinary strings on every supported Python version.
@@ -172,7 +172,7 @@ class NotebookSnapshot:
     path: str
     report: models.NotebookAnalysisReport
     cells: Optional[SetupCells] = None
-    drift_report: Optional[core.DriftCheckReport] = None  # generation-time validation of the new pins
+    drift_report: Optional[drift.DriftCheckReport] = None  # generation-time validation of the new pins
     delta: Optional[Delta] = None                         # set when the file already had a manifest
     written_path: Optional[str] = None                    # None when nothing was written
     error: Optional[str] = None
@@ -189,7 +189,7 @@ class NotebookCheck:
     path: str
     manifest_found: bool = False                       # True only when a manifest was found and read; False for
                                                        # 'nothing to check' (not an error) or an unreadable one (`error`)
-    report: Optional[core.DriftCheckReport] = None
+    report: Optional[drift.DriftCheckReport] = None
     error: Optional[str] = None                        # the manifest could not be read; a pin that could
                                                        # not be checked is in report.has_errors instead
 
@@ -218,7 +218,7 @@ class SnapshotResult:
     kind: str = TargetKind.FILE
     notebooks: List[NotebookSnapshot] = field(default_factory=list)
     batch_summary: Optional[models.BatchAnalysisSummary] = None  # directories only
-    validation: Optional[core.BatchValidation] = None         # aggregate validation across written notebooks
+    validation: Optional[drift.BatchValidation] = None         # aggregate validation across written notebooks
     universal_path: Optional[str] = None                      # the combined requirements file, if written
     error: Optional[str] = None                               # a failure of the run as a whole, not of one notebook
 
@@ -232,7 +232,7 @@ class CheckResult:
     target: str
     kind: str = TargetKind.FILE
     notebooks: List[NotebookCheck] = field(default_factory=list)
-    validation: Optional[core.BatchValidation] = None  # aggregate validation, directories only
+    validation: Optional[drift.BatchValidation] = None  # aggregate validation, directories only
 
     @property
     def failed(self) -> List[NotebookCheck]:

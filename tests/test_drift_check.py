@@ -15,7 +15,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import constants, localmodules, models, pypi
+from steady_py import constants, drift, localmodules, models, pypi
 from steady_py.results import Environment
 
 
@@ -270,23 +270,23 @@ class TestPypiPackageMetadata:
 
 class TestYankedOrRemoved:
     def test_clean_pin_no_finding(self):
-        assert spy.check_yanked_or_removed("pandas", "2.2.1") == []
+        assert drift.check_yanked_or_removed("pandas", "2.2.1") == []
 
     def test_yanked(self):
-        findings = spy.check_yanked_or_removed("requests", "2.32.0")
+        findings = drift.check_yanked_or_removed("requests", "2.32.0")
         assert len(findings) == 1
         assert findings[0].signal == "yanked"
         assert findings[0].severity == "confirmed"
 
     def test_version_removed_project_alive(self):
-        findings = spy.check_yanked_or_removed("old-package", "0.9.0")
+        findings = drift.check_yanked_or_removed("old-package", "0.9.0")
         assert len(findings) == 1
         assert findings[0].signal == "removed"
         assert "still published" in findings[0].message
 
     def test_whole_project_never_found_on_pypi(self):
         """Neutral wording: never presumes the package once existed (it may never have)."""
-        findings = spy.check_yanked_or_removed("fake-package-xyz", "1.0.0")
+        findings = drift.check_yanked_or_removed("fake-package-xyz", "1.0.0")
         assert len(findings) == 1
         assert findings[0].signal == "not_found_on_pypi"
         assert findings[0].severity == "confirmed"
@@ -294,17 +294,17 @@ class TestYankedOrRemoved:
 
     def test_pip_env_hint_appended_when_set(self, monkeypatch):
         monkeypatch.setenv("PIP_FIND_LINKS", "/some/local/dist")
-        findings = spy.check_yanked_or_removed("fake-package-xyz", "1.0.0")
+        findings = drift.check_yanked_or_removed("fake-package-xyz", "1.0.0")
         assert "PIP_FIND_LINKS=/some/local/dist" in findings[0].message
 
     def test_pip_env_hint_absent_when_not_set(self, monkeypatch):
         for var in ("PIP_FIND_LINKS", "PIP_NO_INDEX", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
             monkeypatch.delenv(var, raising=False)
-        findings = spy.check_yanked_or_removed("fake-package-xyz", "1.0.0")
+        findings = drift.check_yanked_or_removed("fake-package-xyz", "1.0.0")
         assert "Note:" not in findings[0].message
 
     def test_network_error_reported_not_silenced(self):
-        findings = spy.check_yanked_or_removed("flaky-package", "1.0.0")
+        findings = drift.check_yanked_or_removed("flaky-package", "1.0.0")
         assert len(findings) == 1
         assert findings[0].signal == "check_error"
         assert findings[0].severity == "error"
@@ -312,22 +312,22 @@ class TestYankedOrRemoved:
     def test_extras_tag_stripped_before_lookup(self):
         """Regression test: a pin name carrying an extras tag (e.g. from extras
         promotion) must not be treated as a literal PyPI project name."""
-        findings = spy.check_yanked_or_removed("pandas[test]", "2.2.1")
+        findings = drift.check_yanked_or_removed("pandas[test]", "2.2.1")
         assert findings == []
 
 
 class TestStaleness:
     def test_active_package_no_finding(self):
-        assert spy.check_staleness("numpy", "2.5.3") == []
+        assert drift.check_staleness("numpy", "2.5.3") == []
 
     def test_stale_package_flagged_as_heuristic(self):
-        findings = spy.check_staleness("stale-package", "1.0.0")
+        findings = drift.check_staleness("stale-package", "1.0.0")
         assert len(findings) == 1
         assert findings[0].signal == "stale"
         assert findings[0].severity == "heuristic"
 
     def test_network_error_reported_not_silenced(self):
-        findings = spy.check_staleness("flaky-package", "1.0.0")
+        findings = drift.check_staleness("flaky-package", "1.0.0")
         assert len(findings) == 1
         assert findings[0].signal == "check_error"
         assert findings[0].severity == "error"
@@ -335,17 +335,17 @@ class TestStaleness:
 
 class TestMajorBump:
     def test_no_bump_available(self):
-        assert spy.check_major_bump("numpy", "2.5.3") == []
+        assert drift.check_major_bump("numpy", "2.5.3") == []
 
     def test_bump_available_is_heuristic(self):
-        findings = spy.check_major_bump("numpy", "1.26.4")
+        findings = drift.check_major_bump("numpy", "1.26.4")
         assert len(findings) == 1
         assert findings[0].signal == "major_bump"
         assert findings[0].severity == "heuristic"
         assert findings[0].latest_version == "2.5.3"
 
     def test_network_error_reported_not_silenced(self):
-        findings = spy.check_major_bump("flaky-package", "1.0.0")
+        findings = drift.check_major_bump("flaky-package", "1.0.0")
         assert len(findings) == 1
         assert findings[0].signal == "check_error"
         assert findings[0].severity == "error"
@@ -353,19 +353,19 @@ class TestMajorBump:
 
 class TestPythonSupport:
     def test_supported(self):
-        assert spy.check_python_support("pandas", "2.2.1", {"major": 3, "minor": 11}) == []
+        assert drift.check_python_support("pandas", "2.2.1", {"major": 3, "minor": 11}) == []
 
     def test_unsupported(self):
-        findings = spy.check_python_support("numpy", "2.5.3", {"major": 3, "minor": 8})
+        findings = drift.check_python_support("numpy", "2.5.3", {"major": 3, "minor": 8})
         assert len(findings) == 1
         assert findings[0].signal == "unsupported_python"
         assert findings[0].severity == "confirmed"
 
     def test_no_requires_python_declared_is_not_a_finding(self):
-        assert spy.check_python_support("stale-package", "1.0.0", {"major": 3, "minor": 8}) == []
+        assert drift.check_python_support("stale-package", "1.0.0", {"major": 3, "minor": 8}) == []
 
     def test_network_error_reported_not_silenced(self):
-        findings = spy.check_python_support("flaky-package", "1.0.0", {"major": 3, "minor": 11})
+        findings = drift.check_python_support("flaky-package", "1.0.0", {"major": 3, "minor": 11})
         assert len(findings) == 1
         assert findings[0].signal == "check_error"
         assert findings[0].severity == "error"
@@ -377,20 +377,20 @@ class TestPythonSupport:
 
 class TestMarkerEnvironment:
     def test_extra_marker_false_for_base_install(self):
-        env = spy._marker_environment(REQ_PY_311, extra=None)
+        env = drift._marker_environment(REQ_PY_311, extra=None)
         assert env["extra"] == ""
 
     def test_python_version_marker_uses_required_python(self):
-        env = spy._marker_environment({"major": 3, "minor": 9}, extra=None)
+        env = drift._marker_environment({"major": 3, "minor": 9}, extra=None)
         assert env["python_version"] == "3.9"
 
     def test_split_pin_name_extracts_extra(self):
-        name, extra = spy._split_pin_name("pandas[test]")
+        name, extra = drift._split_pin_name("pandas[test]")
         assert name == "pandas"
         assert extra == "test"
 
     def test_split_pin_name_no_extra(self):
-        name, extra = spy._split_pin_name("pandas")
+        name, extra = drift._split_pin_name("pandas")
         assert name == "pandas"
         assert extra is None
 
@@ -402,7 +402,7 @@ class TestMarkerEnvironment:
 class TestResolveTransitiveGraph:
     def test_resolvable_graph(self):
         deps = [models.PinnedDependency("pandas", "2.2.1")]
-        resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
+        resolved, findings = drift.resolve_transitive_graph(deps, REQ_PY_311)
         assert findings == []
         assert resolved["pandas"] == "2.2.1"
         assert resolved["numpy"] == "1.26.4"  # only numpy version satisfying pandas's 3.11 branch
@@ -412,7 +412,7 @@ class TestResolveTransitiveGraph:
             models.PinnedDependency("pandas", "2.2.1"),
             models.PinnedDependency("numpy", "2.5.3"),
         ]
-        resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
+        resolved, findings = drift.resolve_transitive_graph(deps, REQ_PY_311)
         assert resolved is None
         assert len(findings) >= 1
         assert all(f.signal == "conflict" and f.severity == "confirmed" for f in findings)
@@ -421,7 +421,7 @@ class TestResolveTransitiveGraph:
         """pandas's hypothesis requirement is extra=='test'-gated; a base install
         (no extras requested) must not pull it into the graph."""
         deps = [models.PinnedDependency("pandas", "2.2.1")]
-        resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
+        resolved, findings = drift.resolve_transitive_graph(deps, REQ_PY_311)
         assert "hypothesis" not in resolved
 
 
@@ -430,38 +430,38 @@ class TestExtrasInTransitiveGraph:
 
     def test_extra_requirements_are_walked(self):
         deps = [models.PinnedDependency("pandas[test]", "2.2.1")]
-        resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
+        resolved, findings = drift.resolve_transitive_graph(deps, REQ_PY_311)
         assert findings == []
         assert resolved["hypothesis"] == "6.100.0"
         assert "sortedcontainers" in resolved  # reachable only through the extra
 
     def test_base_pin_still_excludes_extra_requirements(self):
         deps = [models.PinnedDependency("pandas", "2.2.1")]
-        resolved, _ = spy.resolve_transitive_graph(deps, REQ_PY_311)
+        resolved, _ = drift.resolve_transitive_graph(deps, REQ_PY_311)
         assert "hypothesis" not in resolved
 
     def test_extras_variant_is_not_reported_as_a_separate_package(self):
         deps = [models.PinnedDependency("pandas[test]", "2.2.1")]
-        resolved, _ = spy.resolve_transitive_graph(deps, REQ_PY_311)
+        resolved, _ = drift.resolve_transitive_graph(deps, REQ_PY_311)
         assert not [name for name in resolved if "[" in name]
         assert resolved["pandas"] == "2.2.1"
 
     def test_every_requested_extra_is_walked(self):
         deps = [models.PinnedDependency("multi-extra-pkg[a,b]", "1.0.0")]
-        resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
+        resolved, findings = drift.resolve_transitive_graph(deps, REQ_PY_311)
         assert findings == []
         assert {"alpha-dep", "beta-dep", "core-dep"} <= set(resolved)
 
     def test_only_the_requested_extra_is_walked(self):
         deps = [models.PinnedDependency("multi-extra-pkg[a]", "1.0.0")]
-        resolved, _ = spy.resolve_transitive_graph(deps, REQ_PY_311)
+        resolved, _ = drift.resolve_transitive_graph(deps, REQ_PY_311)
         assert "alpha-dep" in resolved
         assert "beta-dep" not in resolved
         assert "core-dep" in resolved
 
     def test_extra_named_by_a_transitive_requirement_is_walked(self):
         deps = [models.PinnedDependency("meta-pkg", "1.0.0")]
-        resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
+        resolved, findings = drift.resolve_transitive_graph(deps, REQ_PY_311)
         assert findings == []
         assert "hypothesis" in resolved  # meta-pkg -> pandas[test] -> hypothesis
 
@@ -470,28 +470,28 @@ class TestExtrasInTransitiveGraph:
             models.PinnedDependency("pandas[test]", "2.2.1"),
             models.PinnedDependency("hypothesis", "5.0.0"),  # pandas[test] needs >=6.46.1
         ]
-        resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
+        resolved, findings = drift.resolve_transitive_graph(deps, REQ_PY_311)
         assert resolved is None
         assert findings and all(f.signal == "conflict" and f.severity == "confirmed" for f in findings)
 
     def test_unknown_extra_adds_nothing_and_does_not_fail(self):
         deps = [models.PinnedDependency("pandas[nonexistent]", "2.2.1")]
-        resolved, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
+        resolved, findings = drift.resolve_transitive_graph(deps, REQ_PY_311)
         assert findings == []
         assert "hypothesis" not in resolved
         assert resolved["pandas"] == "2.2.1"
 
     def test_signals_reach_packages_only_reachable_through_the_extra(self):
-        with_extra = spy.check_transitive_signals(
+        with_extra = drift.check_transitive_signals(
             [models.PinnedDependency("pandas[test]", "2.2.1")], REQ_PY_311)
         assert [f for f in with_extra if f.signal == "yanked" and f.package == "sortedcontainers"]
 
-        without = spy.check_transitive_signals(
+        without = drift.check_transitive_signals(
             [models.PinnedDependency("pandas", "2.2.1")], REQ_PY_311)
         assert not [f for f in without if f.package == "sortedcontainers"]
 
     def test_all_requested_extras_are_parsed(self):
-        name, extras = spy._split_pin_extras("multi-extra-pkg[b,a]")
+        name, extras = drift._split_pin_extras("multi-extra-pkg[b,a]")
         assert name == "multi-extra-pkg"
         assert extras == frozenset({"a", "b"})
 
@@ -499,12 +499,12 @@ class TestExtrasInTransitiveGraph:
 class TestCheckTransitiveSignals:
     def test_direct_pins_are_skipped(self):
         deps = [models.PinnedDependency("pandas", "2.2.1")]
-        findings = spy.check_transitive_signals(deps, REQ_PY_311)
+        findings = drift.check_transitive_signals(deps, REQ_PY_311)
         assert all(f.package != "pandas" for f in findings)
 
     def test_transitive_package_checked_against_resolved_version(self):
         deps = [models.PinnedDependency("pandas", "2.2.1")]
-        findings = spy.check_transitive_signals(deps, {"major": 3, "minor": 8})
+        findings = drift.check_transitive_signals(deps, {"major": 3, "minor": 8})
         # numpy resolves to 1.26.4 here (only version satisfying pandas's non-3.11/3.12 branch);
         # 1.26.4 declares requires-python >=3.9, which doesn't cover 3.8.
         unsupported = [f for f in findings if f.signal == "unsupported_python" and f.package == "numpy"]
@@ -515,7 +515,7 @@ class TestCheckTransitiveSignals:
             models.PinnedDependency("pandas", "2.2.1"),
             models.PinnedDependency("numpy", "2.5.3"),
         ]
-        findings = spy.check_transitive_signals(deps, REQ_PY_311)
+        findings = drift.check_transitive_signals(deps, REQ_PY_311)
         assert all(f.signal == "conflict" for f in findings)
 
 
@@ -699,7 +699,7 @@ class TestPinChecksAreSharedBetweenGenerationAndCheckDrift:
 
     def _record_calls(self, monkeypatch, log):
         for fname in _PIN_CHECKS:
-            monkeypatch.setattr(spy, fname, lambda *args, _f=fname: log.append((_f, args)) or [])
+            monkeypatch.setattr(drift, fname, lambda *args, _f=fname: log.append((_f, args)) or [])
 
     def test_identical_checks_in_both_paths(self, tmp_path, monkeypatch, capsys):
         deps = [
@@ -737,7 +737,7 @@ class TestGenerationOrdering:
     def test_pin_checks_run_before_the_manifest_is_hashed(self, monkeypatch):
         """Recorded findings will live inside the hashed manifest, so they must exist first."""
         order = []
-        monkeypatch.setattr(spy, "check_yanked_or_removed", lambda *a: order.append("checks") or [])
+        monkeypatch.setattr(drift, "check_yanked_or_removed", lambda *a: order.append("checks") or [])
         real_hash = models.SteadyPyManifest.compute_and_set_hash
 
         def record_hash(self):
@@ -817,7 +817,7 @@ class TestBaselineKeys:
 
     def test_conflict_findings_carry_their_parent(self):
         deps = [models.PinnedDependency("pandas", "2.2.1"), models.PinnedDependency("numpy", "2.5.3")]
-        _, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
+        _, findings = drift.resolve_transitive_graph(deps, REQ_PY_311)
         assert findings and all(f.parent is not None for f in findings)  # "" for a requirement from a direct pin
         assert any(f.parent == "pandas" for f in findings)
 
@@ -1184,7 +1184,7 @@ class TestBaselineType:
             models.DriftFinding("a-pkg", "1", constants.Signal.STALE, constants.Severity.HEURISTIC, "m"),
             models.DriftFinding("flaky", "1", constants.Signal.CHECK_ERROR, constants.Severity.ERROR, "m"),
         ]
-        assert spy.build_baseline(findings) == models.Baseline(
+        assert drift.build_baseline(findings) == models.Baseline(
             findings=(("stale", "a-pkg"), ("yanked", "requests", "2.32.0")), errors=("flaky",),
         )
 
@@ -1203,13 +1203,13 @@ class TestBaselineType:
 
 class TestDriftFindingExplicitFields:
     def test_major_bump_carries_latest_version_as_a_field_and_in_json_details(self):
-        (finding,) = spy.check_major_bump("numpy", "1.26.4")
+        (finding,) = drift.check_major_bump("numpy", "1.26.4")
         assert finding.latest_version == "2.5.3"
         assert finding.to_dict()["details"]["latest_version"] == "2.5.3"
 
     def test_conflict_carries_its_parent_as_a_field_and_in_json_details(self):
         deps = [models.PinnedDependency("pandas", "2.2.1"), models.PinnedDependency("numpy", "2.5.3")]
-        _, findings = spy.resolve_transitive_graph(deps, REQ_PY_311)
+        _, findings = drift.resolve_transitive_graph(deps, REQ_PY_311)
         via_pandas = [f for f in findings if f.parent == "pandas"]
         assert via_pandas and via_pandas[0].to_dict()["details"]["parent"] == "pandas"
         assert [f.parent for f in findings if f.parent is not None]  # "" means a requirement from a direct pin
@@ -1221,16 +1221,16 @@ class TestDriftFindingExplicitFields:
         assert models.finding_baseline_key(conflict) == ("conflict", "numpy", "<2", "pandas")
 
     def test_display_only_details_stay_in_details(self):
-        (finding,) = spy.check_staleness("stale-package", "1.0.0")
+        (finding,) = drift.check_staleness("stale-package", "1.0.0")
         assert "days_since_last_release" in finding.details and finding.latest_version is None and finding.parent is None
 
 
 class TestNotebookValidationCounts:
     def test_batch_validation_holds_typed_per_notebook_counts(self):
         report = spy.generate_production_blueprint([REQUESTS_YANKED])["drift_report"]
-        validation = spy.build_batch_validation([("a.ipynb", report)])
+        validation = drift.build_batch_validation([("a.ipynb", report)])
         (counts,) = validation.notebooks
-        assert isinstance(counts, spy.NotebookValidationCounts)
+        assert isinstance(counts, drift.NotebookValidationCounts)
         assert (counts.path, counts.confirmed, counts.heuristic, counts.errors) == ("a.ipynb", 1, 1, 0)
         assert counts.to_dict() == {"path": "a.ipynb", "confirmed": 1, "heuristic": 1, "errors": 0}
         assert validation.to_dict()["notebooks"] == [counts.to_dict()]

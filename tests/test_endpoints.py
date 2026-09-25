@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import steady_py.core as spy
-from steady_py import accelerator, constants, installed, localmodules, models, scanning, util
+from steady_py import accelerator, constants, drift, installed, localmodules, models, scanning, util
 from steady_py.endpoints import check, scan, snapshot
 from steady_py.results import CheckOptions, Environment, PackageChange, ScanOptions, SnapshotOptions, TargetKind, WriteMode
 
@@ -15,7 +15,7 @@ DEPS = [models.PinnedDependency("requests", "2.32.1")]
 @pytest.fixture
 def offline(monkeypatch):
     """No PyPI: pin checks return nothing unless a test says otherwise."""
-    monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
+    monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [])
 
 
 def _notebook(tmp_path, source, name="nb.ipynb"):
@@ -57,7 +57,7 @@ class TestCheck:
 
     def test_pin_checks_run_on_the_manifests_pins_and_python(self, tmp_path, monkeypatch):
         seen = []
-        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: seen.append((deps, python_version)) or [])
+        monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: seen.append((deps, python_version)) or [])
         path = _notebook_with_manifest(tmp_path)
         check(str(path))
         (deps, python_version), = seen[-1:]
@@ -67,7 +67,7 @@ class TestCheck:
     def test_findings_from_the_pin_checks_land_in_the_report(self, tmp_path, monkeypatch):
         finding = models.DriftFinding("requests", "2.32.1", constants.Signal.YANKED, constants.Severity.CONFIRMED, "yanked")
         path = _notebook_with_manifest(tmp_path)
-        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [finding])
+        monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [finding])
         assert check(str(path)).notebooks[0].report.confirmed == [finding]
 
     def test_root_dir_and_notebook_dir_reach_the_local_module_check(self, tmp_path, monkeypatch, offline):
@@ -129,7 +129,7 @@ class TestCheckDirectory:
 
     def test_a_finding_shared_by_notebooks_is_grouped_once(self, tmp_path, monkeypatch):
         finding = models.DriftFinding("requests", "2.32.1", constants.Signal.YANKED, constants.Severity.CONFIRMED, "yanked")
-        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [finding])
+        monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [finding])
         root = self._tree(tmp_path)
         group, = check(root).validation.findings
         assert sorted(group.notebooks) == ["a.ipynb", "sub/b.ipynb"]
@@ -162,7 +162,7 @@ ENV = Environment(
 @pytest.fixture
 def isolated(monkeypatch):
     """No PyPI, no accelerator probing, and no detection of the real environment."""
-    monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
+    monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [])
     monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
 
     def no_detection():
@@ -189,7 +189,7 @@ class TestScan:
     def test_never_contacts_pypi(self, tmp_path, isolated, monkeypatch):
         def refuse(*args, **kwargs):
             raise AssertionError("scan must not check pins")
-        monkeypatch.setattr(spy, "run_pin_checks", refuse)
+        monkeypatch.setattr(drift, "run_pin_checks", refuse)
         monkeypatch.setattr(spy, "generate_production_blueprint", refuse)
         scan(_source(tmp_path), environment=ENV)
 
@@ -339,7 +339,7 @@ class TestDirectoryScan:
     def test_never_contacts_pypi(self, tmp_path, isolated, monkeypatch):
         def refuse(*args, **kwargs):
             raise AssertionError("scan must not check pins")
-        monkeypatch.setattr(spy, "run_pin_checks", refuse)
+        monkeypatch.setattr(drift, "run_pin_checks", refuse)
         scan(_repo(tmp_path), environment=ENV)
 
 
@@ -522,7 +522,7 @@ class TestSnapshotDelta:
     def test_findings_that_appear_are_reported(self, tmp_path, isolated, monkeypatch):
         path = _locked_notebook(tmp_path)
         yanked = models.DriftFinding("requests", "2.32.3", constants.Signal.YANKED, constants.Severity.CONFIRMED, "yanked")
-        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [yanked])
+        monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [yanked])
         delta = snapshot(path, environment=ENV).notebooks[0].delta
         assert delta.findings_appeared == [("yanked", "requests", "2.32.3")]
 

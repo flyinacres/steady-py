@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
-from steady_py import constants, core, endpoints, localmodules, models, resolution
+from steady_py import constants, core, endpoints, localmodules, models, resolution, util
 from steady_py.results import (
     CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -76,13 +76,13 @@ def _format_check_directory(result: CheckResult, output_format: str) -> Tuple[st
             "summary": {"notebooks": len(notebooks), "with_manifest": len(with_manifest),
                         "without_manifest": without, "unreadable": len(unreadable)},
             "notebooks": [
-                {"path": core.relative_notebook_path(Path(n.path), result.target), "manifest_found": n.report is not None,
+                {"path": util.relative_notebook_path(Path(n.path), result.target), "manifest_found": n.report is not None,
                  "error": n.error, "drift_check": n.report.to_dict() if n.report is not None else None}
                 for n in notebooks
             ],
             "validation": result.validation.to_dict() if result.validation else None,
         }
-        errors = [f"⚠️ {core.relative_notebook_path(Path(n.path), result.target)}: {n.error}" for n in unreadable]
+        errors = [f"⚠️ {util.relative_notebook_path(Path(n.path), result.target)}: {n.error}" for n in unreadable]
         return json.dumps(payload, indent=2), "\n".join(errors)
     if not notebooks:
         return f"No notebooks found in {result.target} -- nothing to check.", ""
@@ -90,7 +90,7 @@ def _format_check_directory(result: CheckResult, output_format: str) -> Tuple[st
            f"{without} without (nothing to check), {len(unreadable)} could not be read."]
     if result.validation is not None:
         out += ["", core.format_console_batch_validation(result.validation)]
-    errors = [f"⚠️ {core.relative_notebook_path(Path(n.path), result.target)}: {n.error}" for n in unreadable]
+    errors = [f"⚠️ {util.relative_notebook_path(Path(n.path), result.target)}: {n.error}" for n in unreadable]
     return "\n".join(out), "\n".join(errors)
 
 
@@ -180,7 +180,7 @@ def format_delta(delta: Delta, label: str) -> str:
 def _directory_deltas(result: Union[ScanResult, SnapshotResult]) -> Dict[str, Delta]:
     """The delta of each notebook that already had a manifest, keyed by path relative to the target."""
     return {
-        core.relative_notebook_path(Path(n.path), result.target): n.delta
+        util.relative_notebook_path(Path(n.path), result.target): n.delta
         for n in result.notebooks if n.delta is not None
     }
 
@@ -287,7 +287,7 @@ def _log_failures(result: Union[ScanResult, SnapshotResult]) -> None:
         return
     logger.warning(f"\n⚠️ {len(failed)} notebook(s) could not be processed and were skipped:")
     for notebook in failed:
-        logger.warning(f"  • {core.relative_notebook_path(Path(notebook.path), result.target)}: {notebook.error}")
+        logger.warning(f"  • {util.relative_notebook_path(Path(notebook.path), result.target)}: {notebook.error}")
 
 
 def _report_unreadable(notebook: Union[NotebookScan, NotebookSnapshot], is_json: bool) -> None:

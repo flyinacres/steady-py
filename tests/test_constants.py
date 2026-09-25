@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 import steady_py.core as spy
-from steady_py import constants, models
+from steady_py import constants, drift, models
 
 PACKAGE_DIR = Path(spy.__file__).resolve().parent
 SOURCES = {path.name: path.read_text(encoding="utf-8", errors="replace") for path in sorted(PACKAGE_DIR.glob("*.py"))}
@@ -38,9 +38,9 @@ def test_constant_values_are_the_wire_strings():
 
 
 def test_constants_embed_in_the_manifest_literal_as_plain_strings():
-    baseline = spy.build_baseline([models.DriftFinding("requests", "2.32.0", constants.Signal.YANKED, constants.Severity.CONFIRMED, "m")])
+    baseline = drift.build_baseline([models.DriftFinding("requests", "2.32.0", constants.Signal.YANKED, constants.Severity.CONFIRMED, "m")])
     assert repr(baseline.to_dict()) == "{'version': 1, 'findings': [['yanked', 'requests', '2.32.0']], 'errors': []}"
 
 
 def test_scan_covers_every_module_in_the_package():
-    assert {"core.py", "cli.py", "endpoints.py", "results.py", "constants.py", "models.py", "util.py", "installed.py", "pypi.py", "scanning.py", "magics.py", "localmodules.py", "accelerator.py", "resolution.py"} <= set(SOURCES)
+    assert {"core.py", "cli.py", "endpoints.py", "results.py", "constants.py", "models.py", "util.py", "installed.py", "pypi.py", "scanning.py", "magics.py", "localmodules.py", "accelerator.py", "resolution.py", "drift.py"} <= set(SOURCES)

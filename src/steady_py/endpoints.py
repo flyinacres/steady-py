@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple
 
 import sys
 
-from steady_py import accelerator, constants, core, delta, installed, localmodules, models, scanning, util
+from steady_py import accelerator, constants, core, delta, drift, installed, localmodules, models, scanning, util
 from steady_py.results import (
     CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SetupCells, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -255,7 +255,7 @@ def _snapshot_directory(target: str, options: SnapshotOptions, environment: Opti
     # Partial writes: whatever parsed is processed and written, and the notebooks that did not are
     # listed in the result (and in the universal file), never silently dropped.
     if options.universal and repo_map.scan_results:
-        skipped = [(core.relative_notebook_path(Path(path), repo_map.target_dir), cause) for path, _, cause in unreadable]
+        skipped = [(util.relative_notebook_path(Path(path), repo_map.target_dir), cause) for path, _, cause in unreadable]
         out_file = Path(target) / options.universal
         try:
             out_file.write_text(
@@ -267,15 +267,15 @@ def _snapshot_directory(target: str, options: SnapshotOptions, environment: Opti
             result.error = f"could not write the universal manifest: {exc}"
 
     full_freeze_lines = analysis.environment.raw_full_freeze if options.full_freeze else None
-    validation_reports: List[Tuple[str, core.DriftCheckReport]] = []
+    validation_reports: List[Tuple[str, drift.DriftCheckReport]] = []
     for res, report in zip(repo_map.scan_results, summary.notebooks):
         notebook = _snapshot_notebook(res, report, analysis.hardware, options, full_freeze_lines, root_dir=repo_map.target_dir)
         result.notebooks.append(notebook)
         if notebook.written_path is not None and notebook.drift_report is not None:
-            validation_reports.append((core.relative_notebook_path(res.path, repo_map.target_dir), notebook.drift_report))
+            validation_reports.append((util.relative_notebook_path(res.path, repo_map.target_dir), notebook.drift_report))
     result.notebooks += [NotebookSnapshot(path=path, report=report, error=cause) for path, report, cause in unreadable]
     if validation_reports:
-        result.validation = core.build_batch_validation(validation_reports)
+        result.validation = drift.build_batch_validation(validation_reports)
     return result
 
 
@@ -299,8 +299,8 @@ def check(target: str, options: Optional[CheckOptions] = None) -> CheckResult:
 def _check_directory(target: str, options: CheckOptions) -> CheckResult:
     options = CheckOptions(root_dir=options.root_dir or target)
     notebooks = [_check_file(str(path), options) for path in core.iter_notebook_paths(target)]
-    reports = [(core.relative_notebook_path(Path(n.path), target), n.report) for n in notebooks if n.report is not None]
-    validation = core.build_batch_validation(reports) if reports else None
+    reports = [(util.relative_notebook_path(Path(n.path), target), n.report) for n in notebooks if n.report is not None]
+    validation = drift.build_batch_validation(reports) if reports else None
     return CheckResult(target=target, kind=TargetKind.DIRECTORY, notebooks=notebooks, validation=validation)
 
 
@@ -326,7 +326,7 @@ def _check_file(path: str, options: CheckOptions) -> NotebookCheck:
         ))
 
     findings.extend(localmodules.check_local_modules(manifest, notebook_dir=str(Path(path).parent), root_dir=options.root_dir))
-    findings.extend(core.run_pin_checks(manifest.dependencies, manifest.python_version))
+    findings.extend(drift.run_pin_checks(manifest.dependencies, manifest.python_version))
 
-    report = core.build_drift_check_report(path, manifest, findings)
+    report = drift.build_drift_check_report(path, manifest, findings)
     return NotebookCheck(path=path, manifest_found=True, report=report)

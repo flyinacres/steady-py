@@ -10,7 +10,7 @@ import pytest
 
 import steady_py.cli as cli
 import steady_py.core as spy
-from steady_py import accelerator, constants, models
+from steady_py import accelerator, constants, drift, models
 import steady_py.endpoints as endpoints
 from steady_py.results import (
     CheckResult, Delta, Environment, PackageChange, NotebookCheck, NotebookScan, NotebookSnapshot, ScanResult, SetupCells,
@@ -31,7 +31,7 @@ def _finding(signal, severity, **kw):
 
 def _checked(*findings, baseline=None, path="a.ipynb"):
     manifest = _manifest(baseline)
-    return NotebookCheck(path=path, manifest_found=True, report=spy.build_drift_check_report(path, manifest, list(findings)))
+    return NotebookCheck(path=path, manifest_found=True, report=drift.build_drift_check_report(path, manifest, list(findings)))
 
 
 def _result(*notebooks):
@@ -68,8 +68,8 @@ class TestCheckExitCode:
         assert cli.check_exit_code(_result(NotebookCheck(path="a.ipynb", error="not a manifest"))) == 2
 
     def test_drift_and_an_unreadable_manifest_together_is_1(self):
-        drift = _checked(_finding(constants.Signal.YANKED, constants.Severity.CONFIRMED))
-        result = _result(drift, NotebookCheck(path="b.ipynb", error="unreadable"))
+        drift_report = _checked(_finding(constants.Signal.YANKED, constants.Severity.CONFIRMED))
+        result = _result(drift_report, NotebookCheck(path="b.ipynb", error="unreadable"))
         assert cli.check_exit_code(result) == 1
 
     def test_no_notebooks_is_0(self):
@@ -112,7 +112,7 @@ class TestFormatCheckResult:
 class TestRunCheck:
     @pytest.fixture(autouse=True)
     def offline(self, monkeypatch):
-        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
+        monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [])
 
     def _write(self, tmp_path, source):
         cell = {"cell_type": "code", "source": [source], "metadata": {}, "outputs": [], "execution_count": None}
@@ -152,7 +152,7 @@ def _args(**overrides):
 
 @pytest.fixture
 def isolated(monkeypatch):
-    monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
+    monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [])
     monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
     monkeypatch.setattr(endpoints, "detect_environment", lambda: ENV)
 
@@ -221,11 +221,11 @@ class TestFormatSnapshotResult:
 
     def test_unwritten_text_is_the_two_cells_to_paste_and_the_validation_report(self, tmp_path, isolated):
         result = self._result(tmp_path)
-        cells, drift = result.notebooks[0].cells, result.notebooks[0].drift_report
+        cells, drift_report = result.notebooks[0].cells, result.notebooks[0].drift_report
         out = cli.format_snapshot_result(result)
         assert out.startswith("--- [ STEP 1: PASTE INTO CELL 1 (MARKDOWN) ] ---\n\n")
         assert cells.markdown in out and cells.code in out and "--- [ STEP 2: PASTE INTO CELL 2 (CODE) ] ---" in out
-        assert out.endswith(spy.format_console_drift_report(drift))
+        assert out.endswith(spy.format_console_drift_report(drift_report))
 
     def test_written_text_is_only_the_validation_report(self, tmp_path, isolated):
         from steady_py.results import SnapshotOptions
@@ -252,7 +252,7 @@ class TestRunScanFile:
     def test_json_returns_the_scan_report_and_never_contacts_pypi(self, tmp_path, isolated, capsys, monkeypatch):
         def refuse(*args, **kwargs):
             raise AssertionError("a scan must not check pins")
-        monkeypatch.setattr(spy, "run_pin_checks", refuse)
+        monkeypatch.setattr(drift, "run_pin_checks", refuse)
         assert cli.run_scan_file(_args(target=_write_notebook(tmp_path), format="json")) == 0
         report = json.loads(capsys.readouterr().out)
         assert [d["name"] for d in report["dependencies"]] == ["requests"]
@@ -320,7 +320,7 @@ class TestRunSnapshotFile:
 class TestRunScanDirectory:
     @pytest.fixture(autouse=True)
     def offline(self, monkeypatch):
-        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
+        monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [])
         monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
 
     def _repo(self, tmp_path, corrupt=False):
@@ -336,7 +336,7 @@ class TestRunScanDirectory:
         return cli.run_scan_directory(_args(target=str(root), **flags), ENV)
 
     def test_it_prints_the_analysis_and_never_contacts_pypi(self, tmp_path, capsys, monkeypatch):
-        monkeypatch.setattr(spy, "run_pin_checks", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no PyPI")))
+        monkeypatch.setattr(drift, "run_pin_checks", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no PyPI")))
         assert self._run(self._repo(tmp_path)) == 0
         assert "requests" in capsys.readouterr().out
 
@@ -360,7 +360,7 @@ class TestRunScanDirectory:
 class TestRunSnapshotDirectory:
     @pytest.fixture(autouse=True)
     def offline(self, monkeypatch):
-        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
+        monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [])
         monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
 
     def _repo(self, tmp_path, corrupt=False):
@@ -570,7 +570,7 @@ class TestDeltaInOutput:
 
     @pytest.fixture(autouse=True)
     def offline(self, monkeypatch):
-        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
+        monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [])
         monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
 
     NEWER = Environment(frozen_env={"requests": "requests==2.32.4"}, pkg_dist_map={"requests": ["requests"]})
@@ -635,7 +635,7 @@ class TestDeltaInOutput:
 # check over a directory
 
 def _dir_result(*notebooks):
-    validation = spy.build_batch_validation([(Path(n.path).name, n.report) for n in notebooks if n.report is not None])
+    validation = drift.build_batch_validation([(Path(n.path).name, n.report) for n in notebooks if n.report is not None])
     return CheckResult(target="repo", kind=TargetKind.DIRECTORY, notebooks=list(notebooks),
                        validation=validation if any(n.report for n in notebooks) else None)
 
@@ -703,7 +703,7 @@ class TestFormatCheckDirectory:
 
 class TestRunCheckDirectory:
     def test_prints_the_summary_and_returns_the_worst_case_rule(self, tmp_path, capsys, monkeypatch):
-        monkeypatch.setattr(spy, "run_pin_checks", lambda deps, python_version: [])
+        monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [])
         _write_notebook(tmp_path, spy.generate_production_blueprint([PIN])["step2_code"], "a.ipynb")
         _write_notebook(tmp_path, "import requests", "plain.ipynb")
         assert cli.run_check(str(tmp_path)) == 0

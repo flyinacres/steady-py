@@ -4,6 +4,7 @@ import contextlib
 import functools
 import os
 import re
+from pathlib import Path
 from typing import Any, Callable, Dict, Tuple
 
 
@@ -92,3 +93,10 @@ def _memoize_for_run(func: Callable) -> Callable:
 
     wrapper.cache_clear = cache.clear  # type: ignore[attr-defined]
     return wrapper
+
+
+def relative_notebook_path(path: Path, root: str) -> str:
+    try:
+        return Path(path).relative_to(root).as_posix()
+    except ValueError:
+        return Path(path).name
