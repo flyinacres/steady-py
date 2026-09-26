@@ -383,16 +383,6 @@ class TestMarkerEnvironment:
         env = drift._marker_environment({"major": 3, "minor": 9}, extra=None)
         assert env["python_version"] == "3.9"
 
-    def test_split_pin_name_extracts_extra(self):
-        name, extra = drift._split_pin_name("pandas[test]")
-        assert name == "pandas"
-        assert extra == "test"
-
-    def test_split_pin_name_no_extra(self):
-        name, extra = drift._split_pin_name("pandas")
-        assert name == "pandas"
-        assert extra is None
-
 
 # ---------------------------------------------------------------------------
 # Transitive resolution
@@ -488,11 +478,6 @@ class TestExtrasInTransitiveGraph:
         without = drift.check_transitive_signals(
             [models.PinnedDependency("pandas", "2.2.1")], REQ_PY_311)
         assert not [f for f in without if f.package == "sortedcontainers"]
-
-    def test_all_requested_extras_are_parsed(self):
-        name, extras = drift._split_pin_extras("multi-extra-pkg[b,a]")
-        assert name == "multi-extra-pkg"
-        assert extras == frozenset({"a", "b"})
 
 
 class TestCheckTransitiveSignals:

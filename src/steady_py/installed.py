@@ -6,7 +6,10 @@ import logging
 import subprocess
 import sys
 import urllib.parse
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, FrozenSet, List, Optional, Tuple
+
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.version import InvalidVersion, Version
 
 from steady_py import util
 
@@ -30,6 +33,45 @@ def split_frozen_pin(pin: str) -> Tuple[str, Optional[str], Optional[str]]:
         name, version = pin.split("==", 1)
         return name.strip(), version.strip(), None
     return pin.strip(), None, None
+
+
+def split_pin_extras(name: str) -> Tuple[str, FrozenSet[str]]:
+    """Splits a pin name into (bare PyPI project name, every requested extra).
+
+    Pin names can carry an extras tag (e.g. "pandas[test]") from extras
+    promotion elsewhere in this tool. PyPI's JSON API only resolves bare
+    project names -- passing the extras-tagged form straight through
+    404s and gets misread as "removed from PyPI entirely."
+    """
+    try:
+        req = Requirement(name)
+        return req.name, frozenset(req.extras)
+    except InvalidRequirement:
+        return name, frozenset()
+
+
+def split_pin_name(name: str) -> Tuple[str, Optional[str]]:
+    """Like split_pin_extras, for callers that only need the bare name.
+    The second value is the alphabetically first extra (deterministic), or None."""
+    bare, extras = split_pin_extras(name)
+    return bare, (min(extras) if extras else None)
+
+
+def has_local_version_identifier(version: str) -> bool:
+    """True if this pin has a PEP 440 local version segment (e.g. '2.3.1+cu121').
+
+    PyPI's own upload policy rejects any package with a local version label --
+    a public index can never host one. So a '+'-tagged pin will always 404
+    against pypi.org regardless of which index it actually came from (a custom
+    wheel index like download.pytorch.org, a private mirror, etc). Checking
+    this is more robust than parsing --index-url/--extra-index-url flags: it's
+    a direct, standards-based guarantee, not an inference from how the pin
+    happened to be installed.
+    """
+    try:
+        return Version(version).local is not None
+    except InvalidVersion:
+        return False
 
 
 def _strip_vcs_prefix(spec: str) -> str:

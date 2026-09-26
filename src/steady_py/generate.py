@@ -171,8 +171,8 @@ def generate_production_blueprint(
         name, version = dep.name, dep.version
         if not name or not version:
             continue
-        bare_name, _extra = drift._split_pin_name(name)
-        if drift._has_local_version_identifier(version) or pypi.fetch_pypi_package_metadata(bare_name).status != FetchStatus.FOUND:
+        bare_name, _extra = installed.split_pin_name(name)
+        if installed.has_local_version_identifier(version) or pypi.fetch_pypi_package_metadata(bare_name).status != FetchStatus.FOUND:
             custom_sourced_names.append(name)
 
     # Installed from a remote direct reference with no matching install line in the

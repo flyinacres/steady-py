@@ -15,7 +15,7 @@ from packaging.version import InvalidVersion, Version
 from resolvelib import AbstractProvider, BaseReporter, Resolver
 from resolvelib.resolvers import ResolutionImpossible
 
-from steady_py import models, pypi, util
+from steady_py import installed, models, pypi, util
 from steady_py.constants import BaselineStatus, FetchStatus, ReportKind, Severity, Signal
 from steady_py.models import Baseline, DriftFinding, FindingKey, PinnedDependency, SteadyPyManifest
 
@@ -27,28 +27,6 @@ logger = logging.getLogger("steady_py.drift")
 # against corpus data yet -- easy to revisit once Check mode runs against
 # real notebooks.
 STALE_THRESHOLD_DAYS = 730  # ~2 years with no release anywhere in the project
-
-
-def _split_pin_extras(name: str) -> Tuple[str, FrozenSet[str]]:
-    """Splits a pin name into (bare PyPI project name, every requested extra).
-
-    Pin names can carry an extras tag (e.g. "pandas[test]") from extras
-    promotion elsewhere in this tool. PyPI's JSON API only resolves bare
-    project names -- passing the extras-tagged form straight through
-    404s and gets misread as "removed from PyPI entirely."
-    """
-    try:
-        req = Requirement(name)
-        return req.name, frozenset(req.extras)
-    except InvalidRequirement:
-        return name, frozenset()
-
-
-def _split_pin_name(name: str) -> Tuple[str, Optional[str]]:
-    """Like _split_pin_extras, for callers that only need the bare name.
-    The second value is the alphabetically first extra (deterministic), or None."""
-    bare, extras = _split_pin_extras(name)
-    return bare, (min(extras) if extras else None)
 
 
 def _pip_env_hint() -> str:
@@ -64,23 +42,6 @@ def _pip_env_hint() -> str:
         return ""
     parts = ", ".join(f"{k}={v}" for k, v in set_vars)
     return f" Note: {parts} is set in this environment, which may explain this."
-
-
-def _has_local_version_identifier(version: str) -> bool:
-    """True if this pin has a PEP 440 local version segment (e.g. '2.3.1+cu121').
-
-    PyPI's own upload policy rejects any package with a local version label --
-    a public index can never host one. So a '+'-tagged pin will always 404
-    against pypi.org regardless of which index it actually came from (a custom
-    wheel index like download.pytorch.org, a private mirror, etc). Checking
-    this is more robust than parsing --index-url/--extra-index-url flags: it's
-    a direct, standards-based guarantee, not an inference from how the pin
-    happened to be installed.
-    """
-    try:
-        return Version(version).local is not None
-    except InvalidVersion:
-        return False
 
 
 def _marker_environment(required_python: Dict[str, int], extra: Optional[str]) -> Dict[str, str]:
@@ -131,7 +92,7 @@ def check_yanked_or_removed(name: str, version: str) -> List[DriftFinding]:
     """Distinguishes: pin still resolvable -> yanked or clean; pin gone but project alive -> removed;
     whole project gone -> removed (project-level); any network failure -> check_error, not silence.
     """
-    name, _ = _split_pin_name(name)
+    name, _ = installed.split_pin_name(name)
     version_meta = pypi.fetch_pypi_version_metadata(name, version)
 
     if version_meta.status == FetchStatus.NETWORK_ERROR:
@@ -178,7 +139,7 @@ def check_yanked_or_removed(name: str, version: str) -> List[DriftFinding]:
 
 def check_staleness(name: str, version: str) -> List[DriftFinding]:
     """Heuristic: no release anywhere in the project within STALE_THRESHOLD_DAYS."""
-    name, _ = _split_pin_name(name)
+    name, _ = installed.split_pin_name(name)
     package_meta = pypi.fetch_pypi_package_metadata(name)
     if package_meta.status == FetchStatus.NETWORK_ERROR:
         return [DriftFinding(
@@ -214,7 +175,7 @@ def check_staleness(name: str, version: str) -> List[DriftFinding]:
 
 def check_major_bump(name: str, version: str) -> List[DriftFinding]:
     """Heuristic: a newer major version exists than the one pinned -- worth reviewing, not a failure."""
-    name, _ = _split_pin_name(name)
+    name, _ = installed.split_pin_name(name)
     package_meta = pypi.fetch_pypi_package_metadata(name)
     if package_meta.status == FetchStatus.NETWORK_ERROR:
         return [DriftFinding(
@@ -239,7 +200,7 @@ def check_major_bump(name: str, version: str) -> List[DriftFinding]:
 
 def check_python_support(name: str, version: str, required_python: Dict[str, int]) -> List[DriftFinding]:
     """Confirms the pinned release declares support for the notebook's REQUIRED_PYTHON."""
-    name, _ = _split_pin_name(name)
+    name, _ = installed.split_pin_name(name)
     version_meta = pypi.fetch_pypi_version_metadata(name, version)
     if version_meta.status == FetchStatus.NETWORK_ERROR:
         return [DriftFinding(
@@ -375,9 +336,9 @@ def resolve_transitive_graph(
         raw_name, version = dep.name, dep.version
         if not raw_name or not version:
             continue
-        if _has_local_version_identifier(version):
+        if installed.has_local_version_identifier(version):
             continue  # not on PyPI by definition -- can't be a root requirement here
-        name, extras = _split_pin_extras(raw_name)
+        name, extras = installed.split_pin_extras(raw_name)
         if pypi.fetch_pypi_package_metadata(name).status != FetchStatus.FOUND:
             # Custom-index/local-only package: not resolvable via this PyPI-only
             # provider, and not a real conflict -- check_yanked_or_removed already
@@ -433,7 +394,7 @@ def check_transitive_signals(
         return findings  # unresolvable -- conflict findings already built
 
     direct_names = {
-        util.canonicalize_pkg_name(_split_pin_name(d.name)[0])
+        util.canonicalize_pkg_name(installed.split_pin_name(d.name)[0])
         for d in dependencies if d.name
     }
 
@@ -461,7 +422,7 @@ def run_pin_checks(dependencies: List[PinnedDependency], python_version: Dict[st
         name, version = dep.name, dep.version
         if not name or not version:
             continue
-        if _has_local_version_identifier(version):
+        if installed.has_local_version_identifier(version):
             findings.append(DriftFinding(
                 package=name, version=version, signal=Signal.UNVERIFIABLE_CUSTOM_INDEX, severity=Severity.HEURISTIC,
                 message=f"{name}=={version} has a local version identifier -- installed from a custom index, "
@@ -508,7 +469,7 @@ def classify_against_baseline(findings: List[DriftFinding], manifest: SteadyPyMa
     known = set(manifest.baseline.findings)
     errored = {util.canonicalize_pkg_name(e) if e else "" for e in manifest.baseline.errors}
     direct = {
-        util.canonicalize_pkg_name(_split_pin_name(d.name)[0]) for d in manifest.dependencies if d.name
+        util.canonicalize_pkg_name(installed.split_pin_name(d.name)[0]) for d in manifest.dependencies if d.name
     }
     graph_check_failed = "" in errored
     for f in findings:
