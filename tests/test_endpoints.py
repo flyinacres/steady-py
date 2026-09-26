@@ -1,5 +1,6 @@
 """The endpoints compute typed results; they never print or exit. check is the first."""
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -553,5 +554,9 @@ class TestEachCallIsOneRun:
     def test_a_second_scan_sees_a_local_module_created_after_the_first(self, tmp_path, isolated):
         target = _source(tmp_path, "import helper_mod")
         assert scan(target, environment=ENV).notebooks[0].report.local_modules == []
+        before = tmp_path.stat()
         (tmp_path / "helper_mod.py").write_text("", encoding="utf-8")
+        # Keep the directory's modification time unchanged, as a coarse-timestamp filesystem (seen on
+        # Windows) does, so importlib's directory cache can only be refreshed by being invalidated.
+        os.utime(tmp_path, ns=(before.st_atime_ns, before.st_mtime_ns))
         assert scan(target, environment=ENV).notebooks[0].report.local_modules == ["helper_mod"]

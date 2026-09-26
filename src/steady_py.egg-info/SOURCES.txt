@@ -29,7 +29,6 @@ src/steady_py.egg-info/requires.txt
 src/steady_py.egg-info/top_level.txt
 tests/test_batch_failures.py
 tests/test_batch_mode.py
-tests/test_cell2_python_version.py
 tests/test_cli.py
 tests/test_constants.py
 tests/test_delta.py
@@ -38,11 +37,13 @@ tests/test_disk_output.py
 tests/test_drift_check.py
 tests/test_drift_check_live.py
 tests/test_endpoints.py
+tests/test_installed.py
 tests/test_json_format.py
 tests/test_magic_harvesting.py
 tests/test_manifest_roundtrip.py
 tests/test_module_hygiene.py
 tests/test_results.py
+tests/test_runtime.py
 tests/test_steady_py.py
 tests/test_steady_py_fixtures.py
 tests/test_structural_fixtures.py

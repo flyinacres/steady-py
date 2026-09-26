@@ -2,6 +2,7 @@
 silencing, and per-run memoization."""
 import contextlib
 import functools
+import importlib
 import os
 import re
 from pathlib import Path
@@ -75,9 +76,14 @@ _RUN_CACHES: List[Dict[Tuple[Any, ...], Any]] = []
 def reset_run_caches() -> None:
     """Starts a new run: forgets every memoize_for_run result. Each endpoint calls this first, so a
     second call in the same process (a live kernel, a program using the API) sees files, installs and
-    PyPI releases that changed since the first. Within one run, results stay shared."""
+    PyPI releases that changed since the first. Within one run, results stay shared.
+
+    Also clears importlib's own finder caches. Local-module detection uses PathFinder, whose
+    per-directory listing is reread only when the directory's modification time changes; where that
+    time is coarse or unchanged (seen on Windows), a file created since the last run stays invisible."""
     for cache in _RUN_CACHES:
         cache.clear()
+    importlib.invalidate_caches()
 
 
 def memoize_for_run(func: Callable[P, R]) -> RunMemoized[P, R]:
