@@ -1,380 +1,151 @@
 # Development notes
 
-Internal tracking for this tool's own development: known bugs still being fixed, open design questions, and the roadmap. Not needed to just use the tool — see `README.md` for that.
+For whoever develops steady-py: design decisions and their constraints, known bugs, open questions, and the task list. To use the tool, see `README.md`.
 
-## Known bugs (tracked, not yet fixed)
+**Guiding principle**: what is best for the users, most of whom are not software engineers. "False success is worse than nothing" means the tool never hides a gap; it does not mean it refuses to produce output. It stops only when it cannot proceed or when continuing would do harm; otherwise it continues and reports.
 
-- \*\*Live-kernel local-module resolution mistags anything outside notebook_dir as root_dir-anchored, regardless of how it was actually found — open, not yet fixed. resolve_local_module's Mode A branch (unrestricted importlib.util.find_spec in a live kernel) only distinguishes notebook_dir from everything else; anything resolved via PYTHONPATH, an editable install, a Databricks Repos root injection, or an earlier cell's sys.path.append gets tagged "root_dir" even when unrelated to root_dir, or when root_dir was never supplied. check's later re-verification (Mode B, plain filesystem existence under the supplied root_dir) can then either falsely report the module "confirmed" missing, or "unverifiable" — neither reflecting the module's actual resolvability. Root cause is what the manifest records at snapshot time, not which environment check runs in.
+## Known bugs
 
-- **`--output-dir DIR` — implemented, with a known scope boundary.** Mirrors each notebook's path relative to the batch root under the output directory, so same-named notebooks from different subdirectories don't collide. Non-notebook sibling files (e.g. `data/data.csv`) are not copied — a notebook doing `pd.read_csv("data/data.csv")` won't run correctly from the output location without copying its data assets too. Deliberate scope boundary (copying arbitrary sibling files turns this into a file-sync utility), but needs to be documented in README as a limitation of this flag specifically, not of the tool generally.
+- **The live-session scan counts steady-py itself as a dependency.** `scanning.extract_from_active_session` filters out cells that invoke the tool, but it recognizes only the paste-era forms (`import steady_py` alone in a cell, `spy.main()`). A cell like `import steady_py` followed by `steady_py.snapshot()` passes through, so `steady_py` is reported as an import of the notebook.
+- **Live-kernel local modules outside `notebook_dir` are all tagged `root_dir`.** In a live kernel, `resolve_local_module` resolves with an unrestricted `find_spec` and distinguishes only `notebook_dir` from everything else, so a module found through PYTHONPATH, an editable install, a Databricks Repos root or an earlier `sys.path.append` is recorded as `root_dir`-anchored even when no `root_dir` was given. `check` then re-verifies it under the supplied `root_dir` and reports it missing or unverifiable, neither of which reflects reality. The fix belongs in what snapshot records, not in check.
+- **Cell 2 can silently use a different steady-py version.** If `pip install steady-py==<version>` fails, Cell 2 warns and still runs `import steady_py`. An already-installed, different version (a leftover, another notebook's setup in the same session) then runs `install()` with only the earlier warning as a trace. Fix: compare the imported version with the pin.
+- **Every install failure gets the same advice.** `install()` reports each failure's pip output, but the closing troubleshooting block always suggests checking internet access first, whatever the cause (a bad wheel, a timeout, a wrong Python). Cause-specific advice needs its own design pass.
 
-- **Batch companion-file skip is a filename heuristic, separate from cell-level idempotency — worth confirming the boundary is intentional.** `walk_and_scan_directory`'s `skip_suffix` skips whole files by name during batch discovery (default `_merged`), so the tool doesn't re-scan its own generated companions as if they were new source notebooks. This is unrelated to `is_prior_setup_cell`/the `metadata.steady_py.managed` tag, which operates one file at a time during rewrite, deciding which cells to replace. The one real edge case: a genuinely-authored notebook that happens to be named ending in `_merged` for unrelated reasons would be silently excluded from batch discovery entirely, never processed by the tool at all.
+## Limitations by design
 
-- **`sys.path.append(...)`-style dynamic path modification invisible to local-module detection — real gap for Mode B (external CLI/batch), narrowed for Mode A.** Mode A (live kernel) picks up an earlier cell's `sys.path.append` automatically via the live `sys.path` — no special-case needed. Mode B (external CLI/batch) has no live kernel to inherit this from, so the gap stands. AST-extracting literal `sys.path.append`/`os.chdir` arguments from the notebook's own source, to widen Mode B's search directories, was designed but not implemented — real, scoped, still open.
+- `--output-dir` mirrors notebooks only, not their sibling files (`data/data.csv`), so a notebook that reads relative files won't run from the output location. Copying arbitrary files would make this a sync tool.
+- Directory discovery skips files whose names end in the companion suffix (default `_merged`), so a real notebook named that way is never processed. This is separate from cell-level replacement (`is_prior_setup_cell`, `metadata.steady_py.managed`).
+- Outside a live kernel, local-module detection searches only `notebook_dir` and `root_dir`; a `sys.path.append(...)` in the notebook is invisible. Extracting literal `sys.path.append`/`os.chdir` arguments was designed, not built.
+- Dependencies selected by a string argument (`holoviews.extension("bokeh")`, matplotlib backends, pandas `engine=`) never appear as imports, so no static scan sees them.
+- Pins are checked against metadata only; code that installs cleanly but breaks at call time is not caught.
+- One manifest holds one pin per top-level import, from the environment at snapshot time. A notebook meant to run on CUDA and on MPS can't carry both; regenerating on the second machine replaces the first.
 
-- **`IMPORT_TO_PYPI_MAP`: grow opportunistically as import-name-to-PyPI-name mismatches are found** (e.g. `dotenv`→`python-dotenv`, `mpl_toolkits`→`matplotlib`).
+## Architecture
 
-## Local-module resolution overhaul — implemented
+**Names**: PyPI and console-script name `steady-py`, import name `steady_py`, source under `src/steady_py/`, also runnable as `python -m steady_py`. Repository: `github.com/flyinacres/steady-py`. `packaging` and `resolvelib` are base dependencies, with no extras, so `pip install steady-py` always yields a working tool.
 
-Root cause of the false-positive local-name findings above: `discover_local_repo_modules` was a non-recursive `iterdir()`/`rglob` filesystem walk of exactly one or two fixed directories (notebook's own dir, optional `root_dir`) — a heuristic standing in for a question the tool could answer directly, since it already runs in the user's own verified environment.
-
-**Replaced with `resolve_local_module(name, notebook_dir, root_dir=None) -> Optional[str]`** (returns the anchor it resolved against, or `None`), dispatching on `is_running_in_ipython()` (already existed, previously used only for CLI arg sanitization):
-
-- **Mode A (live kernel — the paste-into-a-cell quickstart flow)**: unrestricted `importlib.util.find_spec(name)` against the real, live `sys.path` — ground truth, automatically correct for Databricks Repos root-injection, PYTHONPATH, editable installs, PyCharm/JupyterHub CWD conventions, anything the platform does, with zero platform-specific code.
-- **Mode B (external CLI/batch — no live kernel exists for the target notebook)**: `importlib.machinery.PathFinder.find_spec(name, path=[dir])`, scoped to `notebook_dir` and `root_dir` only. No `sys.path` mutation at all (the explicit `path=` argument searches those directories without touching the ambient environment), and — confirmed empirically, not assumed — a **top-level** `find_spec` call never executes `__init__.py`, so this never runs unknown code, even for a Databricks Repo's own local package.
-
-Old `get_notebook_local_modules`/`discover_local_repo_modules` deleted outright; every call site changed from threading a precomputed `Set[str]` to threading a `LocalModuleContext(notebook_dir, root_dir)` NamedTuple and calling `resolve_local_module` per-name at classification time — this also eliminated three redundant precompute-then-pass steps (batch analyze, universal manifest, batch output) since the new check is cheap and memoized per-name rather than needing a whole-directory scan upfront.
-
-**Honest messaging (Phase B)**: the batch console summary and per-import comment previously asserted false certainty ("Packages missing from current environment" + "Action: Run 'pip install <package>'") for something inherently unknowable from outside a live kernel — a genuinely-resolvable local module (via PYTHONPATH, an IDE project root, Databricks Repos, etc.) would get flagged as missing with a wrong, actionable-sounding directive. Reworded to state what was actually checked and flag the false-positive possibility explicitly, without asserting either way.
-
-**Manifest persistence (Phase C)**: `SteadyPyManifest` gained `local_modules: List[Dict[str, str]]`, entries shaped `{"name": ..., "anchor": "notebook_dir" | "root_dir"}` — populated at generation time from `DependencyEntry.anchor` (new field), excluded from the pinned `dependencies` list (never PyPI-installable), covered by the existing tamper-hash like every other field. **Deliberate privacy constraint**: a `root_dir`-anchored entry never stores a path, only the anchor tag — `notebook_dir` scans only ever see the notebook's own immediate directory, so a bare name there reveals nothing not already implied by the notebook's own `import` statement, but `root_dir` can be arbitrary and reaching something found there can require walking outside the shared project entirely (`../secret-client-project/utils`), which a stored path would leak into a shared notebook.
-
-**Drift-check re-verification (Phase D)**: new `check_local_modules(manifest, notebook_dir, root_dir=None) -> List[DriftFinding]`, wired into `endpoints.check` (new `--root-dir` CLI flag feeds it). Deliberately a **plain filesystem existence check**, never an import-resolution check (no Mode A/B dispatch here) — drift-check must give the same answer regardless of which environment happens to invoke it later, which is the opposite of what Mode A's live-environment check would provide. Three outcomes, not two:
-
-- Still found at its recorded anchor → no finding.
-- Anchor directory itself gone, or a `root_dir`-anchored entry has no `root_dir` supplied for this check → `severity="error"` (the existing "could not be checked" bucket, exit code 2) — genuinely unverifiable, not necessarily broken, since the project may have just moved.
-- Anchor directory intact but the specific name is gone → `severity="confirmed"` (exit code 1) — a real, specific, previously-invisible finding.
-
-A `notebook_dir`-anchored entry's anchor directory can't itself be "gone" in practice (trivially exists, since the notebook was just read from there) — the unverifiable branch is mainly a `root_dir` concern, confirmed by testing.
-
-## Code quality / refactoring — still outstanding
-
-- **Cell-magic dispatch table.** `harvest_cell_magics_and_commands`'s `SYSTEM_PKG_PATTERN`/`CONDA_INSTALL_PATTERN`/`PIP_INSTALL_PATTERN` if/elif chain is the one item from the original refactor discussion judged genuinely worth doing (order-dependent pattern matching, real and growing set of magic types) — not started.
-- **Four near-identical dedupe-append loops in `analyze_batch_repository`** (`promotions`/`dynamic_warnings`/`magic_warnings`/`magic_notices`, each doing `for x in source: if x not in target: target.append(x)`). Low risk, pure DRY — collapses to one small `_dedupe_extend(target, source)` helper called four times. Not started.
-- **Cross-notebook batch-scope caching + `BatchAnalysisSummary` reverse index — designed, not started.** See dedicated section below; this is the larger item Ron wants to validate against real corpus data before committing to a final shape.
-- **`--format json` payload is assembled as inline literal dicts, not a typed structure.** `format_json_batch_report`/`format_json_single_report` build `payload = {...}` by hand (schema_version, tool_version, mode, environment, summary/notebooks) rather than a dataclass/TypedDict enforcing the shape in code. Not started.
-- **One remaining broad `except Exception: pass`**, in `resolve_pypi_package_and_extras`'s `packages_distributions()` lookup (silently falls back to `{}`) — narrow it or add `logger.debug`, matching the fix already applied to that function's other except block, plus `resolve_opencv_variant` and `expand_transitive_frameworks`. Not started.
-
-## Cross-notebook batch-scope caching (design, not yet implemented)
-
-Motivating question: running against ~300 real notebooks, how much of the per-import package resolution work is genuinely redundant, not just within one notebook (already fixed via `_memoize_for_run` above) but _across_ different notebooks that happen to share common imports (`pandas`, `numpy`, `torch`, etc.)?
-
-**The gap `_memoize_for_run` doesn't close**: it's keyed on a whole notebook's entire import set, so it only helps when the _same_ notebook gets reprocessed (`--batch` report / `--universal` / `--output` combined). It does nothing for the fact that a real corpus of hundreds of notebooks shares a small common vocabulary of individual packages — a rough estimate (not yet validated against real data) is maybe 150–250 distinct import names across a corpus of hundreds of notebooks with ~15 imports each, meaning heavily-shared packages like `pandas` currently get independently re-resolved via `resolve_pypi_package_and_extras` once per notebook that imports them, when the underlying resolution (including a real `importlib.metadata.distribution()` + `Provides-Extra` disk read when submodules are present) is the same work every time.
-
-**Proposed cache key** for a batch-scoped per-import cache: `(imp, frozenset(submodules_set), is_guarded, imp in local_repo_modules)`. Explicitly **not** the whole `local_repo_modules` set — that differs per notebook directory and would rarely produce a hit — just the single boolean of whether _this_ import happens to be locally shadowed in _this_ notebook's directory. `frozen_env`/`pkg_dist_map` don't need to be in the key at all (same `id()`-based reasoning as `_memoize_for_run`, since both are invariant for the whole batch run).
-
-**Correctness wrinkle, worth re-reading before implementing**: `is_guarded` and `submodules_set` genuinely vary notebook-to-notebook for the same import name (one notebook might `import matplotlib` bare, another `import matplotlib.pyplot`), and local-module shadowing is directory-specific (an import named `utils` could be a real PyPI package in one notebook's context and a local sibling file in another's). A cache keyed only on the import string would silently leak one notebook's resolution into an unrelated one. The four-part key above is the minimum needed to stay safe while still getting the cross-notebook hit rate.
-
-**Second, smaller opportunity in the same area**: `get_notebook_local_modules(notebook_path, root_dir)` bundles two scans — the notebook's own parent directory (genuinely per-notebook, not shareable) and the repo _root_ directory (`discover_local_repo_modules(root_dir)`, identical for every notebook in the same batch run). The existing per-notebook memoization doesn't catch this, since `notebook_path` differs every call and is part of the key — so the root-dir filesystem walk still re-runs once per notebook. Splitting this so the root-dir scan happens exactly once per batch run (computed in `run_batch_pipeline` or `walk_and_scan_directory`, passed down) rather than once per notebook is a separate, smaller, safe fix.
-
-**The reverse-index bonus** (explicitly requested — ties into the "non-engineers shouldn't get a wall of text" design goal behind `BatchAnalysisSummary` in the first place): if the per-import cache is built as an explicit dict rather than a black-box decorator, keyed as above, then recording `.setdefault(imp, []).append(notebook_name)` at each lookup costs nothing extra — the iteration over every `(notebook, import)` pair is already happening. That gives, essentially for free:
-
-- **Per-import notebook attribution** — `matched_packages` is currently a flat `Set[str]` with no notebook attribution at all, unlike `missing_packages`/`batch_hardware_warnings`, which are already `Dict[str, List[str]]`. Extending the same convention to matched packages answers "if I bump `torch`, which of these 300 notebooks does that actually touch?"
-- **GPU/accelerator framework usage counts across the repo** — how many of N notebooks import `torch` vs `tensorflow` vs `jax`, not just the aggregate host-level capability that `batch_hw_cache` currently tracks.
-- **Extras-promotion frequency** — which packages/extras get auto-promoted, and how often, across the real corpus — useful for validating whether that feature is pulling real weight, per the project's own "prove against real notebooks" principle.
-
-**Stated design intent behind this** (Ron's framing, worth preserving verbatim): summaries for this tool's non-engineer audience should proactively point out what needs the user's attention _before_ they have to hunt for it, potentially grouped by file rather than presented as one undifferentiated block — the reverse-index data above is meant to support that, not just be a performance win.
-
-**Deliberately deferred**: real-world validation against the actual corpus (MLEModernizer/course-notebook samples) to check the actual import-vocabulary overlap assumption above, before committing to a final cache/summary shape. Do that first.
-
-## Machine-readable output (`--format json`) — implemented
-
-`--format {text,json}` (default `text`) is implemented via `format_json_batch_report`/`format_json_single_report`, both reading the same `NotebookAnalysisReport`/`BatchAnalysisSummary` the console renderer uses (`schema_version`, `tool_version`, `mode`, `environment`, plus `summary`/`notebooks` for batch). See the outstanding item above: the payload itself is still assembled as inline dicts rather than a typed structure.
-
-**Open questions, not yet decided:**
-
-- Does `--format json` imply `--quiet` for stderr too, or should diagnostic logging stay independently controllable via the existing `--quiet`/`--verbose` flags regardless of output format? Leaning toward keeping them independent.
-- Whether `--output`/`--in-place`/`--output-dir`'s write confirmation should also get a JSON representation beyond the current `artifacts_written` field, or whether that's a separate concern from the analysis report.
-
-## Open design questions
-
-- **Full-freeze mode**: should `--full-freeze` stay additive (current behavior — appended after the targeted manifest) or become a replace-mode? Currently additive; not revisited since it was flagged as an open question.
-- **Metadata write reliability**: embedding a full freeze directly into `.ipynb` metadata was considered and set aside — companion `.txt` files don't travel with downloaded notebooks, and metadata writes are unreliable against frontend autosave. This blocks any future "single portable file, no companion files" version of full-freeze.
-- **Torch/TensorFlow hardware build tag stripping** (`+cu121`, `+cu128`) before pinning: unverified whether this is safe to do automatically. Currently not attempted — tags are flagged, not stripped.
-- **Databricks source-format `.py` ingestion**: real production Databricks repos on GitHub are frequently distributed as `.py` (source format) rather than `.ipynb`. Supporting this would mean a second ingestion path (split on `# COMMAND ----------`, classify `# MAGIC %sql`/`# MAGIC %md` lines) parallel to the existing JSON-based one — a real scope expansion, not a small patch. Not yet decided whether this is worth doing versus deliberately scoping to `.ipynb`-only Databricks exports (which do exist and are now the platform default).
-- **Plugin/backend-selection dependencies invisible to static import scanning**: libraries that select and import an optional backend internally based on a string argument (`holoviews.extension("bokeh")` pulling in `bokeh`; the same pattern applies to matplotlib backends, pandas `engine=` kwargs, xarray backends) have a real runtime dependency that never appears as an `import` statement anywhere in the notebook's own source, so no AST-based detection can see it. Confirmed via real-corpus review (a `datashader`/`holoviews` notebook using the bokeh backend). Not currently addressed; a targeted special-case rule for specific known extension-name→package mappings is possible in principle (parallel in spirit to `IMPORT_TO_PYPI_MAP`, but keyed on function-call-argument patterns rather than import names) — not started, and not yet decided whether it's worth a dedicated lookup table versus documenting as a permanent scope boundary (see `test_plan.md` Phase 4).
-- **Cell 1 documentation doesn't warn about kernel-restart-after-repin**: when Cell 2 re-installs an already-imported package to fix a bad pin inside a live/already-running kernel session (not the intended fresh-kernel flow, but a real usage pattern), the newly-installed version won't take effect until the kernel restarts — ordinary Python/pip behavior, not a bug in this tool. pip's own `"Note: you may need to restart the kernel..."` advisory already passes through the setup cell's subprocess-output capture unmodified, but it's an easy-to-miss one-line notice buried in install output. Real corpus evidence found: a notebook (`pykeops`) with a stored `!pip install pykeops` followed by `ModuleNotFoundError` for the same package in the same session — this exact scenario occurring in the wild, not hypothetical. Open question: should Cell 1's own generated documentation explicitly warn "restart your kernel if you've already run cells below this point," rather than relying solely on pip's advisory? Not decided; `test_plan.md` Phase 5g's stale-module-after-repin scenario is designed to produce more evidence toward this decision.
-
-- **Raw installs and check-drift**: a raw install's declared requirements could be read from its installed metadata at generation time and recorded in the manifest, so check-drift could walk them against PyPI like any pin. Not built.
-- **Environment verification for custom-sourced pins**: `+`-tagged and private-index pins can't be checked against PyPI. Running check-drift inside the notebook's own environment could compare installed versions to the pins (present, different, absent). Results would then depend on where the check runs, which check-drift deliberately avoids, so it would have to be opt-in; it also says nothing about a recipient without access to the private index.
-
-## Roadmap
-
-- **Package as an installable library**, rather than only a standalone script. Constraint to preserve: Path A/B currently both depend on the tool being usable as a single self-contained file with no install step — Path B specifically depends on being paste-able into a notebook cell, which matters on ephemeral, sometimes internet-off runtimes (e.g. Kaggle competition rerun mode). Any packaging change needs to keep a single-file distribution form available alongside whatever installable form is added, not replace it.
-- **A separate static-only scanner** for notebooks you don't own (no live execution, no environment correlation — file-based AST scan only). Deferred in favor of the current single-notebook and batch-mode work.
-- **Search path for nearby-directory local modules**: superseded by this session's local-module resolution overhaul (see dedicated section above) for Mode A (live kernel) and narrowed for Mode B via the `PathFinder`-scoped check. The remaining gap — AST-extracting literal `sys.path.append`/`os.chdir` arguments to widen Mode B's search directories — was designed but not implemented; revisit if real-world evidence beyond the one Databricks-notebook occurrence justifies it.
-- **Harvest dependencies and tools currently thrown away from cell magics**: `%pip`/`%conda` installs without a matching import (e.g. `gdown`), `--index-url` (not just `--extra-index-url`), `%%bash`/`%%sh` shell cells, `%run`, and `%%writefile`. These need their own output category rather than folding into the existing import-correlated manifest — there's no import statement to correlate a CLI-only tool like `gdown` against, and conda package names don't reliably map to PyPI names, so conda installs shouldn't be checked against `pip freeze` the way pip installs are. **Status: substantially implemented as of v31/v32** — auxiliary tool harvesting, `%%writefile` isolation, and base/extra index URL separation are all in place and confirmed working against real notebooks (2 real `%%writefile` cells found in the SageMaker corpus, isolation confirmed working). Remaining from this item: `%run` still unhandled; worth a frequency check on whether it's common enough in real data to bother with.
-- **Bare relative imports** (`from . import x`) remain silently invisible rather than flagged. Low priority — revisit only if real-notebook testing shows this pattern is common. **Status: zero occurrences found across 131 real notebooks tested so far** — still open in principle, but real-world evidence to date supports staying low priority.
-- **`exec()`/`eval()` diagnostic warning**: cheap to add (flag any `exec(`/`eval(` call site as a diagnostic, without attempting to parse the string argument), not yet implemented.
-- **New, from real-world testing**: grow `IMPORT_TO_PYPI_MAP` opportunistically as real misses are found (`dotenv`, `mpl_toolkits` confirmed so far).
-
-## Pinned-dependency drift detection — implemented
-
-Motivating problem: pins prevent breakage from the environment moving out from under a notebook, but a pin itself can go stale over time (a pinned package gets yanked, a pinned pair of packages conflict, a pinned release no longer supports the notebook's `REQUIRED_PYTHON`). Nothing currently checks a pin against anything beyond the environment installed at generation time.
-
-**Naming note**: avoid "stale" for this concept in code/docs — `test_live_kernel_stale_repin.py` already uses "stale" for a different, unrelated thing (a live kernel's cached module reference going stale mid-session after an interactive re-pin). Use "drift"/"freshness" for this feature to keep the two apart.
-
-**Manifest**: Cell 2's `STEADY_PY_MANIFEST` is a structured literal of type `SteadyPyManifest` (both names tied to the `steady-py` package name). No external file: avoids Kaggle/Colab/offline path ambiguity and multi-notebook directory collisions. Fields: `python_version`, `dependencies` (direct pins), `gpu`, `generated_at`, `tool_version`, `raw_installs` (non-PyPI sources; see "Non-PyPI sources"), `custom_sourced` (pins not found on PyPI), `local_modules` (see "Local-module resolution overhaul"), `baseline` (see "Baseline: new vs. known drift findings"), and `dependency_hash`. Stays aligned with the `--format json` schema rather than inventing a second shape.
-
-**`dependency_hash`**: covers the _entire_ manifest — content (deps, python version, GPU, baseline) and provenance (`generated_at`, `tool_version`) alike — via canonical serialization (sha256 over sorted-key JSON, `_manifest_payload_hash`), independent of how the literal is formatted in Cell 2. Purpose: detect hand-editing, including someone editing the timestamp to hide age or deleting a recorded finding to silence it. Verification (`SteadyPyManifest.from_literal`) hashes the fields exactly as persisted, not the current dataclass shape, so adding a field to the manifest never makes an older manifest look edited, and deleting a field from a newer one is still caught. The report carries the stored hash, not the recomputed one.
-
-**Two modes** — a middle "verify without changing pins" mode was considered and rejected: confirming pins still work requires actually running the code, and running the code means real installed versions now exist, which should simply become the new pins. There's no meaningful state between "unchanged, trusted" and "changed, replaced."
-
-- **Check** (new, read-only; this is "drift-check"): given a directory of previously generated notebooks (or plain `.py` files — this isn't notebook-restricted, just less critical there), parses the manifest back out of each artifact (no execution) and checks it against live PyPI metadata. Never touches the environment, never proposes new pins, never writes anything.
-- **Replace**: the existing generator (`main()`, both Path A saved-file and Path B live-kernel), pointed at an artifact that already has a manifest. **Unconditional**: always produces a fully new manifest (new `generated_at`, `tool_version`, hash and baseline), with no conditional "regenerate" path. In file mode, `--in-place`/`--output`/`--output-dir` replace every prior setup block: cells tagged `metadata.steady_py.managed`, plus untagged cells that assign `STEADY_PY_MANIFEST` or begin with the generated setup heading (`is_prior_setup_cell`), because pasted cells and metadata lost on save carry no tag. Pins come from the environment the tool runs in, so fixing a flagged pin means changing that environment first and regenerating; hand-editing the manifest is exactly what the hash catches. In live-kernel (paste) mode the tool only prints cell text, and replacing the old cells is the user's action.
-
-**Check's signals**:
-
-- Pin-vs-pin conflicts among direct pinned packages (`requires_dist`).
-- Yanked packages — confirmed signal. Distinct from **removed** (the whole project deleted from PyPI, not just one release) — different failure mode, needs its own handling since a removed package breaks the lookup itself, not just returns a flag.
-- Staleness (no recent release) — heuristic, not proof of breakage.
-- Newer major version available upstream — "worth reviewing," not "will break."
-- Pinned release no longer declares support for the notebook's `REQUIRED_PYTHON`.
-- Transitive dependencies — same metadata walk extended recursively through each pin's `requires_dist`, since a conflict/yank several levels down is invisible from direct pins alone. Needs a visited-set (cycles) and environment-marker evaluation (`; python_version>=...`). Extras are modeled the way pip's resolver does: `pkg[extra]` is its own graph node that depends on the base package at the same version plus every requirement gated on that extra, so a pin like `pandas[test]`, or an extra named by any package's own `requires_dist`, has its extra requirements walked and conflicts through them detected. The extras node never appears in the resolved mapping. An extra's requirement that is not on PyPI produces a confirmed `conflict`, the same as a missing base dependency.
-
-Output must distinguish confirmed signals (yanked, declared incompatibility) from heuristic ones (staleness, major bump) — flagging both at equal severity risks false alarms eroding trust, per this project's own "false success is worse than doing nothing" principle.
-
-**CLI exit codes**: 0 (clean), 1 (drift found), 2 (error/exception during check, including a manifest that can't be read). Exit 1 means any confirmed finding, new or already known at generation, or a heuristic finding that is not already known. A heuristic finding already known at generation does not fail the check, and a known custom-source finding (see "Baseline") is a notice, not a failure. This is also what makes the feature usable from cron/GitHub Actions/any scheduler without scheduling logic of its own — Check produces `--format json` and a clean exit code, which is everything an external scheduler needs; no scheduled-mode feature belongs in this tool itself.
-
-**From `depcheck` — added to the plan** (beyond what's already listed above):
-
-- `why <package>`: trace which pin(s) pulled a package in. Near-free once the transitive walk (signal 6 above) exists.
-- Diff between two manifest snapshots of the same notebook (this run vs. a prior run) — reuses the same manifest-parsing already built for Check; answers "what changed" more directly than a flat report.
-- Changelog/homepage link on the major-bump signal — PyPI's `project_urls` field is already part of the same metadata fetch, so this is close to free.
-- Semver-tiered classification (major/minor/patch) instead of a flat "major bump available," with rough risk framing per tier.
-
-**Deferred as future options, alongside CVE/vulnerability data** (see limitation above): license compliance checking. Same reasoning as CVE — a real, useful, but distinct capability, not core to drift detection, and shouldn't block v1.
-
-**Memoization**: keyed on `(package_name, exact_pinned_version)` — PyPI metadata for an exact version is invariant regardless of which notebook/directory references it, unlike `resolve_pypi_package_and_extras`'s directory-scoped caching. Two levels: the raw metadata fetch, and the transitive closure per `(package, version)` node, so a shared dependency isn't re-walked per top-level pin. Scoped to a single run only, never persisted across days — `yanked` status and "latest version" are exactly what this feature exists to catch changing over time; a cross-run cache would silently reintroduce that staleness.
-
-**CVE/vulnerability data — deferred, not in scope for v1.** Discovered PyPI's own JSON API already returns a `vulnerabilities` array (sourced from OSV) on the same per-release response already being fetched for `requires_dist`/`yanked`/`requires_python` — free to add later, no separate tool or library needed. Deliberately left out of v1: precision is fine (curated per-package, not fuzzy CPE matching like typical SCA tools), but relevance isn't — a correctly-matched CVE in an unreachable code path is still noise for a one-off notebook that never runs a network service, and mixing it with the "this will not install" signals above (which are unambiguous) would undermine trust in those. If added later, keep it a separately-labeled signal, e.g. `--format json` only.
-
-**Known limitation**: metadata-based checking cannot catch runtime/API breakage that isn't expressible as a version constraint (code that installs cleanly but errors or behaves differently at call time). Only real execution would catch that; this feature doesn't attempt it — a pip dry-run resolves against the local machine, not the target platform (Kaggle/Colab), so it isn't ground truth for what this feature needs anyway.
-
-**Explicitly rejected/out of scope**: SBOM export, license compliance, dependency graph visualization (wrong audience — enterprise supply-chain tooling, real build cost, not asked for). A scheduled/watch mode (already decided against — the check mode is a manually-invoked CLI subcommand only; a hosted version is a plausible future paid product, not part of this tool).
-
-**Competitive landscape (checked, not reused)**: `pip-audit`/`safety` are vulnerability-only, don't touch drift. Dependabot/Renovate are hosted GitHub bots requiring a repo + CI, not invokable as a library/CLI against arbitrary pins. `depcheck` (PyPI: `depdoctor`) is a closer match for the _plain-Python-project_ case — outdated/unmaintained/yanked/removed/CVE checks against `requirements.txt`/`pyproject.toml`/`Pipfile` — but single-maintainer, first release June 2026, unproven, and it doesn't solve the notebook problem: it has no generated, portable artifact (Cell 2's actual distinguishing feature) — every future check requires the tool itself reinstalled and rerun. Worth testing against a real project before deciding whether this tool should ever do general project-level scanning; the more distinctive gap it surfaced — a generated, zero-dependency standalone check script for plain Python projects, committed alongside `requirements.txt` — is a genuinely different, separate idea, noted here but not planned.
-
-**Still open, not yet decided**: none — naming, hash scope, mode behavior, and CLI exit codes are settled.
-
-**Extended**: Check mode's signal set gained a fourth check beyond pin-vs-PyPI metadata — `check_local_modules`, re-verifying locally-resolved (non-PyPI) imports by filesystem existence against what was recorded in the manifest at generation time. See "Local-module resolution overhaul" above for full detail; uses the same `severity`/exit-code bucketing (`confirmed`/`heuristic`/`error`) described here.
-
-## Real-world validation plan (in progress)
-
-Testing against a real, diverse notebook corpus (`test_notebooks/`, gitignored), sourced from:
-
-- **Kaggle competition notebooks with ground-truth reproducibility labels**, via the MLEModernizer dataset (Jin et al., arXiv 2602.07195; trust the full-text v2 numbers — 26% baseline reproducibility, 75 competitions — over an earlier, different-figured abstract). Hosted at `huggingface.co/datasets/BihuiJ/MLEModernizer`. `download_samples.py` (local, not committed) pulls a stratified passed/failed sample and validates it against the live repo listing before downloading.
-- **Real production/pipeline notebooks**: `amazon-sagemaker-examples` (official AWS repo), Databricks example repos, `nteract/papermill`'s own example/test notebooks (exercises the `parameters`-tagged-cell convention).
-- **Existing personal/course material**: Train In Data course notebooks, ISLP labs, a big-data/PySpark course, a `datashader` example set, GTX-vs-RTX benchmark notebooks, and two of Ron's own real notebooks.
-
-**Corpus size**: 130 real notebooks scanned to date across 9+ source categories, plus 4 purpose-built structured fixtures (`case1_subdir_helper` through `case4_relative_assets`) isolating local-module discovery, `--output-dir` collision avoidance, and relative-asset mirroring specifically.
-
-**Not yet done**: the actual end-to-end reproducibility test this whole effort is aimed at — take a notebook, generate a manifest, install _only_ that manifest into a clean/minimal container (not a full Kaggle-image container, which would mask a manifest's incompleteness by having everything pre-installed anyway), and confirm the notebook still runs. Nothing tested today closes this loop; everything so far has validated input parsing/coverage, not output correctness. GPU-dependent notebooks in the corpus can't be tested this way locally (Mac M1 has no CUDA path at all; a local GTX 1080 may also have a CUDA/driver version mismatch against Kaggle's current base image) — reserved for manual testing directly on kaggle.com. See `test_plan.md` for the full phased plan.
-
-**Testing-hygiene note**: stale `_merged`/`_merged_merged` companion files left in a test directory from earlier manual runs get picked up by batch discovery as independent source notebooks if not cleaned up first — not a tool defect, but worth remembering when setting up a fixture directory (use a disposable scratch copy, check before running).
-
-## Container-based execution testing (Axis B) — environment findings
-
-Findings from setting up Docker-based execution testing against real Kaggle/Colab platform images and plain `python:*-slim` images, gathered before writing the actual pytest harness. Static classification testing (Axis A, the existing test suite) is unaffected by any of this.
-
-**Execution model (decided):** one container instance per tier (Kaggle, Colab, plain-slim), not one container per notebook — container-per-notebook was the original plan but startup cost across 12+ notebooks × Python versions × platform images doesn't pay for itself. Isolation between notebook runs inside a tier's shared container comes from a fresh venv per run:
-
-```bash
-# Plain-environment tier
-python -m venv --clear /tmp/run_env
-
-# Platform-image tiers — MUST include --system-site-packages, or the venv
-# strips away the preloaded base environment these tiers exist to test against
-python -m venv --system-site-packages --clear /tmp/run_env
-```
-
-Containers install the package from the mounted repo (`pip install -e /workspace -q`), so `python -m steady_py ...` runs directly inside any container.
-
-Every notebook's final cell should assert two things, not just `returncode == 0`: `importlib.metadata.version("pkg")` (distribution record exists) and a real functional smoke import (confirms the import actually succeeds — a distribution record existing doesn't prove there's no missing shared-library/wrong-platform-wheel failure at import time).
-
-**Image sizes**: real on-disk sizes are much larger than registry-listed sizes — Kaggle CPU image 25.3GB, Colab image 48.8GB. A 150GB Docker disk allocation was needed to comfortably hold both plus a plain-slim image. Docker Desktop settings in use: 24GB engine memory, 8GB engine disk allocation (these are independent Docker Desktop settings, not related to the per-image sizes above).
-
-**`nbconvert` version differs by platform** — Kaggle ships 6.4.5, Colab ships 7.17.1. Pin `nbconvert==7.17.1` explicitly in every tier's run command so a harness-tool version difference is never mistaken for a real platform behavior difference.
-
-**Plain (`slim`) images need `ipykernel` installed and registered before `nbconvert --execute` works at all**:
-
-```bash
-pip install ipykernel && python -m ipykernel install --user --name python3
-```
-
-Platform images ship a kernel pre-baked; plain-slim images have nothing Jupyter-related and fail outright without this. Confirmed against `python:3.11-slim` specifically — not yet confirmed against `3.12-slim` (both platform images run Python 3.12 internally; if plain tier is meant to be a Python-version-matched baseline rather than an independent floor, `3.12-slim` should be checked too before treating 3.11 results as representative).
-
-**Build-tools probe** (`import setuptools, wheel`): confirmed `PASS` on Kaggle and on `python:3.11-slim` (once the `ipykernel` fix above is applied — the original "gap" against plain-slim was the missing-kernel mechanism failing entirely, not a real `setuptools`/`wheel` absence). Not yet independently confirmed against Colab under a distinct output filename (see below).
-
-**Colab image invocation**:
-
-- Bare `docker run` on `us-docker.pkg.dev/colab-images/public/runtime` auto-launches a background Node.js reverse proxy + web app server (`/usr/colab/bin/language_service`, Jupyter server on 9000, HTTP proxy on 8080) meant for the browser frontend. Every command against this image needs `--entrypoint bash` or `--entrypoint python3` to bypass it.
-- Two tags exist: `runtime` (includes NVIDIA/CUDA layers, used with `--gpus=all`) and `cpu-runtime` (default, CPU-only, lighter). These are parallel hardware variants, not deprecated/current — confirmed directly against Google's own docs (`research.google.com/colaboratory/local-runtimes.html`). The image pulled and tested so far is `runtime` (confirmed built 7 days before this test session); `cpu-runtime` was not pulled. Since testing is CPU-only, `runtime` is a heavier-than-necessary but not incorrect choice.
-- **Fidelity of the entrypoint bypass — confirmed, not assumed.** Directly inspected inside the image:
-  - `/etc/ipython/ipython_config.py` sets `c.InteractiveShellApp.extensions = ['google.colab']` and `c.IPKernelApp.kernel_class = 'google.colab._kernel.Kernel'` at the system IPython-config level.
-  - `/usr/local/lib/python3.12/dist-packages/colab_kernel_launcher.py` only subclasses `IPKernelApp` to set ZeroMQ high-water-mark socket options — no custom AST transforms or namespace mutation.
-  - Because the config lives at the system level, any `IPKernelApp` subclass launch (`nbconvert --execute`, bare `IPython`) triggers the same `google.colab` extension load a real hosted session gets at Cell 1, regardless of the bypassed web/proxy server. This closes the fidelity question the entrypoint bypass raised — the web server is frontend/auth plumbing, not kernel setup.
-  - Both platform images run Python 3.12 internally (visible in the `colab_kernel_launcher.py` path above and in general image inspection).
-- Docker prints `WARNING: The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8)` on the M1 Max — confirms Rosetta emulation is active. Pass `--platform linux/amd64` explicitly in harness invocations rather than relying on this implicit fallback.
-
-**"Demo purposes" caveat on the Colab image — structural fidelity vs. package currency are separate questions.** Google's own docs state the image "can have outdated dependencies and untriaged vulnerabilities" and should be used "only for demo purposes, not in production workloads." This is a real caveat but a narrow one:
-
-- **Trustworthy regardless of staleness**: namespace pollution, `sys.path`/packaging layout quirks, `google.colab` pseudo-module presence, AST/import detection against a genuinely large dependency tree — all structural properties, unaffected by which package versions happen to be installed.
-- **Not verified by this testing**: whether the specific package versions inside the pulled image (Python, torch, tensorflow, `google-colab` package version, etc.) are current relative to live hosted Colab today. Bounding this requires comparing a small, fixed set of version markers from a real live Colab session against the same markers pulled from the image — **not yet done**. Until done, any claim should be scoped to "tested against Colab image confirmed built [date]" rather than "tested against current Colab."
-- **Rejected approach**: dynamically `pip install -r` a live-Colab package manifest into the container before each test run, to force the stale image to mimic current Colab. Rejected — reintroduces the two-path-drift problem this project already treats as its primary fragility class (the manifest itself becomes a second thing to keep in sync with live Colab), and risks installing wheels mismatched against the base image's fixed OS/CUDA/glibc layer, producing a third, undocumented environment state rather than a faithful current-Colab stand-in.
-
-**Known open items, not yet resolved**:
-
-- Live-Colab-vs-image version-marker comparison (see above) — needed before claiming anything about currency, not needed to start writing the pytest harness.
-- Confirm whether `executed_probe_build.ipynb` (the setuptools/wheel probe) was actually run and separately saved against both Kaggle and Colab, or whether one run's output overwrote the other under a shared filename — check before treating "confirmed on Kaggle and Colab" as fact.
-- Decide whether the plain tier should move to `python:3.12-slim` to match both platform images' internal Python version, or stay `3.11-slim` as a deliberate independent floor.
-- `_memoize_for_run`'s `id()`-based dict cache-key bug (false cache hits when CPython reuses a freed dict's memory address) — found and reproduced on Python 3.14, fix drafted elsewhere, not yet reviewed against this codebase.
-- Lighter extras-promotion candidate than `umap-learn` — still unresolved; two externally-suggested substitutes (`httpx[http2]`, `pydantic[email]`) confirmed wrong against the actual `resolve_pypi_package_and_extras` matching logic, which requires a genuine dotted submodule import under the package's own namespace. Accepted `umap-learn`'s weight for now.
-
-## Testing notes
-
-- `kitchen_sink.ipynb` (in `fixtures/`) is the primary AST edge-case fixture: name mismatches, dotted/submodule imports, guarded imports, dynamic imports (literal and non-literal), star imports, commented-out and string-literal false positives, a hardware-tagged package with a matching index URL, and a bare relative import.
-- `magic_sink.ipynb`'s `%%writefile` cell must have `%%writefile` as the literal first line — real IPython cell-magic semantics require `%%` to be the first line of the cell; comments preceding it mean IPython won't recognize it as a magic at all. Confirmed and fixed in the fixture (the comments preceding `%%writefile` were moved after it) — re-verified clean.
-- Test suite is split by concern: `test_steady_py.py` (unit-level AST/resolution/blueprint tests), `test_steady_py_fixtures.py` (fixture-based end-to-end), `test_batch_mode.py` (batch orchestration happy paths), `test_batch_failures.py` (batch failure modes — corrupted JSON, missing `cells`, hidden/venv directory skipping, non-Python kernel filtering), `test_magic_harvesting.py` (magic/shell command harvesting), `test_disk_output.py` (`--output`/`--in-place` disk-write E2E — companion-file creation, in-place replacement, real re-scan idempotency on a second pass, CLI subprocess plumbing for single-file and batch modes, cross-flag precedence, and the no-target error case), `test_structural_fixtures.py` (parametrized structural cases — subdirectory local-module resolution patterns, batch-root scoping), `test_manifest_roundtrip.py`/`test_drift_check_live.py` (Docker/e2e tier, real files and real PyPI, companion to `test_drift_check.py`'s fast mocked unit tests). `test_direct_references.py` covers packages installed from URLs, paths and editable installs (environment parsing, classification, raw-install carrying, path-leak guarantees). `test_drift_check.py` also covers extras in the transitive graph, manifest hash verification, shared pin checks, the generation-time baseline and its classification, known custom sources, `key` fields in JSON, and batch aggregate validation. `tests/runners/test_raw_installs.py` is a Docker-tier end-to-end runner (see `test_plan.md`, Phase 8). `test_constants.py` guards the signal/severity/status constants (it scans `ne.__file__`, so it must scan every module after a split). `test_module_hygiene.py` pins that importing the module leaves streams and handlers alone and that best-effort probes leave a debug trace.
-- **Lesson from a past cluster of stale tests**: tests whose assertions/call shapes never got updated after a real signature or output-format change elsewhere in the codebase don't fail until something else changes and the suite is re-run in full — run the complete suite regularly, even when working on an unrelated area, not just tests that seem topically related to the current change.
-- Docker-based e2e install-engine correctness tests (`run_suite.ps1`, `tests/fixtures/e2e/`) — full detail lives in `test_plan.md` Phase 7, not duplicated here: confirms the sequential per-package installer actually tolerates a failed re-pin without blocking sibling packages, that a failed re-pin surfaces as a diagnosable downstream error rather than silent stale behavior, and that correct pinning preserves old, working behavior across a real API break (`numpy.bool`, removed in 1.24) — sabotage-tested to confirm the fixture can actually fail, not just pass vacuously. Negative-fixture verification is structural (`tests/runners/check_negative_fixture.py` parses the executed notebook's JSON directly for the expected exception type/message), not a traceback-substring grep.
-- Full suite should be run and passing before sharing any change. Last full run: 447 tests passing, excluding the Docker-tier and live-kernel runners (which run through `run_suite`) and the live-PyPI tests in `test_drift_check_live.py` (enabled with `RUN_LIVE_PYPI_TESTS=1`). mypy (`--ignore-missing-imports`) reports no issues.
-- **`diagnose_coverage.py`** (standalone, not part of the shipped tool): recursively scans a directory of real `.ipynb` files and reports which code paths each notebook actually exercises (guarded imports, `%%writefile`/shell cells, unhandled cell magics, magic warnings/notices, hardcoded hardware-tagged versions via regex, bare relative imports, parse errors, Python 2.x notebooks). Used to convert "we think this is untested" into confirmed present/absent, rather than guessing, before sourcing more notebook variety. Known limitation of the diagnostic script itself (not the tool): flags `%%time`/`%%timeit` as "unhandled," which is misleading — these are actually handled correctly; the script should be narrowed to only flag magics that consume the whole cell body as non-Python (`%%sql`, `%%html`, `%%javascript`). Second script-level bug found and fixed: Databricks platform detection checked top-level notebook metadata (`nb_data["metadata"]`), but real Databricks exports carry the marker per-cell (`cell["metadata"]["application/vnd.databricks.v1+cell"]`) — 7 real Databricks notebooks were silently mislabeled "standard" until fixed. Confirmed this only affected the platform label, not any other reported count; every notebook's content was already fully scanned regardless of its platform bucket. Corpus currently stands at 147 notebooks, confirmed via this script (7 of them Databricks, correctly labeled as of the fix).
-- **Gaps in the automated test suite** (real-world patterns now confirmed to matter, but with no pytest coverage yet):
-  - No test for the two-frameworks-both-active GPU case (e.g. torch and tensorflow both mocked with working GPUs on host, confirming a tensorflow-only notebook picks up tensorflow's own verified device via `framework_devices` rather than any stale result from torch being probed first). Logic reads correctly on inspection; not locked in by a test.
-  - No test for `--output`/`--in-place` against an actual notebook from the real corpus specifically — `test_disk_output.py` now gives comprehensive synthetic (`tmp_path`-generated) coverage of the write paths themselves (companion creation, in-place, idempotency, CLI plumbing, cross-flag precedence, error handling), but nothing yet runs `--output`/`--in-place` against one of the real downloaded notebooks to confirm behavior holds on non-synthetic structure/metadata.
-  - `kitchen_sink`/`magic_sink` fixtures still don't encode the local-import or platform-injected-module real-world patterns directly (those are currently covered via dynamically-built `tmp_path` notebooks in `test_batch_mode.py`, not folded into the static fixture files) — worth doing if/when those fixtures get another pass, but not blocking.
-  - **Structural fixture cases now have real pytest coverage — resolved this session.** `test_structural_fixtures.py` now exists (`tests/fixtures/unit/`-style fixture layout), covering `case1_subdir_helper` and `case2_narrow_batch` as actual `pytest.mark.parametrize`-driven cases rather than only a hand-run generator script. `build_test_structures.py` itself is presumably superseded or reduced to a fixture-building helper — worth confirming its remaining role next session.
-  - No test yet for the `apply_output_to_notebook` idempotency fix specifically in `--output-dir` mode (only confirmed by hand: run once, inspect for a single managed cell) — `--in-place` and default `--output` idempotency are covered in `test_disk_output.py`, `--output-dir` isn't yet.
-  - No regression test for the batch-mode strict-metadata-gate fix (notebooks with no `kernelspec`/`language_info` at all now correctly assumed Python rather than rejected) — only manual corpus re-runs confirm this (21/21, 25/25 recognized post-fix).
-
-## Baseline: new vs. known drift findings
-
-A "finding" is a specific problem check or generation-time validation reports (e.g. "this pin was yanked"). Generation records what its validation found, so a later check can tell a finding that was already present from one that is new. It is stored in the manifest's `baseline` field, hashed with the rest: `None` when no baseline was recorded, otherwise `{"version": 1, "findings": [keys], "errors": [packages]}`. Keys only, never messages, which embed dates and counts.
-
-**Finding keys** (`finding_baseline_key`) hold exactly the facts that define "the same problem", so a changed fact is a new finding:
-
-- `yanked`, `removed`, `not_found_on_pypi`, `unsupported_python`, `unverifiable_custom_index`: signal, package, version.
-- `stale`: signal, package (the day count changes every run).
-- `major_bump`: signal, package, latest major (a still-newer major is a different finding).
-- `conflict`: signal, package, specifier, parent.
-- `tampered`, `local_module_*` and `check_error` have no baseline key (nothing at generation to compare with) and always appear as themselves.
-
-One pin can carry several signals at once, so the signal is always part of the key.
-
-**Classification** (`classify_against_baseline`), at check time only: `known` (key recorded), `new`, or `not_checked_at_generation` (the finding's package errored at generation, so "new" would be a claim the tool can't make). Errors are recorded per package, so any check erroring on a package labels every later finding on it. A manifest with no baseline, or a baseline format the tool doesn't recognize, is reported flat, as if no baseline existed.
-
-**Known custom sources**: a `not_found_on_pypi` finding already known at generation is an expected state (a private or custom-index package), so it is demoted to a `notice` (its own report section, `notices` in JSON) and never affects the exit code. The same finding appearing as new means a package that was on PyPI has vanished, and stays a confirmed failure. Generation-time reports still show it as confirmed.
-
-**Presentation**: each finding line in the existing confirmed/heuristic sections carries `[new]`, `[known]` or `[not checked at generation]`, new findings first, with a "Since generation" summary line. JSON findings gain `baseline_status`, and the report gains `baseline` (`{"recorded": bool, "new": n, "known": n, "not_checked_at_generation": n}`).
-
-**Stable identity in JSON**: every finding, in every drift report, carries `key` (`finding_identity_key`): the baseline key where one exists, otherwise `[signal, package, version]`. Two reports can be compared by key sets, ignoring messages, dates (`checked_at`) and paths.
-
-**Regeneration**: recorded findings describe the moment their manifest was generated, and regenerating resets the baseline. The generation report still prints everything found, so nothing is silenced without being shown.
-
-**Shared implementation**: `run_pin_checks` is the single implementation of the PyPI-based checks behind both generation-time validation and check-drift, so both moments produce findings the same way. Generation computes its findings before the manifest is built and hashed, so they can be recorded inside it.
-
-## Batch aggregate validation
-
-In write modes (`--output`, `--in-place`, `--output-dir`), each notebook's generation-time validation report is folded into one batch-level view (`build_batch_validation`): each distinct finding once, with the notebooks it affects, so forty notebooks pinning the same yanked release read as one finding. Console: a "BATCH DEPENDENCY VALIDATION" section after the writes (confirmed, then heuristic, then could-not-check; affected notebooks capped at five plus a count; a table of notebooks with findings; a status line), or a single line when clean. JSON: a `validation` block in the batch payload (`null` for an analysis-only batch) with totals, grouped findings carrying `key` and sorted notebook lists, and per-notebook counts. It is deterministic by construction (sorted, batch-relative paths, no timestamps), so two runs can be compared directly. Findings group on identity key plus message. There is no baseline tagging, since this is generation time. Analysis-only batches and `--universal` (plain pin lines) run no validation. Batch generation is not a check: findings never change its exit code.
-
-## Non-PyPI sources (raw installs and direct references)
-
-**Raw installs**: `%pip install` tokens beginning with a path prefix, a VCS prefix or `http(s)://` are carried verbatim in `raw_installs` and installed by Cell 2 after the PyPI pins, with a warning that they can't be verified and that the recipient must be able to reach them. A failed raw install is reported plainly and surfaces downstream; it is not hidden.
-
-**Direct references**: packages installed by hand from a URL, local path or editable install are found through each installed distribution's `direct_url.json` (PEP 610). That covers git (with the resolved commit), archive URLs, local directories and editable installs uniformly; `pip freeze` text is not relied on for them (an editable install prints a comment line and a bare `-e path`). The frozen environment maps them to `name @ url`, and every consumer splits entries through `split_frozen_pin`. Classification:
-
-- Remote URL: not pinned as a PyPI package; carried into `raw_installs`, skipped when the notebook's own install line names the same source (compared by host and path, ignoring VCS prefix, `@ref`, `#fragment` and `.git`).
-- Local path or editable install: reported as "found on a system-dependent path, which can't and shouldn't be shared directly", and nothing is stored in the manifest or generated output. This matches never storing paths for `root_dir`-anchored local modules. An absolute local path the author wrote in the notebook's own install line is stored verbatim, since the author can see it.
-- A guarded import of such a package stays comment-only.
-
-**Limits**: check-drift verifies nothing about raw installs (no reachability probe, no comparison over time), and their transitive dependencies are not walked. An install that doesn't write `direct_url.json` (legacy installers) looks like an ordinary pin. The generation-time console notice that a source must be shared fires only for install lines the notebook itself contains; an inferred URL is described in Cell 2's comment and runtime output.
-
-## Module layout
-
-**Done before the split**: named constants for signals, severities and statuses (`Signal`, `Severity`, `BaselineStatus`, `DependencyStatus`, `FetchStatus`, `ReportKind`, plain strings in the style of `StatusLabel`); typed `PinnedDependency`, `Baseline`, explicit `DriftFinding.latest_version`/`parent`, and `NotebookValidationCounts` in place of dicts; dead code removed; mypy clean. Importing the module no longer reconfigures the standard streams or attaches a stderr handler: `main()` calls `configure_console()`, and the logger is created non-propagating with a placeholder `NullHandler` (a host that configures logging, such as an IPython session or pytest, would otherwise see every message twice). The stderr handler replaces the placeholder rather than joining it, and the placeholder is only added when the logger has no handlers, so a live kernel that re-executes the pasted file never stacks handlers (`test_live_kernel_phase0_regressions.py` asserts exactly one). Best-effort probes that used to swallow every exception now stay quiet for the expected case and log at debug otherwise. One silent site is deliberate: the TensorFlow device-name lookup runs inside `silence_fd2_stderr()`, where a log line would be discarded.
-
-**Decisions**:
-
-- Three functions are used only by tests, not by production code: `generate_batch_analysis_report`, `process_package_requirements`, `harvest_scoped_cell_flags`. Decision: keep them and their tests (the priority is strong testing). `test_constants.py` is kept too.
-- `DependencyEntry`-side fields `raw_token` (scan occurrences) and `PypiVersionMetadata.project_urls` are unused; `project_urls` is reserved for the planned changelog link.
-
-**Layering** (dependencies point down; a module imports only from modules above it in this list):
+**Layering** (a module imports only from modules above it in this list):
 
 1. `constants` (version numbers, label constants, static lookup tables), `models` (shared dataclasses, finding keys), `util` (package-name normalization, IPython detection, stderr silencing, per-run memoization, relative notebook paths).
-2. `installed` (the running interpreter's pins and direct references), `pypi` (the PyPI JSON client).
-3. `scanning` (notebook and live-session reading, cell classification, the AST scan), `magics` (pip, conda and system installs, index URLs, scoped flags), `localmodules` (sibling-module resolution and its drift check), `accelerator` (GPU detection).
-4. `resolution` (the timeline, imports to dependency entries).
+2. `installed` (the running interpreter's pins and direct references, pin-string parsing), `pypi` (the PyPI JSON client).
+3. `scanning` (notebook and live-session reading, cell classification, the AST scan), `magics` (pip, conda and system installs, index URLs, scoped flags), `localmodules` (sibling-module resolution and its check), `accelerator` (GPU detection).
+4. `resolution` (the install/import timeline, imports to dependency entries).
 5. `drift` (pin checks, transitive graph, baseline, drift and batch-validation reports).
 6. `analyze` (single-notebook and directory analysis).
 7. `generate` (manifest, setup cells, universal manifest, writing locked notebooks and reading their manifest back).
 8. `reporting` (console and JSON formatting); `runtime` (`install`, which needs only `constants`).
 9. `results`, `delta`, `endpoints`, `cli`, `__main__`.
 
-Module names avoid names the code already uses for locals and parameters (`environment`, `hardware`, `analysis`, `blueprint`), which is why those modules are `installed`, `accelerator`, `analyze` and `generate`.
+Module names avoid names the code uses for locals and parameters (`environment`, `hardware`, `analysis`, `blueprint`), hence `installed`, `accelerator`, `analyze` and `generate`. The package is flat; subpackages aren't worth the longer import paths at this size.
 
-**Logging**: the package logger `steady_py` is set up in `__init__.py`, which runs before any submodule: a NullHandler, level INFO, no propagation to the root logger. Each module logs through `logging.getLogger("steady_py.<module>")`. `cli.configure_console` attaches the stderr handler and forces UTF-8 output.
+**Calling convention**: package modules call functions through their module (`drift.run_pin_checks(...)`) and from-import only classes and constants. Tests patch a function on its defining module, which only takes effect when callers look it up there at call time; `test_module_hygiene.py` fails on any function from-import outside `__init__.py`. monkeypatch raises when the patched name doesn't exist, so a patch aimed at the wrong module fails loudly. Some patches only isolate tests from the machine (`inspect_gpu_environment`, `resolve_opencv_variant`) and are not proven to take effect, because on a machine without GPU frameworks or OpenCV the real function returns the same value.
 
-**Test patch points**: tests replace a function by setting it on its defining module (`monkeypatch.setattr(drift, "run_pin_checks", ...)`). That only takes effect if callers look the function up through the module at call time, so package modules call functions as `module.function(...)` and from-import only classes and constants; `test_module_hygiene.py` fails on any function from-import outside `__init__.py`. monkeypatch raises when the patched name does not exist, so a patch aimed at the wrong module fails loudly. Some patches only isolate tests from the machine (`inspect_gpu_environment`, `resolve_opencv_variant`): where no GPU framework or OpenCV is installed the real function returns the same value, so no test proves those patches take effect.
+**Public API**: `__all__` in `__init__.py`. A leading underscore means package-private: other steady_py modules may call it, users should not. `TOOL_VERSION` (from the installed package's version), `SCHEMA_VERSION` (the `--format json` report) and `MANIFEST_SCHEMA_VERSION` (the manifest's own structure) live in `constants`.
 
-**Entry point** (done): the tool runs as `python -m steady_py` or the `steady-py` console script, both calling `cli.main`. `e2e_harness.run_steady_py` puts `src` on PYTHONPATH, `run_suite.py` runs `pip install -e /workspace -q` as the first step in every container, and pyproject gives pytest `pythonpath = ["src"]`. The live-kernel Phase 0 runner calls `steady_py.snapshot()` in the kernel (the harness puts `src` on the kernel's PYTHONPATH), and `test_module_hygiene.py` reloads the package to check that logging handlers never stack. The tool can no longer be pasted as a single file.
+**Logging**: the package logger `steady_py` is set up in `__init__.py`, which runs before any submodule: a NullHandler, level INFO, no propagation to the root logger, so a host that configures logging (IPython, pytest) doesn't print everything twice. Modules log through `steady_py.<module>`. `cli.configure_console` attaches the stderr handler and forces UTF-8; importing the package never touches the standard streams. The NullHandler is added only when the logger has none, so reloading the package never stacks handlers.
 
-**Public API**: `__all__` in `__init__.py` is the public API. A leading underscore means package-private: other steady_py modules may call it, users should not. `TOOL_VERSION`, `SCHEMA_VERSION` and `MANIFEST_SCHEMA_VERSION` live in `constants.py`.
+**Per-run caches**: `util.memoize_for_run` caches by argument value (equal dicts, sets and lists share an entry) and registers every cache; `util.reset_run_caches` clears them all. Each endpoint call is one run and starts with a reset, so a batch shares lookups across its notebooks while a second call in the same process (a live kernel, a program using the API) sees files, installs and PyPI releases that changed in between. Nothing is cached across runs: yanked status and latest versions are what the checks exist to catch.
 
-**Small wins not yet taken**: the custom-sourced classification loop in `generate.generate_production_blueprint` repeats the name/version guard in `drift.run_pin_checks`, and `analyze.analyze_batch_repository` has four near-identical dedupe loops.
+**Best-effort probes** (GPU, OpenCV variant, extras tagging) stay quiet in the expected case and log at debug otherwise. The TensorFlow device-name lookup is deliberately silent: it runs inside `silence_fd2_stderr()`, where a log line would be lost.
 
-**Test hygiene lesson**: a test that executes generated code assigned `subprocess.run` on the real module and never restored it, which silently broke any later test using real subprocesses. Register such assignments with `monkeypatch.setattr` first so teardown restores them.
+## Verbs, results and exit codes
 
-## Package design: verbs, results, exit codes
+- `scan`: read-only. Reports what a notebook needs, with warnings and notices; never contacts PyPI. With an existing manifest, also reports the delta against what a snapshot would produce now.
+- `snapshot`: the same analysis, producing the manifest and the two setup cells, validated against PyPI. It returns the cells, or writes them: `--output` (companion file), `--output-dir`, `--in-place`. An existing manifest is replaced only with `--in-place`. Shows the same delta as scan.
+- `check`: read-only. Compares a manifest's pins with live PyPI. No manifest means nothing to check (exit 0).
+- `install` (runtime): what generated Cell 2 calls. Needs internet; internet-off runs are unsupported.
 
-Status: items marked Decided were settled in review; items marked Proposed or Open are defaults awaiting review. The checklist under "Order of work" shows what is implemented. Guiding principle: what is best for the users. "False success is worse than nothing" means the tool never hides a gap; it does not mean the tool refuses to produce output. The tool stops only when it cannot proceed or when continuing would do harm; otherwise it continues and reports.
+Each verb takes a file or a directory; the live IPython session is the target when the API is called with none. A directory is a larger target, not a separate mode: results hold a list of per-notebook results plus an aggregate. `--universal` (the combined requirements file) is the one directory-only option. The endpoints return typed results (`results.py`) and never print or exit; options are small dataclasses; the environment is injectable for tests; the CLI formats a result and maps it to an exit code.
 
-**Names and layout** (Decided): package and PyPI name `steady-py`, import name `steady_py`, source under `src/steady_py/` with subpackages as needed, console script `steady-py`, and `python -m steady_py`. The old `notebook_env` name is retired with no shim, including persisted names (cell tag `metadata.steady_py`, logger `steady_py`). The version starts at 0.0.45 in pyproject, and the first release happens only after the split and packaging work. The GitHub URLs point at the old repo until the new one is live.
+**Delta**: packages added and removed, pin versions changed (reported separately, since pins come from the machine the tool runs on), Python version and GPU changes, and baseline findings that appeared or were resolved.
 
-**Verbs** (Decided): three user-facing verbs plus one internal one.
+**Write rule**: partial writes, loud failure. A directory run writes every notebook that parsed, lists the others with the reason, and exits 1. The universal file begins with a comment naming skipped notebooks.
 
-- `scan`: read-only. Analyzes the code and the running environment and reports what the notebook needs, with warnings and notices. If the file already has a manifest, it also reports the delta between that manifest and what a snapshot would produce now.
-- `snapshot`: always runs the same analysis and produces the manifest and the two setup cells. It returns the cells (live kernel, paste) or writes them: `--output` (companion file), `--output-dir`, `--in-place`. An existing manifest is replaced only with `--in-place`; otherwise the source file is untouched. With an existing manifest it reports the same delta as scan, so people see what changed.
-- `check`: read-only. Compares the manifest's pins with live PyPI (today's `--check-drift`). No manifest means "nothing to check", exit 0, unchanged.
-- `install` (internal): the runtime installer in generated Cell 2, the only endpoint that runs at notebook run time. It needs internet; internet-off runs are unsupported.
+**Exit codes**, one rule for every verb: 0, everything processed cleanly; 1, the job was done but something needs attention (drift found, notebooks skipped); 2, the job could not be done (bad arguments, a missing path, an unparseable single file, a directory where nothing could be processed, a pin or manifest check couldn't verify). For check on one notebook, 1 is any confirmed finding, new or known at generation, or a heuristic finding not already known; a known heuristic finding or a known custom source does not fail it. Across a directory, check exits 2 only when no notebook could be checked; a notebook without a manifest counts as clean.
 
-Each user verb takes a file or a directory. A directory is a larger target, not a separate function: results always hold a list of per-notebook results plus an aggregate section, with one entry for a single file. The one directory-only option is `--universal`, the combined requirements file, on snapshot.
+**Cell 2** is a few lines: `pip install steady-py==<generating version>`, then `steady_py.install(STEADY_PY_MANIFEST, timeout=...)`. The manifest literal stays in the cell so check can read it. For local testing, pip's own `PIP_NO_INDEX`/`PIP_FIND_LINKS` make the unmodified cell install from a local wheel.
 
-**Delta** (Decided): the comparison of an existing manifest with a fresh one covers packages added and removed, pins whose versions changed, python version and GPU changes, and baseline findings that appeared or were resolved. Version changes are reported separately from added and removed packages, because pins come from the environment the tool runs in, so a different environment shows differences that reflect the machine, not the code. Today no delta exists: replacement is unconditional and `apply_output_to_notebook` never reads the old manifest. `extract_manifest_from_file` already parses the old one. Analysis ignores previously generated cells (checked: scanning a notebook that has a manifest reports the same dependencies as the original), but otherwise does not consider the manifest.
+**install()** installs pins one at a time, so one bad pin never blocks the rest, then raw installs. It skips pins already satisfied, warns (and carries on) on a Python mismatch, reports a pin whose install moved an earlier package's version, and never raises: it returns an `InstallResult` (total, installed, failed specifiers, `ok`). The restart-the-kernel note appears only when something was actually installed.
 
-**Write rule** (Decided): partial writes, loud failure. For a directory, write every notebook that parsed, list the ones that did not with the reason, and exit nonzero. The universal file begins with a comment naming the skipped notebooks. No `--strict` flag for now. This replaces today's rule, where `run_batch_pipeline` writes nothing if any notebook has a parse error (after scanning every notebook and reporting all errors; it does not stop at the first). That rule is encoded in `test_corrupted_json_blocks_execution` and `test_cli_batch_aborts_on_parse_errors`, which change with it.
+## Manifest and drift checking
 
-**Results and CLI**: the CLI calls the same functions that can be called programmatically, including from a live notebook (Decided). Proposed: functions return typed result objects and never print or exit; options are a small dataclass, not an argparse namespace; the environment (installed packages, PyPI client) is injectable for tests; the CLI formats a result and maps it to an exit code through one pure function; tests split by layer, with computation on result objects, formatting on formatters, and the CLI on argument mapping and exit codes.
+**Manifest** (`SteadyPyManifest`, the `STEADY_PY_MANIFEST` literal in Cell 2): `schema_version`, `python_version`, `dependencies` (direct pins), `gpu`, `generated_at`, `tool_version`, `raw_installs`, `custom_sourced` (pins not found on PyPI), `local_modules`, `baseline`, `dependency_hash`. No external file, which avoids path ambiguity on Kaggle, Colab and multi-notebook directories.
 
-**Exit codes** (Decided): one rule across all verbs, following the convention of grep, diff and mypy. 0 means everything was processed cleanly. 1 means the tool did its job but something needs attention: drift found by check, or some notebooks skipped in a directory run. 2 means the tool could not do the job: bad arguments, a missing path, a single file that cannot be parsed, a directory where nothing could be processed, or check unable to verify a pin or the manifest. Across the notebooks of a directory, check exits 2 only when none could be checked, otherwise 1 if any has drift or could not be checked, otherwise 0; a notebook with no manifest counts as clean. Check keeps today's codes for one notebook, which already fit: 1 is drift found (any confirmed finding, new or already known at generation, or a heuristic finding not already known), and 2 means a pin or the manifest could not be checked. Findings preconfirmed at generation still affect the return value; a heuristic finding already known at generation does not fail the check. Detail beyond the code belongs in `--format json`, where each result carries structured errors.
+**`dependency_hash`** covers the whole manifest, content and provenance, as sha256 over sorted-key JSON. It detects hand-editing, including an edited timestamp or a deleted finding. Verification hashes the fields as persisted, so adding a field never makes an older manifest look edited.
 
-**Install-failure survey** (task 16, done): `install()` never raises on failure — even total loss (0 of N packages) just prints the warning block; the notebook's execution is never interrupted. It returns an `InstallResult` (total, installed, failed specifiers, `ok`), so a caller can check success without scraping output. Every failure (no network, a bad wheel, a real timeout, a wrong Python) funnels into the same generic message that always suggests checking internet access, regardless of the actual cause; cause-specific diagnosis would need its own design pass and isn't scoped yet. Separately, if the pinned `steady-py==<version>` helper itself fails to install, Cell 2 warns and then unconditionally still runs `import steady_py` — if some other, mismatched version happens to already be importable (a stale leftover, an earlier notebook's setup in the same persistent session), it silently proceeds using that version's `install()`, with nothing but the earlier warning text as any trace the pin wasn't honored; fixing this properly means comparing the imported version against the pin, which needs a real version to compare against (see task 15, `TOOL_VERSION` is a placeholder).
+**Replacement is unconditional**: snapshot always produces a new manifest (new timestamp, version, hash and baseline). Writing replaces every prior setup block: cells tagged `metadata.steady_py.managed`, plus untagged cells that assign `STEADY_PY_MANIFEST` or begin with the setup heading, since pasted cells lose the tag. Pins come from the environment the tool runs in, so fixing a flagged pin means changing that environment and regenerating; hand edits are what the hash catches.
 
-**Runtime helper** (Decided): Cell 2 shrinks to a few lines that unconditionally run `pip install steady-py==<generating version>`, then call `steady_py.install(STEADY_PY_MANIFEST)`. Generation warns loudly when that pinned version fails to install (not yet released, or otherwise unreachable). No override code is needed in Cell 2 itself for local development or testing: `pip install` already honors the standard `PIP_NO_INDEX`/`PIP_FIND_LINKS` environment variables, so a harness that sets them before running the unmodified generated cell transparently resolves the pin from a local wheel instead of PyPI — the same mechanism `run_suite.py`'s `local_pkg` tier already uses for a different package (task 17's concern, not Cell 2's). `packaging` and `resolvelib` are real base dependencies (no extra — this needs to be easy to run, not something people have to remember an extra for), fixing pyproject's previously-empty `dependencies` (before this, `pip install` yielded a tool that failed on import). The manifest gets an explicit schema version, and the package version replaces `TOOL_VERSION`. The manifest literal stays in the cell for check.
+**Check's signals**, per pin and through the transitive graph (resolvelib, with environment markers evaluated and extras modeled as their own nodes, as pip does): yanked release, project removed from PyPI, pin-to-pin conflict, no support for the notebook's Python (all confirmed); no release in about two years, a newer major version (heuristic); plus local modules missing (see below). Confirmed and heuristic findings are reported separately so heuristics don't erode trust in the confirmed ones. `run_pin_checks` is the single implementation behind generation-time validation and check.
 
-**Task list.** One list, in order; each line is one deliverable. Update the status as items land.
+**Deferred**: vulnerability data (PyPI's JSON already carries OSV entries, but a matched CVE in unreachable code is noise for a notebook; if added, keep it a separate signal) and license checking.
 
-1. DONE. Rename to `steady_py`, `src` layout, Docker tiers verified.
-2. DONE. Option and result types (`results.py`).
-3. DONE. `check` as an endpoint (`endpoints.check`), with formatting and exit codes in `cli.py`.
-4. DONE. `scan` and `snapshot` for one notebook or the live session.
-5. DONE. `scan` and `snapshot` for a directory; `run_batch_pipeline` removed.
-6. DONE. The parser and `main` moved into `cli.py`; `core.py` has no command line.
-7. DONE. The delta (`delta.py`), shown by `scan` and `snapshot`.
-8. DONE. Partial writes with loud failure, the universal file's incomplete header, the 0/1/2 exit rule, usage errors all 2, a bare invocation prints usage.
-9. DONE. Cell 2 warns on any Python mismatch and carries on; no hard stop.
-10. DONE. `check` accepts a directory, with an aggregate result and exit code; `--format json` prints JSON when there is no manifest or it cannot be read.
-11. DONE. Run `run_suite.py` on Docker.
-12. DONE. Subcommands (`steady-py scan|snapshot|check`) replace the flags: runner commands, subprocess tests, `run_suite.py` and docs change, and the old-versus-new comparison is rerun in the new syntax.
-13. DONE. Extract the runtime installer (`steady_py.install`); Cell 2 slimmed to a pinned install and a call.
-14. DONE. Fix pyproject's empty `dependencies` (`packaging`, `resolvelib` as real base dependencies — no extra, so `pip install` always works with no extra step).
-15. DONE. Add a manifest schema version; the package version replaces `TOOL_VERSION`.
-16. DONE. Survey what Cell 2 does when an install fails.
-17. DONE. The e2e runners install the package from the mounted repo.
-18. DONE. Split `core.py` into modules, bottom-up (see Module layout).
-19. TODO. Handle guarded imports and installs better. There are many gaps and problems identified in a particular chat thread.
-20. TODO. Update the GitHub URLs (`HELP_URL`, the README) to `steady-py`.
-21. TODO. Review all of the tests and test coverage. What is missing, what is duplicated. Known: in `test_drift_check.py`, `test_console_section_replaces_the_per_notebook_one_liners` asserts no warning mentions `--check-drift on this file`, a string no longer in the source, so it cannot fail.
-22. TODO. Review all user messaging. Is it helpful, useful, and appropriate
-23. TODO. Perform extensive hand testing of all modes to ensure there aren't roadblocks or silly LLM misses
-24. TODO. Rewrite the README (its install steps are stale).
-25. TODO. Add license file
-26. TODO. First release.
+**Baseline**: generation records what its validation found, as keys (never messages), in the manifest's `baseline`: `None`, or `{"version": 1, "findings": [keys], "errors": [packages]}`. A key holds exactly the facts that define the problem, so a changed fact is a new finding: `yanked`, `removed`, `not_found_on_pypi`, `unsupported_python`, `unverifiable_custom_index` key on signal, package and version; `stale` on signal and package; `major_bump` adds the latest major; `conflict` adds specifier and parent. `tampered`, `local_module_*` and `check_error` have no key. At check time each finding is `known`, `new`, or `not_checked_at_generation` (its package errored then). An unrecognized or missing baseline is reported flat. A known `not_found_on_pypi` is an expected private package: a notice, never affecting the exit code. Every JSON finding carries `key` (`finding_identity_key`), so two reports compare by key sets. Regenerating resets the baseline.
 
-Decisions waiting (not tasks):
+**Batch validation**: in write modes, each notebook's generation-time findings fold into one view (`build_batch_validation`): each distinct finding once with the notebooks it affects, deterministic (sorted, relative paths, no timestamps). It never changes the exit code; generation is not a check.
 
-- Does a change only in a pin's flags, such as a different index URL, count in the delta?
-- Remove the paste-era filter for cells containing the tool's own source?
+**Non-PyPI sources**: `%pip install` tokens that are paths, VCS URLs or `http(s)://` are carried verbatim in `raw_installs` and installed after the pins. Packages installed by hand from a URL, path or editable install are found through `direct_url.json` (PEP 610), not `pip freeze` text. A remote one goes into `raw_installs` unless the notebook's own install line names the same source. A local path or editable install is reported as system-dependent and never stored, so no private path leaks into a shared notebook. Check verifies nothing about raw installs, and their dependencies aren't walked.
+
+**Local modules**: in a live kernel, `resolve_local_module` uses an unrestricted `find_spec`, which is ground truth for whatever the platform does. Outside one, it searches only `notebook_dir` and `root_dir` with `PathFinder.find_spec(name, path=[dir])`, which neither mutates `sys.path` nor executes `__init__.py`. The manifest records each as `{"name", "anchor": "notebook_dir" | "root_dir"}`, never a path, because a path under `root_dir` could reveal directories outside the shared project. Check re-verifies by plain file existence, so the answer doesn't depend on where it runs: still present, nothing; anchor directory gone or no `root_dir` supplied, could not be checked (2); directory present but the module gone, confirmed (1).
+
+## Testing
+
+**Tiers**: unit tests (`pytest tests --ignore=tests/runners`); live-PyPI tests in `test_drift_check_live.py`, skipped unless `RUN_LIVE_PYPI_TESTS=1`; Docker and live-kernel runners in `tests/runners`, driven by `run_suite.py`. Coverage: `python -m pytest tests --ignore=tests/runners --cov=steady_py --cov-branch --cov-report=term-missing`. Last run: 610 passed, 13 skipped; mypy (`--ignore-missing-imports`) clean. `mypy --strict` reports 14 errors, half of them the untyped resolvelib provider.
+
+**Where tests live**: mostly one file per module (`test_runtime.py`, `test_installed.py`, `test_endpoints.py`, `test_cli.py`, `test_results.py`, `test_delta.py`, `test_magic_harvesting.py`, `test_direct_references.py`, `test_drift_check.py`); batch behavior in `test_batch_mode.py` and `test_batch_failures.py`; writes in `test_disk_output.py`; fixtures in `test_steady_py_fixtures.py` and `test_structural_fixtures.py`; guards in `test_constants.py` (named label constants, not bare strings) and `test_module_hygiene.py` (import side effects, the calling convention, reload). `test_steady_py.py` is the older catch-all and still holds tests that belong elsewhere.
+
+**Fixtures**: `kitchen_sink.ipynb` is the main AST edge-case fixture; `magic_sink.ipynb` covers magics, and its `%%writefile` must be the cell's literal first line. Delete stale `_merged` companions from a fixture directory before a directory run, or they are scanned as notebooks.
+
+**Container tiers**: one container per tier (Kaggle, Colab, plain slim), with a fresh venv per run; platform tiers need `--system-site-packages` or the venv hides the preloaded environment they exist to test. Containers install the package from the mounted repo (`pip install -e /workspace -q`). Pin `nbconvert==7.17.1` in every tier (Kaggle and Colab ship different versions). Slim images need `ipykernel` installed and registered. The Colab image needs `--entrypoint bash` (or `python3`) to skip its web server; its kernel config lives at the system IPython level, so the bypass keeps the real kernel setup. Pass `--platform linux/amd64` on Apple Silicon. A notebook's final cell should check both `importlib.metadata.version` and a real import. The images are large on disk (Kaggle about 25 GB, Colab about 49 GB).
+
+**Lessons**: run the whole suite regularly, since stale tests only fail when something else changes. A test that assigns `subprocess.run` directly must register it with `monkeypatch.setattr` first, or the replacement outlives the test.
+
+**Coverage gaps**: two GPU frameworks both active (a tensorflow-only notebook must pick tensorflow's device from `framework_devices`); `--output`/`--in-place` against a real corpus notebook; `--output-dir` idempotency; notebooks with no `kernelspec`/`language_info` being accepted as Python; the `--check-drift on this file` assertion in `test_drift_check.py`, which tests a string no longer in the source and so cannot fail.
+
+**Open container items**: compare version markers from a live Colab session with the pulled image before claiming anything about current Colab; confirm the setuptools/wheel probe results for Kaggle and Colab weren't saved under the same filename; decide whether the plain tier moves to `python:3.12-slim` to match the platform images. A lighter extras-promotion fixture than `umap-learn` has not been found (the promotion needs a real dotted submodule import).
+
+## Real-world validation
+
+The corpus (`test_notebooks/`, gitignored) has 147 notebooks: Kaggle notebooks with reproducibility labels (MLEModernizer, `huggingface.co/datasets/BihuiJ/MLEModernizer`), `amazon-sagemaker-examples`, Databricks examples, papermill examples, course material, and personal notebooks. `diagnose_coverage.py` (not shipped) reports which code paths each notebook exercises. Not yet done: the loop this is for — snapshot a notebook, install only its manifest into a clean container, and confirm it still runs. GPU notebooks need manual testing on Kaggle.
+
+## Open design questions
+
+- `--full-freeze`: stays additive (appended after the manifest) or becomes a replacement? Embedding a freeze in notebook metadata is unreliable (frontend autosave), which blocks a single-file form.
+- Strip hardware build tags (`+cu121`) before pinning? Unverified as safe; they are flagged, not stripped.
+- Databricks source-format `.py` files: a second ingestion path, or stay `.ipynb`-only?
+- A lookup table for string-selected backends (`holoviews.extension("bokeh")` → `bokeh`), or document it as a permanent limit?
+- Should Cell 1 also tell users to restart the kernel if cells below already ran? `install()` prints a restart note after any install.
+- Record a raw install's declared requirements at generation so check can walk them?
+- Opt-in check inside the notebook's own environment for custom-sourced pins that PyPI can't verify?
+- Is `--format json` independent of `--quiet` for stderr? (Leaning yes.) Should writes get a JSON form beyond `artifacts_written`?
+- Does a change only in a pin's flags (a different index URL) count in the delta?
 - Rename the fixture package `notebook_env_test_fixture` (its wheels need rebuilding) and delete the tracked temporary fixture notebook?
 
-- Multi-platform / hardware-variant pins — no design yet. The manifest holds one pin per top-level import, resolved from whatever was live at snapshot time (DependencyEntry has no environment-marker field; the only marker evaluation in the code resolves transitive deps, not top-level pins). A notebook that's genuinely portable across environments — e.g. CUDA on one machine, MPS on another — has no way to carry both pins at once: regenerating on the second machine just overwrites the first. Whether this needs first-class support (would likely require its own resolution/storage mechanism) or stays out of scope ("one manifest per environment, regenerate when you switch") is undecided.
+## Cleanup backlog
+
+- The magic dispatch in `magics.harvest_cell_magics_and_commands` is an order-dependent if/elif chain (`SYSTEM_PKG_PATTERN`, `CONDA_INSTALL_PATTERN`, `PIP_INSTALL_PATTERN`); a dispatch table would suit a growing set of magics.
+- `analyze.analyze_batch_repository` has four near-identical dedupe loops.
+- The `--format json` payloads in `reporting` are built as literal dicts, not a typed structure.
+- A bare `except Exception` around `packages_distributions()` in `resolution.resolve_pypi_package_and_extras` should log at debug.
+- `generate.generate_production_blueprint`'s custom-sourced loop repeats a guard in `drift.run_pin_checks`.
+- `generate_batch_analysis_report`, `process_package_requirements` and `harvest_scoped_cell_flags` are used only by tests; kept for their tests. `DependencyEntry.raw_token` is unused; `PypiVersionMetadata.project_urls` is reserved for the changelog link.
+
+## Roadmap
+
+- Cross-notebook caching for directory runs: a per-import cache keyed on `(import, frozenset(submodules), is_guarded, is_local_here)`, never on the import name alone, since guarding, submodules and local shadowing differ between notebooks. Built as an explicit dict, it also yields a reverse index for free: which notebooks use each package, framework usage counts, extras-promotion frequency. The point is summaries that show non-engineers what needs attention, grouped by notebook. Validate the overlap assumption against the corpus first.
+- `why <package>` (which pin pulled it in), a changelog link on major-bump findings, and major/minor/patch tiers.
+- A static-only scanner for notebooks you don't own.
+- Handle `%run`; warn on `exec()`/`eval()`; flag bare relative imports (none found in the corpus so far).
+- Grow `IMPORT_TO_PYPI_MAP` as mismatches are found (`dotenv`, `mpl_toolkits` so far).
+
+## Task list
+
+Tasks 1–18 are done: the rename and `src` layout, typed results, the `scan`/`snapshot`/`check` endpoints and subcommands, directory targets, the delta, partial writes and the exit-code rule, the runtime installer and slim Cell 2, real base dependencies, the manifest schema version, and the split into modules.
+
+19. TODO. Handle guarded imports and installs better (gaps collected in an earlier chat thread).
+20. TODO. Point `HELP_URL` and the README at `github.com/flyinacres/steady-py`.
+21. TODO. Review the tests and coverage: what is missing, what is duplicated, what is misplaced.
+22. TODO. Review all user messaging: is it helpful and appropriate?
+23. TODO. Hand-test every mode for roadblocks.
+24. TODO. Rewrite the README and HELP.
+25. TODO. Add a license file.
+26. TODO. First release.
