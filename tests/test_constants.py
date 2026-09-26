@@ -3,10 +3,10 @@ not bare string literals, for these values (a typo in a literal silently never m
 import re
 from pathlib import Path
 
-import steady_py.core as spy
+import steady_py
 from steady_py import constants, drift, models
 
-PACKAGE_DIR = Path(spy.__file__).resolve().parent
+PACKAGE_DIR = Path(steady_py.__file__).resolve().parent
 SOURCES = {path.name: path.read_text(encoding="utf-8", errors="replace") for path in sorted(PACKAGE_DIR.glob("*.py"))}
 BARE = re.compile(r'\b(signal|severity|baseline_status|kind|status)\b(\s*(?:==|!=|=)\s*|\s+(?:not\s+)?in\s+\(?)"[a-z_]+"')
 
@@ -43,4 +43,4 @@ def test_constants_embed_in_the_manifest_literal_as_plain_strings():
 
 
 def test_scan_covers_every_module_in_the_package():
-    assert {"core.py", "cli.py", "endpoints.py", "results.py", "constants.py", "models.py", "util.py", "installed.py", "pypi.py", "scanning.py", "magics.py", "localmodules.py", "accelerator.py", "resolution.py", "drift.py", "analyze.py", "generate.py", "reporting.py", "runtime.py"} <= set(SOURCES)
+    assert {"cli.py", "endpoints.py", "results.py", "constants.py", "models.py", "util.py", "installed.py", "pypi.py", "scanning.py", "magics.py", "localmodules.py", "accelerator.py", "resolution.py", "drift.py", "analyze.py", "generate.py", "reporting.py", "runtime.py"} <= set(SOURCES)

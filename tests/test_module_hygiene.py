@@ -9,10 +9,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-import steady_py.core as spy
+import steady_py
 from steady_py import resolution
 
-SRC_DIR = str(Path(spy.__file__).resolve().parents[1])
+SRC_DIR = str(Path(steady_py.__file__).resolve().parents[1])
 
 
 def _run(code: str, **env) -> str:
@@ -28,7 +28,7 @@ def test_import_leaves_streams_and_logging_untouched():
     out = _run(
         "import sys, logging\n"
         "before = sys.stdout.encoding\n"
-        "import steady_py.core as spy\n"
+        "import steady_py\n"
         "log = logging.getLogger('steady_py')\n"
         "print(sys.stdout.encoding == before, [type(h).__name__ for h in log.handlers], log.propagate)",
         PYTHONIOENCODING="latin-1",
@@ -39,9 +39,9 @@ def test_import_leaves_streams_and_logging_untouched():
 def testconfigure_console_is_where_streams_and_the_handler_get_set_up():
     """The stderr handler replaces the import-time placeholder, leaving exactly one handler."""
     out = _run(
-        "import sys, logging, steady_py.core as spy\n"
-        "spy.configure_console()\n"
-        "spy.configure_console()  # idempotent\n"
+        "import sys, logging, steady_py.cli as cli\n"
+        "cli.configure_console()\n"
+        "cli.configure_console()  # idempotent\n"
         "log = logging.getLogger('steady_py')\n"
         "print(sys.stdout.encoding, sorted(type(h).__name__ for h in log.handlers), log.propagate)",
         PYTHONIOENCODING="latin-1",
@@ -60,15 +60,19 @@ def test_failed_opencv_probe_falls_back_and_is_logged_at_debug(monkeypatch, capl
 
 
 def test_reloading_the_module_in_one_process_never_stacks_handlers():
-    """Reloading the tool in a live kernel (autoreload, or a re-import after an edit) re-runs the whole file."""
+    """Reloading the package in a live kernel (autoreload, or a re-import after an edit) re-runs its __init__."""
     out = _run(
-        "import importlib, logging, sys, steady_py.core as spy\n"
+        "import importlib, logging, steady_py, steady_py.cli as cli\n"
+        "log = logging.getLogger('steady_py')\n"
         "for _ in range(2):\n"
-        "    importlib.reload(spy)\n"
-        "    spy.configure_console()\n"
-        "print(len(logging.getLogger('steady_py').handlers))"
+        "    importlib.reload(steady_py)\n"
+        "placeholders = len(log.handlers)\n"
+        "for _ in range(2):\n"
+        "    importlib.reload(steady_py)\n"
+        "    cli.configure_console()\n"
+        "print(placeholders, len(log.handlers))"
     )
-    assert out == "1"
+    assert out == "1 1"
 
 
 def _function_from_imports(path: Path):
@@ -94,7 +98,7 @@ def test_package_modules_never_from_import_a_function():
     `from steady_py.x import f` keeps the original, so the patch silently does nothing. Functions are
     therefore called through their module (`x.f(...)`); classes and constants may be from-imported.
     __init__.py is exempt: its re-exports are the public API, not internal callers."""
-    package_dir = Path(spy.__file__).resolve().parent
+    package_dir = Path(steady_py.__file__).resolve().parent
     offenders = [
         f"{path.name}:{line}: from {module} import {name}"
         for path in sorted(package_dir.glob("*.py")) if path.name != "__init__.py"

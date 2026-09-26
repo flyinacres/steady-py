@@ -1,8 +1,9 @@
 """The endpoints: scan, snapshot and check.
 
 Each one computes and returns a typed result (see results.py). None of them prints or exits;
-that is the CLI's job. They reach the analysis code through the `core` module at call time, so
-tests can patch a function on `core` and have it take effect here.
+that is the CLI's job. They call package functions through their defining module
+(`analyze.build_single_notebook_report(...)`), so a test that patches the function on that module
+takes effect here.
 """
 from __future__ import annotations
 

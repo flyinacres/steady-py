@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 import steady_py.cli as cli
-import steady_py.core as spy
 from steady_py import accelerator, constants, drift, generate, models, reporting
 import steady_py.endpoints as endpoints
 from steady_py.results import (
@@ -454,9 +453,9 @@ class TestMain:
 
     @pytest.fixture(autouse=True)
     def quiet_logger(self):
-        level = spy.logger.level
+        level = cli.logger.level
         yield
-        spy.logger.setLevel(level)
+        cli.logger.setLevel(level)
 
     def _exit_code(self, monkeypatch, *argv):
         monkeypatch.setattr(sys, "argv", ["steady-py", *argv])
@@ -529,7 +528,7 @@ class TestMain:
     def test_quiet_and_verbose_set_the_log_level(self, tmp_path, monkeypatch, flag, level):
         monkeypatch.setattr(cli, "run_snapshot_file", lambda args: 0)
         self._exit_code(monkeypatch, "snapshot", _write_notebook(tmp_path), flag)
-        assert spy.logger.level == level
+        assert cli.logger.level == level
 
 
 # ---------------------------------------------------------------------------------------------

@@ -13,13 +13,27 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
-from steady_py import constants, core, endpoints, localmodules, models, reporting, resolution, util
+from steady_py import constants, endpoints, localmodules, models, reporting, resolution, util
 from steady_py.results import (
     CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
 )
 
-logger = core.logger
+logger = logging.getLogger("steady_py")
+
+
+def configure_console() -> None:
+    """CLI-only process setup: UTF-8 stdout/stderr (Windows and redirected output) and a plain
+    stderr log handler at INFO. Called once from main(), never at import."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+    for placeholder in [h for h in logger.handlers if isinstance(h, logging.NullHandler)]:
+        logger.removeHandler(placeholder)  # the real handler replaces it, leaving exactly one
+    if not any(type(h) is logging.StreamHandler for h in logger.handlers):
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
 
 EXIT_OK = 0
 EXIT_ATTENTION = 1  # the tool did its job and found something that needs attention
@@ -480,7 +494,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """The entry point: parses the flags, runs the verb they ask for, and exits with its code."""
-    core.configure_console()
+    configure_console()
     localmodules.resolve_local_module.cache_clear()  # type: ignore[attr-defined]  # attached by _memoize_for_run
     resolution.build_manifest_entries.cache_clear()  # type: ignore[attr-defined]
 

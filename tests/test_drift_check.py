@@ -14,7 +14,6 @@ import json
 import pytest
 
 import steady_py.cli as cli
-import steady_py.core as spy
 from steady_py import constants, drift, generate, localmodules, models, pypi
 from steady_py.results import Environment
 
@@ -1133,7 +1132,7 @@ class TestBatchAggregateValidation:
 
     def test_console_section_replaces_the_per_notebook_one_liners(self, tmp_path, capsys, monkeypatch):
         warnings = []
-        monkeypatch.setattr(spy.logger, "warning", lambda msg, *a, **k: warnings.append(str(msg)))
+        monkeypatch.setattr(cli.logger, "warning", lambda msg, *a, **k: warnings.append(str(msg)))
         out = _run_batch(_make_batch(tmp_path), capsys)
         assert "BATCH DEPENDENCY VALIDATION" in out
         assert "affects 2 notebook(s): a.ipynb, sub/b.ipynb" in out

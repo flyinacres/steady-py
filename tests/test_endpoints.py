@@ -1,10 +1,10 @@
 """The endpoints compute typed results; they never print or exit. check is the first."""
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
-import steady_py.core as spy
 from steady_py import accelerator, analyze, constants, drift, generate, installed, localmodules, models, scanning, util
 from steady_py.endpoints import check, scan, snapshot
 from steady_py.results import CheckOptions, Environment, PackageChange, ScanOptions, SnapshotOptions, TargetKind, WriteMode
@@ -62,7 +62,7 @@ class TestCheck:
         check(str(path))
         (deps, python_version), = seen[-1:]
         assert deps == DEPS
-        assert python_version == {"major": spy.sys.version_info.major, "minor": spy.sys.version_info.minor}
+        assert python_version == {"major": sys.version_info.major, "minor": sys.version_info.minor}
 
     def test_findings_from_the_pin_checks_land_in_the_report(self, tmp_path, monkeypatch):
         finding = models.DriftFinding("requests", "2.32.1", constants.Signal.YANKED, constants.Severity.CONFIRMED, "yanked")

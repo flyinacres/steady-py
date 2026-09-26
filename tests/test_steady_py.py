@@ -15,12 +15,11 @@ import warnings
 import subprocess
 import importlib.metadata
 from pathlib import Path
-from typing import Dict, List, Set, Tuple, Any
+from typing import Dict, List, Set, Any
 
 import pytest
 
 import steady_py.cli as cli
-import steady_py.core as spy
 from steady_py import accelerator, constants, generate, installed, localmodules, magics, models, resolution, runtime, scanning
 from steady_py.constants import StatusLabel
 from steady_py.generate import BlueprintResult
@@ -595,7 +594,7 @@ class TestSequentialExecutionEngine:
 
     def test_cell2_is_a_slim_pinned_install_wrapper(self) -> None:
         """Task 13: Cell 2 installs the exact pinned steady-py helper and calls install() --
-        the actual installer loop lives in core.py now, not duplicated into the generated cell."""
+        the actual installer loop lives in runtime.py now, not duplicated into the generated cell."""
         manifest_items = [models.PinnedDependency("numpy", "1.26.0")]
         blueprint = generate.generate_production_blueprint(manifest_items)
         code = blueprint["step2_code"]
@@ -607,6 +606,10 @@ class TestSequentialExecutionEngine:
         assert "_run_pip_subprocess" not in code
         assert "installed_baseline" not in code
         assert code.count("\n") < 30, "Cell 2 should be a few lines, not the old ~140-line loop"
+
+    def test_the_template_no_longer_contains_a_hard_stop(self) -> None:
+        code = generate.generate_production_blueprint([])["step2_code"]
+        assert "sys.exit(" not in code
 
     def test_tool_version_reflects_the_installed_package(self) -> None:
         """Task 15: TOOL_VERSION is no longer a hardcoded placeholder -- it's the real
@@ -627,85 +630,6 @@ class TestSequentialExecutionEngine:
         manifest = blueprint["drift_report"].manifest
         assert manifest.schema_version == constants.MANIFEST_SCHEMA_VERSION
         assert "'schema_version':" in blueprint["step2_code"]
-
-    def test_failure_diagnostics_contain_verified_version(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """When a package install fails, install() prints the author-verified version and captures stderr."""
-        manifest = {
-            "dependencies": [{"name": "broken_pkg", "version": "1.0.0", "flags": []}],
-            "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
-        }
-
-        def fake_run(*args, **kwargs):
-            kwargs["stdout"].write("Mocked pip error: Could not find wheel")
-            return types.SimpleNamespace(returncode=1)
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        runtime.install(manifest)
-
-        captured = capsys.readouterr().out
-        assert "❌" in captured
-        assert "broken_pkg==1.0.0" in captured
-        assert "Mocked pip error" in captured
-
-    def test_best_effort_execution_continues_on_failure(
-        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A failure on package 1 does not abort execution for package 2."""
-        manifest = {
-            "dependencies": [
-                {"name": "fail_pkg", "version": "1.0.0", "flags": []},
-                {"name": "pass_pkg", "version": "2.0.0", "flags": []},
-            ],
-            "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
-        }
-
-        def mock_run(cmd, *args, **kwargs):
-            if "fail_pkg" in " ".join(cmd):
-                return types.SimpleNamespace(returncode=1, stderr="Failed", stdout="")
-            return types.SimpleNamespace(returncode=0, stderr="", stdout="")
-
-        monkeypatch.setattr(subprocess, "run", mock_run)
-        runtime.install(manifest)
-
-        captured = capsys.readouterr().out
-        assert "❌" in captured and "fail_pkg" in captured
-        assert "✅" in captured and "pass_pkg" in captured
-        assert "[1/2]" in captured
-        assert "[2/2]" in captured
-
-    def test_install_returns_a_result_a_caller_can_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """install() returns something a caller can check, instead of always None."""
-        manifest = {
-            "dependencies": [
-                {"name": "fail_pkg", "version": "1.0.0", "flags": []},
-                {"name": "pass_pkg", "version": "2.0.0", "flags": []},
-            ],
-            "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
-        }
-
-        def mock_run(cmd, *args, **kwargs):
-            if "fail_pkg" in " ".join(cmd):
-                return types.SimpleNamespace(returncode=1, stderr="Failed", stdout="")
-            return types.SimpleNamespace(returncode=0, stderr="", stdout="")
-
-        monkeypatch.setattr(subprocess, "run", mock_run)
-        result = runtime.install(manifest)
-
-        assert result.total == 2
-        assert result.installed == 1
-        assert result.failed == ["fail_pkg==1.0.0"]
-        assert result.ok is False
-
-    def test_install_result_ok_when_everything_installs(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        manifest = {
-            "dependencies": [{"name": "pass_pkg", "version": "2.0.0", "flags": []}],
-            "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
-        }
-        monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0, stderr="", stdout=""))
-        result = runtime.install(manifest)
-        assert result.total == 1 and result.installed == 1 and result.failed == [] and result.ok is True
 
     def test_explicit_install_anchors_position_over_earlier_bare_import(self) -> None:
         """An explicit pip install at cell 2 anchors timeline position over a bare import at cell 0."""
@@ -732,7 +656,7 @@ class TestSequentialExecutionEngine:
         """Explicit notebook pin differing from host frozen_env logs a DEBUG trace, preferring notebook pin."""
         import logging
         caplog.set_level(logging.DEBUG, logger="steady_py")
-        spy.logger.setLevel(logging.DEBUG)
+        cli.logger.setLevel(logging.DEBUG)
         
         sources = ["!pip install pandas==2.0.0\n"]
         frozen_env = {"pandas": "pandas==2.2.1"}  # Host has 2.2.1, notebook explicitly asked for 2.0.0

@@ -6,7 +6,6 @@ src/steady_py/accelerator.py
 src/steady_py/analyze.py
 src/steady_py/cli.py
 src/steady_py/constants.py
-src/steady_py/core.py
 src/steady_py/delta.py
 src/steady_py/drift.py
 src/steady_py/endpoints.py
@@ -16,8 +15,10 @@ src/steady_py/localmodules.py
 src/steady_py/magics.py
 src/steady_py/models.py
 src/steady_py/pypi.py
+src/steady_py/reporting.py
 src/steady_py/resolution.py
 src/steady_py/results.py
+src/steady_py/runtime.py
 src/steady_py/scanning.py
 src/steady_py/util.py
 src/steady_py.egg-info/PKG-INFO

@@ -149,6 +149,7 @@ def install(manifest: Dict[str, Any], timeout: int = 120) -> InstallResult:
             raw_returncode, raw_captured = _run_pip_subprocess(raw_cmd, timeout)
             if raw_returncode == 0:
                 passed_count += 1
+                any_install_performed = True
                 print(f"    ✅ {raw_spec} installed successfully")
             else:
                 failed_packages.append((raw_spec, "", [], "\n".join(raw_captured)))

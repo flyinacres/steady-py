@@ -178,7 +178,7 @@ python -m venv --clear /tmp/run_env
 python -m venv --system-site-packages --clear /tmp/run_env
 ```
 
-No dependency on the Phase 6 package split — `src/steady_py/core.py` already has `if __name__ == "__main__":`, so mounting the repo root at `/workspace` with `PYTHONPATH=/workspace/src` runs `python -m steady_py ...` directly inside any container today.
+Containers install the package from the mounted repo (`pip install -e /workspace -q`), so `python -m steady_py ...` runs directly inside any container.
 
 Every notebook's final cell should assert two things, not just `returncode == 0`: `importlib.metadata.version("pkg")` (distribution record exists) and a real functional smoke import (confirms the import actually succeeds — a distribution record existing doesn't prove there's no missing shared-library/wrong-platform-wheel failure at import time).
 
@@ -280,7 +280,7 @@ In write modes (`--output`, `--in-place`, `--output-dir`), each notebook's gener
 
 **Limits**: check-drift verifies nothing about raw installs (no reachability probe, no comparison over time), and their transitive dependencies are not walked. An install that doesn't write `direct_url.json` (legacy installers) looks like an ordinary pin. The generation-time console notice that a source must be shared fires only for install lines the notebook itself contains; an inferred URL is described in Cell 2's comment and runtime output.
 
-## Module split: handoff notes
+## Module layout
 
 **Done before the split**: named constants for signals, severities and statuses (`Signal`, `Severity`, `BaselineStatus`, `DependencyStatus`, `FetchStatus`, `ReportKind`, plain strings in the style of `StatusLabel`); typed `PinnedDependency`, `Baseline`, explicit `DriftFinding.latest_version`/`parent`, and `NotebookValidationCounts` in place of dicts; dead code removed; mypy clean. Importing the module no longer reconfigures the standard streams or attaches a stderr handler: `main()` calls `configure_console()`, and the logger is created non-propagating with a placeholder `NullHandler` (a host that configures logging, such as an IPython session or pytest, would otherwise see every message twice). The stderr handler replaces the placeholder rather than joining it, and the placeholder is only added when the logger has no handlers, so a live kernel that re-executes the pasted file never stacks handlers (`test_live_kernel_phase0_regressions.py` asserts exactly one). Best-effort probes that used to swallow every exception now stay quiet for the expected case and log at debug otherwise. One silent site is deliberate: the TensorFlow device-name lookup runs inside `silence_fd2_stderr()`, where a log line would be discarded.
 
@@ -289,13 +289,29 @@ In write modes (`--output`, `--in-place`, `--output-dir`), each notebook's gener
 - Three functions are used only by tests, not by production code: `generate_batch_analysis_report`, `process_package_requirements`, `harvest_scoped_cell_flags`. Decision: keep them and their tests (the priority is strong testing). `test_constants.py` is kept too.
 - `DependencyEntry`-side fields `raw_token` (scan occurrences) and `PypiVersionMetadata.project_urls` are unused; `project_urls` is reserved for the planned changelog link.
 
-**Suggested layering** (dependencies point down; each layer imports only from layers above it in this list): (1) constants and types (`Signal`..., `PinnedDependency`, `Baseline`, `DriftFinding`, `FindingKey`); (2) environment and PyPI clients (`get_installed_environment`, direct-reference detection, `_fetch_pypi_json`, the two cached metadata fetchers); (3) source analysis (AST scan, magic harvesting, local-module resolution, hardware detection); (4) resolution (imports to dependency entries, the timeline); (5) drift (pin checks, transitive graph, baseline, batch validation); (6) blueprint (Cell 1/Cell 2 generation, the embedded template as its own module); (7) reporting (console, JSON); (8) pipelines and CLI (`main`, `configure_console`). Loggers become `logging.getLogger("steady_py.<module>")`, children of the package logger that `main` configures.
+**Layering** (dependencies point down; a module imports only from modules above it in this list):
 
-**Test patch points**: tests replace `get_installed_environment`, `resolve_pypi_package_and_extras`, `_found_in_dir`, `resolve_opencv_variant`, `_fetch_pypi_json`, `is_running_in_ipython`, `check_yanked_or_removed`, `run_pin_checks`, `inspect_gpu_environment`, `check_local_modules`, `extract_from_active_session`, `build_single_notebook_report`, `generate_production_blueprint`, `write_locked_notebook`, `SteadyPyManifest.compute_and_set_hash`, `logger.warning`, and `subprocess.run` through the module, and call `.cache_clear()` on `build_manifest_entries`, `resolve_local_module`, `fetch_pypi_package_metadata`, `fetch_pypi_version_metadata` and `resolve_pypi_package_and_extras`. After a split, a patch only takes effect if callers look the function up through its defining module at call time (`module.function(...)`, not `from module import function`), otherwise a test passes while patching nothing. Give the PyPI functions and the environment reader one home each so each has a single patch point. Package modules therefore call functions through their module (`util.is_running_in_ipython()`) and from-import only classes and constants; `test_module_hygiene.py` fails on any function from-import outside `__init__.py`.
+1. `constants` (version numbers, label constants, static lookup tables), `models` (shared dataclasses, finding keys), `util` (package-name normalization, IPython detection, stderr silencing, per-run memoization, relative notebook paths).
+2. `installed` (the running interpreter's pins and direct references), `pypi` (the PyPI JSON client).
+3. `scanning` (notebook and live-session reading, cell classification, the AST scan), `magics` (pip, conda and system installs, index URLs, scoped flags), `localmodules` (sibling-module resolution and its drift check), `accelerator` (GPU detection).
+4. `resolution` (the timeline, imports to dependency entries).
+5. `drift` (pin checks, transitive graph, baseline, drift and batch-validation reports).
+6. `analyze` (single-notebook and directory analysis).
+7. `generate` (manifest, setup cells, universal manifest, writing locked notebooks and reading their manifest back).
+8. `reporting` (console and JSON formatting); `runtime` (`install`, which needs only `constants`).
+9. `results`, `delta`, `endpoints`, `cli`, `__main__`.
 
-**Entry point** (done): the tool runs as `python -m steady_py` or the `steady-py` console script, both calling `cli.main`. `e2e_harness.run_steady_py` puts `src` on PYTHONPATH, `run_suite.py` runs `pip install -e /workspace -q` as the first step in every container, and pyproject gives pytest `pythonpath = ["src"]`. The tests that used to exec `core.py`'s source as if pasted into a kernel were redesigned when `main` moved into `cli.py`: the live-kernel Phase 0 runner calls `steady_py.snapshot()` in the kernel (the harness puts `src` on the kernel's PYTHONPATH), and `test_module_hygiene.py` reloads the module instead. The tool can no longer be pasted as a single file.
+Module names avoid names the code already uses for locals and parameters (`environment`, `hardware`, `analysis`, `blueprint`), which is why those modules are `installed`, `accelerator`, `analyze` and `generate`.
 
-**Not done, and why**: pipelines that print and return exit codes (`run_single_file_pipeline`, `run_batch_pipeline`) should separate computing a report from presenting it. Done: `endpoints.check`, `endpoints.scan` and `endpoints.snapshot` compute and `cli.py` presents them, for a single file and, except check, for a directory. `run_single_file_pipeline` and `run_batch_pipeline` are gone. The custom-sourced classification loop in `generate_production_blueprint` repeats the name/version guard in `run_pin_checks`, and `analyze_batch_repository` has four near-identical dedupe loops; both are small wins. Public API (`__all__`, private naming) and a single home for `TOOL_VERSION`/`SCHEMA_VERSION` should be decided with the module list. The endpoint design for the pipeline separation is under "Package design" below.
+**Logging**: the package logger `steady_py` is set up in `__init__.py`, which runs before any submodule: a NullHandler, level INFO, no propagation to the root logger. Each module logs through `logging.getLogger("steady_py.<module>")`. `cli.configure_console` attaches the stderr handler and forces UTF-8 output.
+
+**Test patch points**: tests replace a function by setting it on its defining module (`monkeypatch.setattr(drift, "run_pin_checks", ...)`). That only takes effect if callers look the function up through the module at call time, so package modules call functions as `module.function(...)` and from-import only classes and constants; `test_module_hygiene.py` fails on any function from-import outside `__init__.py`. monkeypatch raises when the patched name does not exist, so a patch aimed at the wrong module fails loudly. Some patches only isolate tests from the machine (`inspect_gpu_environment`, `resolve_opencv_variant`): where no GPU framework or OpenCV is installed the real function returns the same value, so no test proves those patches take effect.
+
+**Entry point** (done): the tool runs as `python -m steady_py` or the `steady-py` console script, both calling `cli.main`. `e2e_harness.run_steady_py` puts `src` on PYTHONPATH, `run_suite.py` runs `pip install -e /workspace -q` as the first step in every container, and pyproject gives pytest `pythonpath = ["src"]`. The live-kernel Phase 0 runner calls `steady_py.snapshot()` in the kernel (the harness puts `src` on the kernel's PYTHONPATH), and `test_module_hygiene.py` reloads the package to check that logging handlers never stack. The tool can no longer be pasted as a single file.
+
+**Public API**: `__all__` in `__init__.py` is the public API. A leading underscore means package-private: other steady_py modules may call it, users should not. `TOOL_VERSION`, `SCHEMA_VERSION` and `MANIFEST_SCHEMA_VERSION` live in `constants.py`.
+
+**Small wins not yet taken**: the custom-sourced classification loop in `generate.generate_production_blueprint` repeats the name/version guard in `drift.run_pin_checks`, and `analyze.analyze_batch_repository` has four near-identical dedupe loops.
 
 **Test hygiene lesson**: a test that executes generated code assigned `subprocess.run` on the real module and never restored it, which silently broke any later test using real subprocesses. Register such assignments with `monkeypatch.setattr` first so teardown restores them.
 
@@ -345,10 +361,10 @@ Each user verb takes a file or a directory. A directory is a larger target, not 
 15. DONE. Add a manifest schema version; the package version replaces `TOOL_VERSION`.
 16. DONE. Survey what Cell 2 does when an install fails.
 17. DONE. The e2e runners install the package from the mounted repo.
-18. TODO. Split `core.py` into modules, bottom-up, per the layering above.
+18. DONE. Split `core.py` into modules, bottom-up (see Module layout).
 19. TODO. Handle guarded imports and installs better. There are many gaps and problems identified in a particular chat thread.
-20. TODO. Update the GitHub URLs (`HELP_URL`, the core docstring, the README) to `steady-py`.
-21. TODO. Review all of the tests and test coverage. What is missing, what is duplicated
+20. TODO. Update the GitHub URLs (`HELP_URL`, the README) to `steady-py`.
+21. TODO. Review all of the tests and test coverage. What is missing, what is duplicated. Known: in `test_drift_check.py`, `test_console_section_replaces_the_per_notebook_one_liners` asserts no warning mentions `--check-drift on this file`, a string no longer in the source, so it cannot fail.
 22. TODO. Review all user messaging. Is it helpful, useful, and appropriate
 23. TODO. Perform extensive hand testing of all modes to ensure there aren't roadblocks or silly LLM misses
 24. TODO. Rewrite the README (its install steps are stale).

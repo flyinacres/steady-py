@@ -2,8 +2,8 @@
 
 Pure data: no I/O, no printing, no exiting. The endpoints (`steady_py.endpoints`) build these,
 the CLI (`steady_py.cli`) formats them and maps them to exit codes, and tests assert on them
-directly. The types from `steady_py.core` are referenced for annotations only, so importing this
-module does not load the analysis code.
+directly. The types from `steady_py.models` and `steady_py.drift` are referenced for annotations
+only, so importing this module does not load the analysis code.
 """
 from __future__ import annotations
 
