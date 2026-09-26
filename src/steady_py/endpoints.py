@@ -1,9 +1,10 @@
 """The endpoints: scan, snapshot and check.
 
 Each one computes and returns a typed result (see results.py). None of them prints or exits;
-that is the CLI's job. They call package functions through their defining module
-(`analyze.build_single_notebook_report(...)`), so a test that patches the function on that module
-takes effect here.
+that is the CLI's job. Each call is one run: it starts by clearing the per-run caches, so a second
+call in the same process sees what changed since the first. They call package functions through
+their defining module (`analyze.build_single_notebook_report(...)`), so a test that patches the
+function on that module takes effect here.
 """
 from __future__ import annotations
 
@@ -123,6 +124,7 @@ def scan(
     Read-only, and it never contacts PyPI.
     """
     options = options or ScanOptions()
+    util.reset_run_caches()
     if target is not None and os.path.isdir(target):
         return _scan_directory(target, options, environment)
     analysis = _analyze(target, environment)
@@ -145,6 +147,7 @@ def snapshot(
     they are also written, per `options.write_mode`. The cells are the same either way.
     """
     options = options or SnapshotOptions()
+    util.reset_run_caches()
     if target is None and options.write_mode != WriteMode.NONE:
         raise ValueError("the live IPython session has no file to write into; use write_mode 'none'")
     if target is not None and os.path.isdir(target):
@@ -292,6 +295,7 @@ def check(target: str, options: Optional[CheckOptions] = None) -> CheckResult:
     for local modules, the same root snapshot recorded them against.
     """
     options = options or CheckOptions()
+    util.reset_run_caches()
     if os.path.isdir(target):
         return _check_directory(target, options)
     return CheckResult(target=target, kind=TargetKind.FILE, notebooks=[_check_file(target, options)])

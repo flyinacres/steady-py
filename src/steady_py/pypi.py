@@ -62,7 +62,7 @@ def _fetch_pypi_json(url: str) -> Tuple[str, Optional[Dict[str, Any]], Optional[
         return FetchStatus.NETWORK_ERROR, None, str(e)
 
 
-@util._memoize_for_run
+@util.memoize_for_run
 def fetch_pypi_version_metadata(name: str, version: str) -> PypiVersionMetadata:
     """Looks up one exact pinned release. Cache key: (name, version) -- invariant across notebooks."""
     status, payload, error_detail = _fetch_pypi_json(f"https://pypi.org/pypi/{name}/{version}/json")
@@ -81,7 +81,7 @@ def fetch_pypi_version_metadata(name: str, version: str) -> PypiVersionMetadata:
     )
 
 
-@util._memoize_for_run
+@util.memoize_for_run
 def fetch_pypi_package_metadata(name: str) -> PypiPackageMetadata:
     """Looks up a package's project-level data (latest version, full release history). Cache key: name alone."""
     status, payload, error_detail = _fetch_pypi_json(f"https://pypi.org/pypi/{name}/json")

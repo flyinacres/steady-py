@@ -30,7 +30,7 @@ def _found_in_dir(name: str, directory: Optional[str]) -> bool:
         return False
 
 
-@util._memoize_for_run
+@util.memoize_for_run
 def resolve_local_module(name: str, notebook_dir: Optional[str], root_dir: Optional[str] = None) -> Optional[str]:
     """
     Checks whether `name` resolves as a local sibling module, using the most

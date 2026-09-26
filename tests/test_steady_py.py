@@ -20,7 +20,7 @@ from typing import Dict, List, Set, Any
 import pytest
 
 import steady_py.cli as cli
-from steady_py import accelerator, constants, generate, installed, localmodules, magics, models, resolution, runtime, scanning
+from steady_py import accelerator, constants, generate, installed, localmodules, magics, models, resolution, runtime, scanning, util
 from steady_py.constants import StatusLabel
 from steady_py.generate import BlueprintResult
 from steady_py.models import GpuInfo
@@ -793,7 +793,7 @@ def test_install_failure_prints_troubleshooting_steps(monkeypatch, capsys):
 
 class TestMemoizeForRun:
     """
-    Tests for the _memoize_for_run decorator and its use on
+    Tests for the memoize_for_run decorator and its use on
     resolve_local_module / build_manifest_entries.
 
     Covers the properties that matter for a shared cache: (1) repeated
@@ -960,27 +960,19 @@ class TestMemoizeForRun:
         assert "INJECTED_BY_TEST" not in entries2
         assert "INJECTED_NOTE" not in notes2
 
-    def test_main_clears_memoization_caches_before_anything_else(self, monkeypatch):
-        """main() is the CLI's entry point. It must clear both memoized caches
-        unconditionally, before argument parsing even happens, so that if it's ever called
-        more than once within the same process, a later call doesn't return stale results
-        left over from an earlier one."""
-        cleared = {"local_modules": False, "manifest": False}
-        monkeypatch.setattr(localmodules.resolve_local_module, "cache_clear", lambda: cleared.__setitem__("local_modules", True))
-        monkeypatch.setattr(resolution.build_manifest_entries, "cache_clear", lambda: cleared.__setitem__("manifest", True))
+    def test_reset_run_caches_starts_every_memoized_function_afresh(self) -> None:
+        calls: List[int] = []
 
-        # --output with no subcommand hits argparse's own required-subcommand
-        # validation inside parser.parse_args() -- a real, guaranteed-early exit
-        # path that fires *after* the cache_clear() calls at the top of main()
-        # but *before* anything else runs, so this verifies clearing happens
-        # unconditionally without needing to run the full pipeline.
-        monkeypatch.setattr(sys, "argv", ["steady-py", "--output"])
+        @util.memoize_for_run
+        def counted(x: int) -> int:
+            calls.append(x)
+            return x
 
-        with pytest.raises(SystemExit):
-            cli.main()
-
-        assert cleared["local_modules"] is True
-        assert cleared["manifest"] is True
+        counted(1)
+        counted(1)
+        util.reset_run_caches()
+        counted(1)
+        assert calls == [1, 1]
 
 
 class TestExecutionChronology:

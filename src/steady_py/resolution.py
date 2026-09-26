@@ -380,7 +380,7 @@ def resolve_pypi_package_and_extras(
     return DependencyEntry(name=pkg_part, version=ver_part, status=DependencyStatus.PINNED), None
 
 
-@util._memoize_for_run
+@util.memoize_for_run
 def build_manifest_entries(
     imports: Any, 
     submodules: Dict[str, Set[str]], 

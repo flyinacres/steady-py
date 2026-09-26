@@ -5,7 +5,7 @@ import functools
 import os
 import re
 from pathlib import Path
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Callable, Dict, List, ParamSpec, Protocol, Tuple, TypeVar, cast
 
 
 def canonicalize_pkg_name(name: str) -> str:
@@ -55,9 +55,36 @@ def silence_fd2_stderr():
                 pass
 
 
-def _memoize_for_run(func: Callable) -> Callable:
-    """Memoizes functions scoped to a single run, handling Set, List, and Dict arguments."""
+P = ParamSpec("P")
+R = TypeVar("R")
+R_co = TypeVar("R_co", covariant=True)
+
+
+class RunMemoized(Protocol[P, R_co]):
+    """A memoize_for_run function: callable with the original signature, plus cache_clear()."""
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R_co: ...
+
+    def cache_clear(self) -> None: ...
+
+
+# Every memoize_for_run cache, so a new run can clear them all without knowing which exist.
+_RUN_CACHES: List[Dict[Tuple[Any, ...], Any]] = []
+
+
+def reset_run_caches() -> None:
+    """Starts a new run: forgets every memoize_for_run result. Each endpoint calls this first, so a
+    second call in the same process (a live kernel, a program using the API) sees files, installs and
+    PyPI releases that changed since the first. Within one run, results stay shared."""
+    for cache in _RUN_CACHES:
+        cache.clear()
+
+
+def memoize_for_run(func: Callable[P, R]) -> RunMemoized[P, R]:
+    """Memoizes a function for the length of one run (see reset_run_caches), keying on argument
+    values, so equal Set, List and Dict arguments hit the same entry."""
     cache: Dict[Tuple[Any, ...], Any] = {}
+    _RUN_CACHES.append(cache)
 
     def _cache_key_part(value: Any) -> Any:
         if isinstance(value, dict):
@@ -82,17 +109,18 @@ def _memoize_for_run(func: Callable) -> Callable:
         return value
 
     @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         key = (
             tuple(_cache_key_part(a) for a in args),
             tuple(sorted((k, _cache_key_part(v)) for k, v in kwargs.items()))
         )
         if key not in cache:
             cache[key] = func(*args, **kwargs)
-        return _defensive_copy(cache[key])
+        result: R = _defensive_copy(cache[key])
+        return result
 
-    wrapper.cache_clear = cache.clear  # type: ignore[attr-defined]
-    return wrapper
+    setattr(wrapper, "cache_clear", cache.clear)
+    return cast(RunMemoized[P, R], wrapper)
 
 
 def relative_notebook_path(path: Path, root: str) -> str:

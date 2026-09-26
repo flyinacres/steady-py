@@ -533,3 +533,25 @@ class TestSnapshotDelta:
         _source(root, "import requests", "plain.ipynb")
         deltas = {Path(n.path).name: n.delta for n in snapshot(str(root), environment=ENV).notebooks}
         assert deltas["plain.ipynb"] is None and deltas["locked.ipynb"] is not None
+
+
+class TestEachCallIsOneRun:
+    """Per-run caches are cleared at the start of every endpoint call, so repeated calls in one
+    process (a live kernel, a program using the API) see what changed in between."""
+
+    @pytest.mark.parametrize("call", [
+        lambda tmp_path: scan(_source(tmp_path), environment=ENV),
+        lambda tmp_path: snapshot(_source(tmp_path), environment=ENV),
+        lambda tmp_path: check(str(_notebook_with_manifest(tmp_path))),
+    ], ids=["scan", "snapshot", "check"])
+    def test_every_endpoint_starts_by_clearing_the_run_caches(self, tmp_path, isolated, monkeypatch, call):
+        resets = []
+        monkeypatch.setattr(util, "reset_run_caches", lambda: resets.append(1))
+        call(tmp_path)
+        assert resets == [1]
+
+    def test_a_second_scan_sees_a_local_module_created_after_the_first(self, tmp_path, isolated):
+        target = _source(tmp_path, "import helper_mod")
+        assert scan(target, environment=ENV).notebooks[0].report.local_modules == []
+        (tmp_path / "helper_mod.py").write_text("", encoding="utf-8")
+        assert scan(target, environment=ENV).notebooks[0].report.local_modules == ["helper_mod"]
