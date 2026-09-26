@@ -142,10 +142,10 @@ The corpus (`test_notebooks/`, gitignored) has 147 notebooks: Kaggle notebooks w
 Tasks 1–18 are done: the rename and `src` layout, typed results, the `scan`/`snapshot`/`check` endpoints and subcommands, directory targets, the delta, partial writes and the exit-code rule, the runtime installer and slim Cell 2, real base dependencies, the manifest schema version, and the split into modules.
 
 19. TODO. Handle guarded imports and installs better (gaps collected in an earlier chat thread).
-20. TODO. Point `HELP_URL` and the README at `github.com/flyinacres/steady-py`.
+20. DONE. `HELP_URL` and the README point at `github.com/flyinacres/steady-py`.
 21. TODO. Review the tests and coverage: what is missing, what is duplicated, what is misplaced.
 22. TODO. Review all user messaging: is it helpful and appropriate?
 23. TODO. Hand-test every mode for roadblocks.
-24. TODO. Rewrite the README and HELP.
+24. DONE. README and HELP rewritten.
 25. TODO. Add a license file.
 26. TODO. First release.

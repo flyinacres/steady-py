@@ -15,7 +15,7 @@ MANIFEST_SCHEMA_VERSION: str = "1.0"
 
 DEFAULT_UNIVERSAL_MANIFEST_NAME: str = "requirements-all.txt"
 
-HELP_URL: str = "https://github.com/flyinacres/notebook_env/blob/main/HELP.md"
+HELP_URL: str = "https://github.com/flyinacres/steady-py/blob/main/HELP.md"
 
 # Fixed first line of the generated Cell 1. Shared by the generator and by is_prior_setup_cell,
 # so what the tool writes and what it later recognizes as its own cannot drift apart.
