@@ -1,0 +1,47 @@
+notebook,cell,form,guarded,upgrade,force,flags,reqs,line
+test_notebooks\databricks\enable_git_proxy_jupyter.ipynb,3,pip_magic,False,False,False,,databricks-sdk:exact,%pip install databricks-sdk==0.9.0
+test_notebooks\databricks\Step 3_ Model Deployment.ipynb,1,pip_magic,False,False,False,,bitsandbytes:bare,%pip install bitsandbytes
+test_notebooks\databricks\Step 3_ Model Deployment.ipynb,1,pip_magic,False,False,False,,accelerate:bare,%pip install accelerate
+test_notebooks\databricks\Step 3_ Model Deployment.ipynb,1,pip_magic,False,False,False,,git:url,%pip install git+https://github.com/huggingface/peft.git
+test_notebooks\databricks\transformer-batch-inference.ipynb,3,shell,False,True,False,--upgrade -q,transformers:bare,!pip install -q --upgrade transformers
+test_notebooks\databricks\transformer-batch-inference.ipynb,3,shell,False,True,False,--upgrade -q,accelerate:bare,!pip install -q --upgrade accelerate
+test_notebooks\ISLP_labs\Ch06-varselect-lab.ipynb,5,shell,False,False,False,,l0bnb:bare,!pip install l0bnb
+test_notebooks\mine\medgemma-kaggle.ipynb,4,pip_magic,False,False,False,-q,bitsandbytes:bare transformers:bare accelerate:bare json5:bare,%pip install -q bitsandbytes transformers accelerate json5
+test_notebooks\mine\silhouette-testing.ipynb,6,shell,False,False,False,--quiet,pykeops:bare,!pip install pykeops --quiet
+test_notebooks\sagemaker\sm-async_inference_with_python_sdk.ipynb,12,python_m_pip,False,True,False,--quiet --upgrade,pip:bare,!python -m pip install --upgrade pip --quiet
+test_notebooks\sagemaker\sm-async_inference_with_python_sdk.ipynb,12,shell,False,True,False,--quiet -U,awscli:bare,!pip install -U awscli --quiet
+test_notebooks\sagemaker\sm-clarify_online_explainability_mme_xgboost.ipynb,9,shell,False,True,False,--quiet --upgrade -r,,! pip install --upgrade -r requirements.txt --quiet
+test_notebooks\sagemaker\sm-mlflow_hpo.ipynb,6,shell,False,False,False,,torchvision:bare mlflow:exact sagemaker-mlflow:exact,!pip install torchvision mlflow==2.13.2 sagemaker-mlflow==0.1.0
+test_notebooks\sagemaker\sm-model_governance_model_card.ipynb,4,shell,False,True,False,--upgrade,sagemaker:range,! pip install --upgrade 'sagemaker<3.0'
+test_notebooks\sagemaker\sm-pipelines_step_decorator_with_classic_training_step.ipynb,6,shell,False,False,False,-r,,!pip install -r ./requirements.txt
+test_notebooks\sagemaker\sm-triton_inferentia2.ipynb,8,shell,False,False,False,-qU,pip:bare awscli:bare boto3:bare sagemaker:range,!pip install -qU pip awscli boto3 'sagemaker<3.0'
+test_notebooks\sagemaker\sm-triton_inferentia2.ipynb,8,shell,False,False,False,,nvidia-pyindex:bare,!pip install nvidia-pyindex
+test_notebooks\sagemaker\sm-triton_inferentia2.ipynb,8,shell,False,False,False,,tritonclient:bare,!pip install tritonclient[http]
+test_notebooks\sagemaker\sm-triton_inferentia2.ipynb,32,shell,False,False,False,,torch-neuronx:bare transformers-neuronx:bare,!pip install torch-neuronx transformers-neuronx
+test_notebooks\sagemaker\sm-triton_inferentia2.ipynb,53,shell,False,False,False,--extra-index-url,transformers-neuronx:bare,!pip install transformers-neuronx --extra-index-url=https://pip.repos.neuron.amazonaws.com
+test_notebooks\sagemaker\sm-triton_inferentia2.ipynb,74,shell,False,False,False,--extra-index-url,transformers-neuronx:bare,!pip install transformers-neuronx --extra-index-url=https://pip.repos.neuron.amazonaws.com
+test_notebooks\temp\data_exploration.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\data_exploration_merged.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\data_wrangling.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\data_wrangling_merged.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\hands-on.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\hands-on_merged.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\model_training.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\model_training_merged.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\pyspark.ml.features.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\pyspark.ml.features_merged.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\pyspark.ml.fpm.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\pyspark.ml.fpm_merged.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\pyspark.ml.tuning.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\pyspark.ml.tuning_merged.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\streaming_sentiment_app.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\temp\streaming_sentiment_app_merged.ipynb,2,bare,True,False,False,,<pkg>:range,"print(""2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'"")"
+test_notebooks\trainindata\clustering\keops-kmeans-1.ipynb,8,shell,False,False,False,--quiet,pykeops:bare,!pip install pykeops --quiet
+test_notebooks\kaggle_samples\failed\denoising-dirty-documents_youngsunjoung_autoencoder-of-denoising-dirty-documents-pytorch_v143_C1.ipynb,2,shell,False,False,False,,torchinfo:bare,!pip install torchinfo
+test_notebooks\kaggle_samples\failed\dogs-vs-cats-redux-kernels-edition_rikdifos_dogs-vs-cats-efficientnetb7_v34_C1.ipynb,1,shell,False,False,False,-q,efficientnet:bare,!pip install -q efficientnet
+test_notebooks\kaggle_samples\failed\jigsaw-toxic-comment-classification-challenge_cheeponglee_toxic-comment-multilabel-distilbert_v3_C1.ipynb,2,shell,False,False,False,--quiet,transformers:bare,!pip install transformers --quiet
+test_notebooks\kaggle_samples\failed\jigsaw-toxic-comment-classification-challenge_cheeponglee_toxic-comment-multilabel-distilbert_v3_C1.ipynb,2,shell,False,False,False,--quiet,datasets:bare transformers:bare,!pip install datasets transformers[sentencepiece] --quiet
+test_notebooks\kaggle_samples\failed\jigsaw-toxic-comment-classification-challenge_cheeponglee_toxic-comment-multilabel-distilbert_v3_C1.ipynb,2,shell,False,False,False,--quiet,transformers:bare,"!pip install ""transformers[sentencepiece]"" --quiet"
+test_notebooks\kaggle_samples\failed\plant-pathology-2020-fgvc7_mamamot_fastai-v2-example_v2_C1.ipynb,1,shell,False,False,False,,fastai2:range graphviz:bare ipywidgets:bare matplotlib:bare nbdev:range pandas:bare scikit-learn:bare azure-cognitiveservices-search-imagesearch:bare sentencepiece:bare,!pip install fastai2>=0.0.11 graphviz ipywidgets matplotlib nbdev>=0.2.12 pandas scikit_learn azure-cognitiveservices-search-imagesearch sentencepiece
+test_notebooks\kaggle_samples\failed\ranzcr-clip-catheter-line-classification_ligtfeather_deit-is-a-state-of-the-art-image-classifier_v1_C1.ipynb,1,shell,False,False,False,-q,timm:bare,!pip install -q timm
+test_notebooks\kaggle_samples\failed\ranzcr-clip-catheter-line-classification_stormchaser_ranzcr-clip-fastai_v9_C1.ipynb,6,shell,False,False,False,-Uq,fastai:bare,!pip install -Uq fastai

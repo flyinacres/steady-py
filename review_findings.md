@@ -110,6 +110,9 @@
   Snapshot warns the creator about install lines that would change a pin (-U, a conflicting ==, --force-reinstall). This is cheap and fits "report to the creator".
   Cell 2 registers an IPython pre_run_cell hook that flags later cells whose installs touch pinned packages. This catches it at runtime, at the cost of more machinery in the runner's session.
   Snapshot neutralizes the original install lines, for example by commenting them out. This is the most effective option and the most invasive, because it edits the author's code, not just Cell 2.
+- We currently do nothing about installs the user already has in their code. This can cause problems. For example, The author's original %pip install lines still run after our manifest in Cell 2, so a -U or a conflicting == undoes a pin even when the manifest is perfect. We can't edit their file or force their removal, but we can inform the creator during the snapshot process that we will handle the installs and they should remove the duplicate from their code. We can even tell them approximately where the install is.
+  Only flag install lines our manifest in Cell 2 actually covers. Lines Cell 2 doesn't reproduce, such as conda installs, forms we don't detect, or packages declared as ignored, have to stay, or removing them breaks the notebook.
+  Each flag should say whether the line is merely redundant or actively conflicting. A -U, a different ==, or --force-reinstall undoes the pin, so it's worth prioritizing over a harmless duplicate.
 
 ## Principles
 
@@ -132,6 +135,24 @@
 - **One shared "is this pin from PyPI" predicate, per-version root exclusion, and index lookups.** A pin is non-PyPI if it carries an index flag, a local tag, or a version absent from PyPI; every site (`run_pin_checks`, `check_yanked_or_removed`, `resolve_transitive_graph`, `classify_against_baseline`, `custom_sourced`, `runtime.install`) uses the same predicate. Exclude roots per version, not per project, so one bad pin never abandons the graph. At snapshot and at check, look each flagged pin up on its recorded index through the simple API (PEP 691/503) and report when it is absent.
 - **Creator declarations: vouched additions and overrides, maintained by the tool.** A separate manifest section, covered by the hash, holding creator-declared items with provenance (user-supplied, timestamp, tool version, optional name and reason). Edits made through the tool (CLI verb and in-notebook API) recompute the hash; raw text edits are still reported as tampered, so the hash distinguishes tool-mediated vouching from hand edits (integrity, not identity). Validate at declaration time as far as possible: package and version exist on PyPI, the version supports the manifest's Python, and it resolves with the rest of the manifest (`pip install --dry-run --report` gives a real resolver answer without installing); check re-validates declared pins like any others. Snapshot carries declarations forward and reports conflicts with evidence (declared `torch==2.3.1`, environment now 2.4.0) for the creator to resolve, never overriding silently; a declared package the tool later detects on its own is marked redundant. Start with add-a-package and override-a-derived-pin; removing derived items or suppressing findings can come later, if at all. Runtime messages can then truthfully say "added by the notebook's author" for declared items. Covers what inference cannot: plugin and backend dependencies (the settled scope boundary), optional dependencies never imported, spaCy models, dynamic imports.
 - **Deferred: keep alternative pins per branch.** Cell 2 installs one environment, so keeping both pins needs a way to say which branch applies at runtime. Depends on guard identity and creator declarations; until then, report to the creator.
+- \*\*For the issue that we don't handle guarded and computed installs well at all, a possible solution that will require more refinement:
+  Here's a concrete alternative: a declarations cell that the tool generates and the author completes.
+
+Where it lives: a tool-owned cell next to the setup cells, holding one Python literal (STEADY_PY_DECLARATIONS = {...}). It's valid Python that does nothing when run, parsed with ast.literal_eval the same way the manifest is. This keeps the pragmas' one real advantage: the author edits it in the notebook, in plain view, with no CLI. What it drops are the comment problems: regex parsing, half-commented lines, and silent loss.
+How information gets in: snapshot writes the cell pre-filled from its own diagnostics, so the author confirms or completes it rather than writing from scratch. Examples:
+"guarded branch at cell 4: IN_COLAB installs X, else Y. Confirm alternatives."
+"computed install $pkg at cell 7. List the values it can take."
+"pandas declares openpyxl as an optional extra. Require it?"
+Each diagnostic that currently ends in "report to the creator" points at a specific slot in this cell.
+What snapshot does with it: validates each entry (the package and version exist, the version supports the Python, it resolves with the rest) and records the declarations in the hashed manifest with provenance. It also reports drift: a slot that was filled and is now removed, a declared package the tool now detects on its own, or a conflict with the environment. The cell is the input and the manifest is the sealed record, so deleting the cell is detected rather than silently changing output.
+What "proper information" probably includes, per your point about all possible libraries:
+require: package, optional pin, reason
+ignore: package, reason, still shown in output
+guard groups: all alternatives across branches, not just the active one; the condition class (platform: Colab, Kaggle or local; hardware: GPU or CPU; optional feature); and a pin per alternative
+computed installs: the full set of values the variable can take
+Pins can be filled from the environment when a package is installed there, and validated against PyPI otherwise.
+For collections, which is your audience, the same schema could also live in a collection-level file shared by many notebooks, such as "every notebook here may need openpyxl". The notebook's own cell wins when the two conflict.
+--
 
 ## Reviewed and rejected
 
