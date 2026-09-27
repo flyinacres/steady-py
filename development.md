@@ -123,6 +123,9 @@ The corpus (`test_notebooks/`, gitignored) has 147 notebooks: Kaggle notebooks w
 - Is `--format json` independent of `--quiet` for stderr? (Leaning yes.) Should writes get a JSON form beyond `artifacts_written`?
 - Does a change only in a pin's flags (a different index URL) count in the delta?
 - Rename the fixture package `notebook_env_test_fixture` (its wheels need rebuilding) and delete the tracked temporary fixture notebook?
+- The in place functionality is incredibly dangerous at this point, as it blows away an original file. This can be made safe instead of removed: write to a temp file in the same directory, os.replace it over the original (atomic on Windows and POSIX), and keep a backup of the prior version.
+- Currently entire cells may be removed by content match. This is recklessly dangerous. Remove only cells the tool can prove it owns: the managed tag, or a STEADY_PY_MANIFEST whose embedded hash still validates, meaning an unmodified generated cell. A cell that looks like setup but fails both tests is never removed. Snapshot reports it by cell position and refuses to write, rather than guessing.
+- When used in a notebook the user must manually add the snapshot call when creating the manifest, or iterating over this creation, BUT then they must remember to remove it before sending the notebook out to users. This is just asking for trouble!! Also, they must re-add it later, if they update their code. Terrible UI.
 
 ## Cleanup backlog
 
