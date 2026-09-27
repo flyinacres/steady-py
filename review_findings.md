@@ -102,27 +102,21 @@
 ## Design gaps
 
 - Optional dependencies that are never imported (openpyxl, gcsfs, spaCy models) are seen only if the notebook has an install line. There is no candidate detection. Package metadata can supply candidates without a hardcoded list: pandas declares openpyxl and gcsfs in its extras, so an imported package plus an installed package named in one of its extras is a candidate. spaCy models are declared in no metadata and need a different signal.
-- There is no creator warning about guarded alternatives, and no runtime report of which alternatives are present. A clean run cannot verify the untaken branch.
+- There is no creator warning about guarded alternatives, and no runtime report of which alternatives are present. A clean run cannot verify the untaken branch. Partly addressed by Proposed features, "Install lines, creator declarations and manifest updating".
 - It is unknown whether a platform baseline (Kaggle or Colab preinstalled packages) exists; candidate lists need one.
-- Guard, unresolved and install-only status exist only as Cell 2 comments; the manifest has no protected record of them. `check` and the planned report of which guarded alternatives are present need them as manifest fields.
+- Guard, unresolved and install-only status exist only as Cell 2 comments; the manifest has no protected record of them. `check` and the planned report of which guarded alternatives are present need them as manifest fields. Partly addressed by Proposed features, "Install lines, creator declarations and manifest updating".
 - Pins come from the interpreter running the CLI. If a creator installs steady-py with pipx or `uv tool`, or runs it from conda base while the kernel uses another env, every pin describes the wrong environment, and nothing warns (unverified lead; the natural next review boundary).
 - No runtime policy for a pin whose public release matches the platform's but whose build tag differs (manifest `torch==2.8.0+cu121`, platform `2.8.0+cu126`). Accepting risks a CUDA mismatch; reinstalling means a multi-GB download over the platform build. The runtime counterpart of "pin what's installed"; needs an explicit decision.
-- Although we create a 'clean manifest' we don't have a way to remove other installs in the code--they may well conflict. Likewise, we scan and consider imports, but we do not change them--they may disagree with the installs that exist. We don't have a way of dealing with this, but it is a fundamental issue with the code.
-  The notebook's own install lines run after Cell 2 and can silently undo the pins. Snapshot leaves every original cell in place (generate.write_locked_notebook prepends the managed cells, generate.py lines 406 to 407), so the runner executes Cell 2 and then the author's %pip install lines, in order. Tested in a clean venv after pinning tabulate==0.9.0: pip install tabulate was a no-op, pip install -U tabulate upgraded it to 0.10.0, and pip install tabulate==0.8.10 downgraded it. Installing a new package can also move pinned dependencies through the resolver (standard pip behavior, not observed in the test). Cell 2 has already printed "All N/N dependencies verified" by then, and nothing checks afterward. This also conflicts with "pin what's installed": when an author's line names a different version, our pin installs first and their line wins. Related mismatches between imports and installs: an import not installed at snapshot gets only a comment, so the runner hits ModuleNotFoundError; an install with no matching import is still installed by Cell 2; an import satisfied only by a later install line is pinned at the creator's version and then reinstalled by that line. Nothing in development.md, README or HELP addresses this. Possible directions, undecided:
-  Snapshot warns the creator about install lines that would change a pin (-U, a conflicting ==, --force-reinstall). This is cheap and fits "report to the creator".
-  Cell 2 registers an IPython pre_run_cell hook that flags later cells whose installs touch pinned packages. This catches it at runtime, at the cost of more machinery in the runner's session.
-  Snapshot neutralizes the original install lines, for example by commenting them out. This is the most effective option and the most invasive, because it edits the author's code, not just Cell 2.
-- We currently do nothing about installs the user already has in their code. This can cause problems. For example, The author's original %pip install lines still run after our manifest in Cell 2, so a -U or a conflicting == undoes a pin even when the manifest is perfect. We can't edit their file or force their removal, but we can inform the creator during the snapshot process that we will handle the installs and they should remove the duplicate from their code. We can even tell them approximately where the install is.
-  Only flag install lines our manifest in Cell 2 actually covers. Lines Cell 2 doesn't reproduce, such as conda installs, forms we don't detect, or packages declared as ignored, have to stay, or removing them breaks the notebook.
-  Each flag should say whether the line is merely redundant or actively conflicting. A -U, a different ==, or --force-reinstall undoes the pin, so it's worth prioritizing over a harmless duplicate.
+- The creator's own install lines run after Cell 2 and can undo its pins, and some lines Cell 2 cannot reproduce at all (guarded, computed, conda). Snapshot keeps every original cell (`generate.write_locked_notebook`, `generate.py` lines 406 to 407), so the runner executes Cell 2 and then the creator's install lines, after Cell 2 has printed "All N/N dependencies verified". Tested with pip 24.0 in a clean venv: `pip install -U tabulate` and a differing `==` moved a pinned tabulate, and installing `datasets` moved a pinned `requests` from 2.28.0 to 2.34.2 through the resolver. Addressed by Proposed features, "Install lines, creator declarations and manifest updating".
 
 ## Principles
 
-- Cell 2 is currently not edited as text (although we are reviewing this idea); changes go through the tool, which records their provenance. The tool will never infer every dependency, so the creator must be able to correct and extend the manifest: creator declarations are inputs to the tool, stored in the manifest with provenance, and carried forward by every snapshot. (Revises "Cell 2 is never hand-edited", which left manifest errors unfixable.)
+- Cell 2 is not edited as text; changes go through the tool, which records their provenance. The tool will never infer every dependency, so the creator must be able to correct and extend the manifest: creator declarations are inputs to the tool, stored in the manifest with provenance, and carried forward by every snapshot. (Revises "Cell 2 is never hand-edited", which left manifest errors unfixable.)
 - Report to the creator is the default for candidates and unknown targets. Never auto-add. Each report should be actionable through a creator declaration.
 - Hard dependencies are out of scope. Optional dependencies are in scope. This holds only where pip installs the package and so resolves its dependencies; for a package the runner cannot install (an editable, the creator's own code), its `Requires-Dist` entries are in scope and are pinned from the installed environment.
 - Comments and other display text are never a source of truth. Anything the tool needs later is a structured, hashed manifest field; anything it needs within a run is carried as a typed field, not parsed back out of rendered text.
 - The recorded commit wins over a notebook's own unpinned VCS line. When the notebook installs `git+...@main` (or no ref) and the environment records a commit, pin the commit, consistent with pinning the installed version over an author's `>=` bound. This reverses the current development.md spec (a remote direct reference goes to `raw_installs` "unless the notebook's own install line names the same source"), which must be updated.
+- Pin what's installed over what the notebook states loosely (an unpinned or `>=` line, an unpinned VCS line), with one exception: an explicit `==` in the notebook wins over the installed version, since that line runs after Cell 2 and installs its version anyway. Snapshot warns when the two differ.
 - Each decision has one owner. Entry points (single file, batch, `--universal`, live kernel, check) differ only in how they gather inputs and render outputs, never in how they classify, resolve or judge. Most findings trace to decisions re-derived in several places; consolidation follows after more material is gathered.
 
 ## Proposed fixes
@@ -135,26 +129,7 @@
 - **One `root_dir` derivation and one import-to-distribution join.** Derive `root_dir` in one place for every entry point, and resolve every import (normal cell, `%%writefile`, auxiliary tool) through one helper: `packages_distributions()` first, then the `find_spec` origin matched against editable source directories, with local-module classification only after distribution evidence is exhausted.
 - **Build a decision inventory before rearchitecting.** List each decision the tool makes (local or installed, which distribution, guarded or not, which pin, is it a problem, which exit code) and every place in the code that makes it. It sizes the consolidation, serves as a checklist so a fix reaches every copy until the copies are merged, and is a good boundary for an external review pass.
 - **One shared "is this pin from PyPI" predicate, per-version root exclusion, and index lookups.** A pin is non-PyPI if it carries an index flag, a local tag, or a version absent from PyPI; every site (`run_pin_checks`, `check_yanked_or_removed`, `resolve_transitive_graph`, `classify_against_baseline`, `custom_sourced`, `runtime.install`) uses the same predicate. Exclude roots per version, not per project, so one bad pin never abandons the graph. At snapshot and at check, look each flagged pin up on its recorded index through the simple API (PEP 691/503) and report when it is absent.
-- **Creator declarations: vouched additions and overrides, maintained by the tool.** A separate manifest section, covered by the hash, holding creator-declared items with provenance (user-supplied, timestamp, tool version, optional name and reason). Edits made through the tool (CLI verb and in-notebook API) recompute the hash; raw text edits are still reported as tampered, so the hash distinguishes tool-mediated vouching from hand edits (integrity, not identity). Validate at declaration time as far as possible: package and version exist on PyPI, the version supports the manifest's Python, and it resolves with the rest of the manifest (`pip install --dry-run --report` gives a real resolver answer without installing); check re-validates declared pins like any others. Snapshot carries declarations forward and reports conflicts with evidence (declared `torch==2.3.1`, environment now 2.4.0) for the creator to resolve, never overriding silently; a declared package the tool later detects on its own is marked redundant. Start with add-a-package and override-a-derived-pin; removing derived items or suppressing findings can come later, if at all. Runtime messages can then truthfully say "added by the notebook's author" for declared items. Covers what inference cannot: plugin and backend dependencies (the settled scope boundary), optional dependencies never imported, spaCy models, dynamic imports.
-- **Deferred: keep alternative pins per branch.** Cell 2 installs one environment, so keeping both pins needs a way to say which branch applies at runtime. Depends on guard identity and creator declarations; until then, report to the creator.
-- \*\*For the issue that we don't handle guarded and computed installs well at all, a possible solution that will require more refinement:
-  Here's a concrete alternative: a declarations cell that the tool generates and the author completes.
-
-Where it lives: a tool-owned cell next to the setup cells, holding one Python literal (STEADY_PY_DECLARATIONS = {...}). It's valid Python that does nothing when run, parsed with ast.literal_eval the same way the manifest is. This keeps the pragmas' one real advantage: the author edits it in the notebook, in plain view, with no CLI. What it drops are the comment problems: regex parsing, half-commented lines, and silent loss.
-How information gets in: snapshot writes the cell pre-filled from its own diagnostics, so the author confirms or completes it rather than writing from scratch. Examples:
-"guarded branch at cell 4: IN_COLAB installs X, else Y. Confirm alternatives."
-"computed install $pkg at cell 7. List the values it can take."
-"pandas declares openpyxl as an optional extra. Require it?"
-Each diagnostic that currently ends in "report to the creator" points at a specific slot in this cell.
-What snapshot does with it: validates each entry (the package and version exist, the version supports the Python, it resolves with the rest) and records the declarations in the hashed manifest with provenance. It also reports drift: a slot that was filled and is now removed, a declared package the tool now detects on its own, or a conflict with the environment. The cell is the input and the manifest is the sealed record, so deleting the cell is detected rather than silently changing output.
-What "proper information" probably includes, per your point about all possible libraries:
-require: package, optional pin, reason
-ignore: package, reason, still shown in output
-guard groups: all alternatives across branches, not just the active one; the condition class (platform: Colab, Kaggle or local; hardware: GPU or CPU; optional feature); and a pin per alternative
-computed installs: the full set of values the variable can take
-Pins can be filled from the environment when a package is installed there, and validated against PyPI otherwise.
-For collections, which is your audience, the same schema could also live in a collection-level file shared by many notebooks, such as "every notebook here may need openpyxl". The notebook's own cell wins when the two conflict.
---
+- **Creator declarations.** Superseded by Proposed features, "Install lines, creator declarations and manifest updating": two entry kinds (install, ignore), a declarations cell or file as input, the hashed manifest as the sealed record.
 
 ## Reviewed and rejected
 
@@ -164,14 +139,15 @@ For collections, which is your audience, the same schema could also live in a co
 - Unpinned packages evading drift checks: an install line without a version is pinned from the environment (`%pip install foo` became `foo==1.0`), and anything not installed becomes a comment, never a versionless dependency (confirmed). The underlying gap, statuses recorded only as comments, is already under Design gaps.
 - Replacing `error: Optional[str]` on per-notebook results with Success|Failure types: most `Optional` fields are unrelated to failure (`delta` only when a manifest exists, `written_path` None when nothing was written), directory runs need one uniform per-notebook list, and the in-notebook API audience would face `isinstance` checks. Revisit before the first release if the API shape changes anyway.
 - `is_prior_setup_cell` mixing read-phase analysis into the write phase: deciding which cells to replace requires reading them, and it parses only the cell under test with no scan state. Its real defects are recorded under Known bugs.
+- Keeping alternative pins per guard branch in Cell 2: Cell 2 would have to decide at run time which branch applies, which is too complex. Guarded install lines stay in the creator's code, and their packages are declared ignore (Proposed features, "Install lines, creator declarations and manifest updating").
 
 ## Proposed features
 
-These features may affect or even solve some of the issue listed in this review document
+These features may affect or solve some of the issues listed in this document.
 
-## Install lines, creator declarations and manifest updating
+### Install lines, creator declarations and manifest updating
 
-### Problem
+#### Problem
 
 Snapshot puts Cell 2 at the top of the notebook and leaves the creator's own cells as they are. This causes three related problems:
 
@@ -192,7 +168,7 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
 3. Give the creator a way to declare what they want: install this package (with a version or source), or ignore it because they handle it.
 4. Round-trip those declarations through snapshot until the notebook's setup is fully accounted for.
 
-### Proposed solution
+#### Proposed solution
 
 1. Declarations structure (working name `STEADY_PY_DECLARATIONS`; a better name is welcome):
    1. It is a tool-owned Python literal, parsed with `ast` and never executed. It is valid Python that does nothing when run. Parsing must handle any valid characters and comments.
@@ -229,11 +205,11 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
    3. One pure function classifies install lines, shared by scan, snapshot and check.
    4. The entry points differ only in how they gather input.
 9. Prerequisites:
-   1. Harvesting all pip flags.
-   2. The live-kernel harvest gap.
-   3. The extras defect.
-   4. Cell positions by notebook order.
-   5. Guard detection, including shell guards (`[ ... ] && pip install`) and installs wrapped in functions. Without it, guarded lines get delete advice.
+   1. "Single pip flags and raw-install index flags are dropped" and "Parse pip arguments the way pip does".
+   2. "In a live kernel, no install line, conda command or `%%writefile` script is harvested".
+   3. "An install line with extras produces an invalid pin".
+   4. Cell positions by notebook order: "Batch reports lose each notice's notebook, and cell numbers match nothing the user sees", plus execution-order scanning, which discards each cell's position (`scanning.get_ordered_code_cells`).
+   5. Guard detection, including shell guards (`[ ... ] && pip install`) and installs wrapped in functions. Without it, guarded lines get delete advice. See "A guarded install line is installed unconditionally" and "Parse magics into Python, then scan one AST"; shell guards need handling beyond the AST, since the condition is inside the shell string.
 10. Open decisions:
     1. Whether conflicting lines make scan and snapshot exit 1.
     2. Whether check also classifies install lines added after snapshot.
@@ -241,7 +217,7 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
     4. With `--output`, Cell 2 exists only in the `_merged` copy, so deleting install lines from the source leaves a source that installs nothing. Should the advice target the companion, or accept that the source depends on steady-py?
     5. Optionally, on Colab only, read the live notebook through `google.colab._message.blocking_request('get_ipynb')`. It would fix the unexecuted-cell, deleted-cell and cell-position problems of the live path. It is a private API (used by colab2pdf and wandb), and no Kaggle equivalent was found.
 
-### Snapshot manifest updating
+#### Snapshot manifest updating
 
 Problem: snapshot throws away the existing manifest on every run and builds a fresh one from the notebook and the environment. Anything no current source still states is lost. Examples are a pin for a package nothing imports whose install line the creator deleted, and an index URL harvested from a line that's gone. The next manifest silently drops them, and the runner fails.
 
@@ -250,7 +226,7 @@ Proposed behavior:
 1. Snapshot creates a manifest when none exists and updates the existing one otherwise. It never discards it silently.
 2. Four sources feed each value, and three rules choose among them:
    1. Declarations, the creator's explicit intent, always win, even if they break something.
-   2. The notebook text (install lines, flags, imports) wins next, as long as the creator keeps it. An explicit `==` in the notebook beats the installed version, since that line runs after Cell 2 and installs its version anyway. This narrows "pin what's installed", and the principle in review_findings.md needs to say so.
+   2. The notebook text (install lines, flags, imports) wins next, as long as the creator keeps it. An explicit `==` in the notebook beats the installed version, since that line runs after Cell 2 and installs its version anyway. This is the exception recorded in the Principles entry "Pin what's installed".
    3. Between the environment and the previous manifest, the one that actually records the fact wins. When both do, the environment wins because it's current. The environment records installed versions and direct sources, but never index URLs.
 3. Warnings:
    1. Every disagreement between sources produces a warning; nothing is chosen silently.
