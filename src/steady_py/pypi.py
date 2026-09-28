@@ -1,5 +1,6 @@
 """Read-only PyPI JSON metadata client used by drift checks."""
 import json
+import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -19,6 +20,11 @@ from steady_py.constants import TOOL_VERSION, FetchStatus
 # different questions and are fetched from different PyPI endpoints.
 
 PYPI_REQUEST_TIMEOUT = 10
+# Overridable for a PyPI mirror (devpi, Artifactory) and for tests, which serve
+# a local fake. Must expose PyPI's JSON API (/pypi/<name>/json). Read on every
+# call so a changed environment variable takes effect without a reload.
+PYPI_URL_ENV_VAR = "STEADY_PY_PYPI_URL"
+DEFAULT_PYPI_URL = "https://pypi.org"
 PYPI_USER_AGENT = f"steady-py-drift-check/{TOOL_VERSION}"
 
 # Lookup status: "found", "not_found" (404), or "network_error" (offline,
@@ -48,6 +54,12 @@ class PypiPackageMetadata:
     error_detail: Optional[str] = None
 
 
+def _pypi_json_url(*path: str) -> str:
+    """The JSON API URL for `path` (a project name, optionally a version) on the configured PyPI."""
+    base = os.environ.get(PYPI_URL_ENV_VAR) or DEFAULT_PYPI_URL
+    return "/".join([base.rstrip("/"), "pypi", *path, "json"])
+
+
 def _fetch_pypi_json(url: str) -> Tuple[str, Optional[Dict[str, Any]], Optional[str]]:
     """Shared HTTP GET against a PyPI JSON endpoint. Returns (status, payload, error_detail)."""
     req = urllib.request.Request(url, headers={"User-Agent": PYPI_USER_AGENT})
@@ -65,7 +77,7 @@ def _fetch_pypi_json(url: str) -> Tuple[str, Optional[Dict[str, Any]], Optional[
 @util.memoize_for_run
 def fetch_pypi_version_metadata(name: str, version: str) -> PypiVersionMetadata:
     """Looks up one exact pinned release. Cache key: (name, version) -- invariant across notebooks."""
-    status, payload, error_detail = _fetch_pypi_json(f"https://pypi.org/pypi/{name}/{version}/json")
+    status, payload, error_detail = _fetch_pypi_json(_pypi_json_url(name, version))
     if status != FetchStatus.FOUND:
         return PypiVersionMetadata(status=status, error_detail=error_detail)
     assert payload is not None  # _fetch_pypi_json returns a payload whenever the status is FOUND
@@ -84,7 +96,7 @@ def fetch_pypi_version_metadata(name: str, version: str) -> PypiVersionMetadata:
 @util.memoize_for_run
 def fetch_pypi_package_metadata(name: str) -> PypiPackageMetadata:
     """Looks up a package's project-level data (latest version, full release history). Cache key: name alone."""
-    status, payload, error_detail = _fetch_pypi_json(f"https://pypi.org/pypi/{name}/json")
+    status, payload, error_detail = _fetch_pypi_json(_pypi_json_url(name))
     if status != FetchStatus.FOUND:
         return PypiPackageMetadata(status=status, error_detail=error_detail)
     assert payload is not None  # _fetch_pypi_json returns a payload whenever the status is FOUND

@@ -1,5 +1,6 @@
 # Virtual Environment (do not commit!)
 /steady_py/
+/steady_py/*.egg.info/
 .venv/
 venv/
 

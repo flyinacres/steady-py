@@ -11,7 +11,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from steady_py import constants, endpoints, models, reporting, util
 from steady_py.results import (
@@ -492,11 +492,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    """The entry point: parses the flags, runs the verb they ask for, and exits with its code."""
+def main(argv: Optional[List[str]] = None) -> None:
+    """The entry point: parses the flags (`argv`, default sys.argv), runs the verb they ask for, and exits with its code."""
     configure_console()
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.quiet:
         logger.setLevel(logging.ERROR)
