@@ -55,9 +55,14 @@ class Notebook:
         return {"cells": cells, "metadata": copy.deepcopy(self.metadata), "nbformat": 4, "nbformat_minor": 5}
 
     def write(self, directory: Path, name: str = "nb.ipynb") -> Path:
-        path = Path(directory) / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # newline="\n" so the file is byte-identical on Windows and Linux.
-        with open(path, "w", encoding="utf-8", newline="\n") as f:
-            f.write(json.dumps(self.to_json(), indent=1, ensure_ascii=False) + "\n")
-        return path
+        return write_json(self.to_json(), directory, name)
+
+
+def write_json(data: dict, directory: Path, name: str = "nb.ipynb") -> Path:
+    """Writes notebook JSON the way Notebook.write does."""
+    path = Path(directory) / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # newline="\n" so the file is byte-identical on Windows and Linux.
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(data, indent=1, ensure_ascii=False) + "\n")
+    return path

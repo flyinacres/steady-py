@@ -4,6 +4,7 @@ from importlib.metadata import version
 
 import pytest
 
+from tests.support.manifests import snapshotted
 from tests.support.markers import known_bug
 from tests.support.notebooks import Notebook, code, md
 from tests.support.runner import run
@@ -25,26 +26,22 @@ def _cases(finding_id: str, why: str) -> list:
         pytest.param(src, id=name, marks=known_bug(finding_id, why)) for name, src in IPYTHON_CELLS.items()]
 
 
-def _snapshot(tmp_path, pypi, *cells) -> str:
-    """A notebook with a manifest, from a real snapshot. Raises RuntimeError, not AssertionError,
-    so a failed setup can't pass as an expected failure."""
+def _snapshot(tmp_path, pypi, *extra):
+    """A notebook importing packaging, snapshotted, with `extra` cells added afterward."""
     pypi.add("packaging", {version("packaging"): {}})
-    outcome = run("snapshot", Notebook(*cells).write(tmp_path), "--output")
-    if outcome.exit_code != 0:
-        raise RuntimeError(f"snapshot failed (exit {outcome.exit_code}):\n{outcome.log}")
-    return outcome.written[0]
+    return snapshotted(tmp_path, code("import packaging"), extra=extra)
 
 
 @pytest.mark.parametrize("source", _cases("K1", "one IPython line breaks manifest extraction"))
 def test_check_reads_the_manifest(tmp_path, pypi, source):
-    outcome = run("check", _snapshot(tmp_path, pypi, code("import packaging"), code(source)))
+    outcome = run("check", _snapshot(tmp_path, pypi, code(source)))
     assert outcome.exit_code == 0, outcome.log
     assert outcome.pins() == {"packaging": version("packaging")}
 
 
 @pytest.mark.parametrize("source", _cases("K1", "one IPython line breaks manifest extraction"))
 def test_scan_reports_the_delta_against_the_manifest(tmp_path, pypi, source):
-    outcome = run("scan", _snapshot(tmp_path, pypi, code("import packaging"), code(source)))
+    outcome = run("scan", _snapshot(tmp_path, pypi, code(source)))
     assert outcome.exit_code == 0, outcome.log
     assert outcome.delta() is not None, "manifest not read"
     assert outcome.delta()["has_changes"] is False
@@ -99,6 +96,6 @@ def test_directory_report_names_each_notebook_with_a_notice(tmp_path):
 
 @known_bug("D1", "Cell 2's own import of steady_py is reported as a platform-provided dependency")
 def test_scan_of_a_snapshotted_notebook_ignores_the_setup_cells_import(tmp_path, pypi):
-    outcome = run("scan", _snapshot(tmp_path, pypi, code("import packaging")))
+    outcome = run("scan", _snapshot(tmp_path, pypi))
     assert outcome.exit_code == 0, outcome.log
     assert outcome.dependency("steady_py") is None

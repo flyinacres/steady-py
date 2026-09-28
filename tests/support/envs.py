@@ -52,8 +52,16 @@ def ensure_wheelhouse() -> Optional[str]:
 
 
 def build_steady_py(dist: Path) -> Path:
-    """steady-py's wheel from the repository, built offline. Returns the directory holding it."""
-    _pip(sys.executable, "wheel", "--no-deps", *OFFLINE, "-w", dist, REPO_ROOT)
+    """steady-py's wheel, built offline from a copy of the packaging inputs: setuptools builds in
+    the source tree, which would litter the repository and collide between parallel workers.
+    Returns the directory holding the wheel."""
+    source = Path(dist).parent / "steady-py-source"
+    source.mkdir(parents=True, exist_ok=True)
+    for item in REPO_ROOT.iterdir():
+        if item.name == "src" or item.name in ("pyproject.toml", "setup.cfg", "setup.py") \
+                or item.name.startswith(("README", "LICENSE")):
+            (shutil.copytree if item.is_dir() else shutil.copy2)(item, source / item.name)
+    _pip(sys.executable, "wheel", "--no-deps", *OFFLINE, "-w", dist, source)
     return dist
 
 
