@@ -2,6 +2,7 @@
 Also pins that best-effort probes stay quiet by default but leave a trace under --verbose."""
 import ast
 import importlib
+import importlib.util
 import inspect
 import logging
 import os
@@ -33,11 +34,22 @@ def test_import_leaves_streams_and_logging_untouched():
         "print(sys.stdout.encoding == before, [type(h).__name__ for h in log.handlers], log.propagate)",
         PYTHONIOENCODING="latin-1",
     )
-    assert out == "True ['NullHandler'] False"
+    assert out == "True ['NullHandler'] True"
+
+
+def test_library_messages_reach_a_hosts_root_logger():
+    """H3: a host that configures only the root logger (a library user, a notebook) gets them."""
+    out = _run(
+        "import logging, steady_py\n"
+        "logging.basicConfig(level=logging.INFO, format='%(name)s %(message)s', stream=__import__('sys').stdout)\n"
+        "logging.getLogger('steady_py.anymodule').warning('hello')"
+    )
+    assert out == "steady_py.anymodule hello"
 
 
 def testconfigure_console_is_where_streams_and_the_handler_get_set_up():
-    """The stderr handler replaces the import-time placeholder, leaving exactly one handler."""
+    """The stderr handler replaces the import-time placeholder, leaving exactly one handler, and
+    propagation stops so a host's root handler doesn't print each message twice."""
     out = _run(
         "import sys, logging, steady_py.cli as cli\n"
         "cli.configure_console()\n"
@@ -105,3 +117,24 @@ def test_package_modules_never_from_import_a_function():
         for line, module, name in _function_from_imports(path)
     ]
     assert offenders == []
+
+
+def _unimported_submodule_uses(path: Path) -> list:
+    """`pkg.sub` attribute uses where `pkg.sub` is a submodule the file never imports. They work only
+    while some other module happens to import it first (K4: importlib.machinery)."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    imported |= {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
+    packages = {name.split(".")[0] for name in imported if "." in name}
+    found = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in packages:
+            dotted = f"{node.value.id}.{node.attr}"
+            if dotted not in imported and importlib.util.find_spec(dotted) is not None:
+                found.add(f"{path.name}:{node.lineno}: {dotted}")
+    return sorted(found)
+
+
+def test_every_submodule_used_is_imported_explicitly():
+    package_dir = Path(steady_py.__file__).resolve().parent
+    assert [u for path in sorted(package_dir.glob("*.py")) for u in _unimported_submodule_uses(path)] == []

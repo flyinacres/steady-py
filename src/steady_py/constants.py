@@ -1,7 +1,7 @@
 """Version numbers, fixed names and label constants, and the static lookup tables shared by every layer."""
 import importlib.metadata
 import sys
-from typing import Dict, Set
+from typing import Dict, Set, Tuple
 
 
 TOOL_VERSION: str
@@ -21,9 +21,11 @@ HELP_URL: str = "https://github.com/flyinacres/steady-py/blob/main/HELP.md"
 # so what the tool writes and what it later recognizes as its own cannot drift apart.
 SETUP_MARKDOWN_HEADING: str = "### 🛠️ Environment Setup & Dependency Verification"
 
-DEFAULT_IGNORED_DIRS: Set[str] = {
-    ".git", ".venv", "venv", "env", "__pycache__", ".ipynb_checkpoints", "build", "dist"
+DEFAULT_IGNORED_DIRS: Set[str] = {  # a fast path by name; the markers below catch any other name
+    ".git", ".venv", "venv", "env", "__pycache__", ".ipynb_checkpoints", "build", "dist",
+    "site-packages", "dist-packages",  # installed packages (wheels ship notebooks)
 }
+ENVIRONMENT_DIR_MARKERS: Tuple[str, ...] = ("pyvenv.cfg", "conda-meta")  # a venv or a conda env
 
 SUPPORTED_GPU_FRAMEWORKS: Set[str] = {"torch", "tensorflow", "jax"}
 

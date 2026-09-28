@@ -93,7 +93,7 @@ Now: a point fix that survives any architecture; write the test and fix together
 | ED4 | Join misses hatchling, pdm, legacy editables                 | Y       | V     | F5         | `conda develop` confirmed once in F8                         |
 | ED5 | VCS editable reported as a local path                        | Y       | V     | F5, F6     |                                                              |
 | ED6 | Data folder hides an installed package                       | Y       | V     | F4         | `datasets/` holding only a CSV                               |
-| K4  | `importlib.machinery` bound only incidentally                | Y       | U     | subprocess | Now                                                          |
+| K4  | `importlib.machinery` bound only incidentally                | Y       | U     | lint       | Now; fixed. Structural: no behavioral symptom while it's latent |
 
 ## Resolution and pins
 
@@ -137,7 +137,7 @@ Now: a point fix that survives any architecture; write the test and fix together
 
 | ID  | Finding                                          | Settled | Layer | Fixture | Notes                                                                     |
 | --- | ------------------------------------------------ | ------- | ----- | ------- | ------------------------------------------------------------------------- |
-| DR1 | Venvs not named venv are scanned and rewritten   | Y       | U     | F1      | Dirs with `pyvenv.cfg`, `conda-meta/`, `site-packages`. Now (destructive) |
+| DR1 | Venvs not named venv are scanned and rewritten   | Y       | U     | F1      | Dirs with `pyvenv.cfg`, `conda-meta/`, `site-packages`. Now; fixed           |
 | K7  | Prior-setup-cell match discards user code        | Y       | U     | F1      | Warning expected                                                          |
 | P3  | Delta ignores flags, raw installs, local modules | Y       | U     | F1      | Per manifest-updating item 6                                              |
 | D4  | Single-file text scan fails                      | Y       | U     | F1      |                                                                           |
@@ -148,7 +148,7 @@ Now: a point fix that survives any architecture; write the test and fix together
 
 | ID  | Finding                                 | Settled | Layer | Notes                                                       |
 | --- | --------------------------------------- | ------- | ----- | ----------------------------------------------------------- |
-| H3  | Logger never propagates as a library    | Y       | U     | Now                                                         |
+| H3  | Logger never propagates as a library    | Y       | U     | Now; fixed                                                  |
 | H1  | `Any` parameters, tuple-unpacking shims | S       |       | `mypy --strict` gate on touched modules                     |
 | H2  | Broad `except Exception`                | S       |       | Ruff `BLE001` gate with an allowlist for third-party probes |
 
@@ -162,7 +162,7 @@ DG1 optional-dependency candidates, DG2 guarded-alternative reporting, DG3 platf
 
 By layer (Y and P, 61 rows): 32 U, 23 V, 3 L, 3 D. Docker is needed for three runtime rows plus a one-time conda confirmation.
 
-Now: K3 (fixed), K4, H3, DR1.
+Now: K3, K4, H3, DR1, all fixed.
 
 ## Decisions that unblock rows
 

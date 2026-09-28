@@ -1,5 +1,6 @@
 """Local sibling modules: whether an import resolves to a file next to the notebook or under the
 repository root rather than to a package, and the drift check that those files are still present."""
+import importlib.machinery
 import importlib.util
 import logging
 from pathlib import Path

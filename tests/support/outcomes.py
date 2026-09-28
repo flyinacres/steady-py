@@ -66,6 +66,12 @@ class Outcome:
     def delta(self) -> Optional[dict]:
         return self._single().get("delta")
 
+    def notebooks(self) -> list:
+        """Paths of the notebooks a directory report covers."""
+        if self.report is None or self.report.get("mode") != "batch":
+            raise ValueError("notebooks() needs a directory report")
+        return [Path(n["notebook_path"]) for n in self.report["notebooks"]]
+
     def summary(self) -> dict:
         """The repository summary of a directory report."""
         if self.report is None or self.report.get("mode") != "batch":
@@ -105,10 +111,12 @@ def find_manifest(notebook: dict):
     return found[0]
 
 
+def managed_cells(path: Path) -> dict:
+    """The cells steady-py manages in a written notebook, by their `steady_py.role` metadata tag."""
+    cells = json.loads(Path(path).read_text(encoding="utf-8"))["cells"]
+    return {c["metadata"]["steady_py"]["role"]: c for c in cells if c.get("metadata", {}).get("steady_py")}
+
+
 def setup_markdown(path: Path) -> str:
-    """The text of the setup markdown cell (Cell 1) in a written notebook, found by its role tag."""
-    cells = [c for c in json.loads(Path(path).read_text(encoding="utf-8"))["cells"]
-             if c.get("metadata", {}).get("steady_py", {}).get("role") == "setup_markdown"]
-    if len(cells) != 1:
-        raise LookupError(f"expected one setup markdown cell in {path}, found {len(cells)}")
-    return "".join(cells[0]["source"])
+    """The text of the setup markdown cell (Cell 1) in a written notebook."""
+    return "".join(managed_cells(path)["setup_markdown"]["source"])

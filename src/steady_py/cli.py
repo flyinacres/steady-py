@@ -24,7 +24,8 @@ logger = logging.getLogger("steady_py")
 
 def configure_console() -> None:
     """CLI-only process setup: UTF-8 stdout/stderr (Windows and redirected output) and a plain
-    stderr log handler at INFO. Called once from main(), never at import."""
+    stderr log handler at INFO, which replaces propagation to the root logger. Called once from
+    main(), never at import."""
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
@@ -34,6 +35,7 @@ def configure_console() -> None:
         handler = logging.StreamHandler(sys.stderr)
         handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(handler)
+    logger.propagate = False  # a host's root handler would print every message a second time
 
 EXIT_OK = 0
 EXIT_ATTENTION = 1  # the tool did its job and found something that needs attention

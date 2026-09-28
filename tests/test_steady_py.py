@@ -1015,23 +1015,6 @@ class TestExecutionChronology:
 class TestInteractiveKernelRuntime:
     """Regression tests covering live interactive kernel lifecycle and CLI dispatch."""
 
-    def test_logger_handler_configuration_prevents_duplicate_logging(self) -> None:
-        """
-        Regression: Ensure the steady-py logger does not propagate to root by default
-        and only attaches a single stderr console handler.
-        """
-        logger = logging.getLogger("steady_py")
-
-        # In live sessions, propagate must be False so root loggers (e.g. IPython) don't duplicate logs
-        assert logger.propagate is False
-
-        # Verify our specific console handler targeting stderr exists and is not duplicated
-        stderr_handlers = [
-            h for h in logger.handlers 
-            if type(h) is logging.StreamHandler and getattr(h, "stream", None) in (sys.stderr, sys.__stderr__)
-        ]
-        assert len(stderr_handlers) == 1
-
     def test_live_kernel_history_self_introspection_filter(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

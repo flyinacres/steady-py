@@ -4,12 +4,11 @@ import logging
 # Every module logs through a child of this logger (steady_py.<module>). It is set up here because this
 # file runs before any submodule is imported. Importing the package must not touch process-global state
 # (the standard streams, other loggers' handlers), so it only gets a NullHandler; the CLI entry point
-# (cli.main) calls configure_console() to attach the stderr handler and force UTF-8 output. It never
-# propagates to the root logger, so a host that configures logging (an IPython session, a test runner)
-# does not print every message twice.
+# (cli.main) calls configure_console() to attach the stderr handler and force UTF-8 output. As a
+# library it propagates, so a host that configures only the root logger still gets its messages;
+# configure_console() stops propagation, since its own handler would otherwise print them twice.
 _logger = logging.getLogger("steady_py")
 _logger.setLevel(logging.INFO)
-_logger.propagate = False
 if not _logger.handlers:  # guarded: a reload in a live kernel re-runs this file
     _logger.addHandler(logging.NullHandler())
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Mapping, Optional, Set, Tuple
 
 from steady_py import accelerator, localmodules, magics, resolution, scanning, util
-from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DEFAULT_IGNORED_DIRS, DependencyStatus, PLATFORM_PSEUDO_MODULES, StatusLabel, STD_LIB
+from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DEFAULT_IGNORED_DIRS, ENVIRONMENT_DIR_MARKERS, DependencyStatus, PLATFORM_PSEUDO_MODULES, StatusLabel, STD_LIB
 from steady_py.models import BatchAnalysisSummary, DiagnosticEvent, ExtractionResult, GpuInfo, NotebookAnalysisReport
 
 logger = logging.getLogger("steady_py.analyze")
@@ -139,10 +139,11 @@ def build_scan_result(
 
 
 def iter_notebook_paths(target_dir: str) -> Iterator[Path]:
-    """Every .ipynb under a directory, skipping hidden and ignored directories (the same rule for
-    scan, snapshot and check)."""
+    """Every .ipynb under a directory, skipping hidden and ignored directories and any virtual or
+    conda environment, whatever its name (the same rule for scan, snapshot and check)."""
     for root, dirs, files in os.walk(Path(target_dir)):
-        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in DEFAULT_IGNORED_DIRS]
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in DEFAULT_IGNORED_DIRS
+                   and not any((Path(root) / d / marker).exists() for marker in ENVIRONMENT_DIR_MARKERS)]
         for file in sorted(files):
             if file.endswith('.ipynb'):
                 yield Path(root) / file
