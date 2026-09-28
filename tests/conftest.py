@@ -4,6 +4,7 @@ from collections import defaultdict
 
 import pytest
 
+from tests.support.envs import build_base_venv
 from tests.support.fake_pypi import FakePyPI
 from tests.support.markers import TIERS
 
@@ -75,3 +76,9 @@ def pypi(_pypi_server, monkeypatch):
     if _pypi_server.strict and _pypi_server.unknown:
         pytest.fail(f"lookups of unregistered projects {sorted(set(_pypi_server.unknown))}: "
                     "register them with pypi.add(), or call pypi.allow_unknown()", pytrace=False)
+
+
+@pytest.fixture(scope="session")
+def base_venv(tmp_path_factory):
+    """pip, steady-py from a freshly built wheel, and its dependencies; built once per session."""
+    return build_base_venv(tmp_path_factory.mktemp("venvs"))
