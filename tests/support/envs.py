@@ -75,3 +75,8 @@ def install_project(venv: Venv, name: str, workdir: Path, editable: bool = False
     source = Path(shutil.copytree(PROJECTS / name, Path(workdir) / name))
     _pip(venv.python, "install", *OFFLINE, *(["-e"] if editable else []), source)
     return source
+
+
+def uninstall(venv: Venv, *names: str) -> None:
+    """Removes distributions from `venv`. Uninstalling pip itself gives a venv like uv's (E1)."""
+    _check(venv.python, "-m", "pip", "uninstall", "-y", "-q", *names)
