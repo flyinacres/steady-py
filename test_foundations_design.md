@@ -1,73 +1,78 @@
 # Test foundations design
 
-Scope: the shared support code that the tests in `test_triage_matrix.md` are built on. This is design only; code follows once the design settles, and the design is revised wherever the code proves it wrong.
+Scope: the shared support code that the tests in `test_triage_matrix.md` are built on. The design is revised wherever the code proves it wrong; items marked deferred are built when the first matrix row needs them.
 
 ## 1. Principles
 
 1. Tests are code. One owner per concern, as in the product: one notebook builder, one way to run the tool, one way to read its output, one fake PyPI. Evidence the current suite needs this: 15 notebook-writing helpers across 8 test files, and an `offline` fixture defined three times (`test_endpoints.py`, twice in `test_cli.py`).
 2. Assert outcomes at stable boundaries: exit code, the `--format json` report, the manifest literal in a written notebook, Cell 2's printed output. These survive the rearchitecture; internal function results don't.
-3. Coupling to internals lives in `tests/support/` only. New test files import `tests.support` and the public API (`steady_py.scan/snapshot/check/install`, the CLI), never `steady_py.<module>`. A hygiene test enforces this for the new test directory.
+3. Coupling to internals lives in `tests/support/` only. New test files import `tests.support` and the public API (`steady_py.scan/snapshot/check/install`, the CLI), never `steady_py.<module>`. A hygiene test enforces this for `tests/behavior/`: it rejects submodule imports, non-public names, `steady_py.<internal>` attribute access and `"steady_py.*"` strings (patch targets).
 4. Fake only external boundaries: the network (fake PyPI), and hardware (the existing fake GPU packages). The installed environment, the filesystem and the kernel are real. No monkeypatching of steady-py in new tests.
-5. Known bugs are strict xfails that must fail for the right reason: `raises=AssertionError`, so a harness crash (TypeError, missing fixture) is a real failure, not an expected one. The sabotage rule still applies when a bug is fixed and its xfail flips.
+5. Known bugs are strict xfails that must fail for the right reason: `raises=AssertionError`, so a harness crash (TypeError, missing fixture) is a real failure, not an expected one. For the same reason, setup inside a known-bug test (such as the snapshot that produces a manifest) raises `RuntimeError` when it fails, and support accessors raise `LookupError` or `ValueError` on misuse. The sabotage rule still applies when a bug is fixed and its xfail flips.
 6. Every matrix row maps to tests through a marker, so coverage of the matrix can be listed.
 
 ## 2. Layout
 
-1. `tests/support/`: `notebooks.py` (F1), `outcomes.py` and `runner.py` (F2), `fake_pypi.py` (F3), `sites.py` (F4), `envs.py` (F5 venvs and wheelhouse), `gitrepo.py` (F6), `kernel.py` (F7).
-2. `tests/conftest.py`: markers, the shared fixtures, and the `known_bug` helper.
-3. `tests/behavior/`: new tests grouped by product behavior, not by finding, so the files stay meaningful after the bugs are fixed: `test_reading.py`, `test_install_lines.py`, `test_environment.py`, `test_editables.py`, `test_pins.py`, `test_validation.py`, `test_runtime.py`, `test_output.py`.
-4. `tests/fixtures/`: saved artifacts. `notebooks/` (real-world patterns worth reading), `projects/` (stub package sources wheels are built from), `pypi/` (trimmed real PyPI responses shared by several tests).
-5. `tests/.wheelhouse/` (gitignored): downloaded build backends and built wheels.
-6. Existing test files stay in place until the pruning step.
+1. `tests/support/`: `markers.py` (`finding`, `known_bug`), `notebooks.py` (F1), `outcomes.py` and `runner.py` (F2), `fake_pypi.py` (F3), `sites.py` (F4), `envs.py` (F5 venvs and wheelhouse), `gitrepo.py` (F6), `kernel.py` (F7).
+2. `tests/__init__.py` makes `tests` a package, so `tests.support` imports under pytest's default import mode.
+3. `tests/conftest.py`: the tier markers and their deselection hook, the `--findings` listing, and the shared fixtures (`pypi`, `base_venv`). Shared fixtures and hooks live only here.
+4. `tests/behavior/`: new tests grouped by product behavior, not by finding, so the files stay meaningful after the bugs are fixed: `test_reading.py`, `test_install_lines.py`, `test_environment.py`, `test_editables.py`, `test_pins.py`, `test_validation.py`, `test_runtime.py`, `test_output.py`. Its `conftest.py` holds one directory-wide policy: every behavior test runs against the strict fake PyPI (autouse), so no behavior test reaches the real one.
+5. `tests/selftest/`: tests of the support code itself (markers, hygiene, notebook builder, runner, fake PyPI, site dirs, venvs).
+6. `tests/fixtures/`: saved artifacts. `notebooks/` (real-world patterns worth reading), `projects/` (stub package sources wheels are built from), `pypi/` (trimmed real PyPI responses shared by several tests).
+7. `tests/.wheelhouse/` (gitignored): downloaded build backends and built wheels.
+8. Existing test files stay in place until the pruning step.
 
 ## 3. Markers and tiers
 
 1. `venv`: runs the tool in a real venv (matrix layer V). `kernel`: a real kernel (L). `docker`: container scenarios (D).
-2. Default `pytest` deselects `venv`, `kernel` and `docker`, so the fast loop after each sub-step stays fast. `pytest -m venv` (and so on) runs a tier; `pytest -m "venv or kernel"` before a delivery.
-3. A tier whose prerequisites are missing (empty wheelhouse with no network, no git, no Docker) skips with a reason naming the missing piece; it never fails for that.
-4. `finding(id)`: attaches a matrix ID. `known_bug(id, why)` is the single decorator for a known bug: it applies `finding(id)` plus `xfail(strict=True, raises=AssertionError, reason=f"{id}: {why}")`. A small conftest hook, `--findings`, lists matrix IDs with their tests and status.
+2. When no `-m` is given, `pytest` deselects `venv`, `kernel` and `docker`, so the fast loop after each sub-step stays fast. `pytest -m venv` (and so on) runs a tier; `pytest -m "venv or kernel"` before a delivery. A tier test named only by node ID is still deselected; add `-m`.
+3. A tier whose prerequisites are missing (empty wheelhouse with no network, no git, no Docker) skips with a reason naming the missing piece; it never fails for that. Deferred until the wheelhouse exists: today a failed base-venv build is an error.
+4. `finding(id)` attaches a matrix ID. `known_bug(id, why)` is the single helper for a known bug: `finding(id)` plus `xfail(strict=True, raises=AssertionError, reason=f"{id}: {why}")`. It returns a list of marks that also works as a decorator, so it serves `@known_bug(...)`, `pytest.param(..., marks=known_bug(...))` for one parametrized case, and `pytestmark`.
+5. `pytest --findings` lists each matrix ID with its tests (status `known bug` or `covered`, tier, node ID), sorted naturally (K2 before K10), including deselected tiers, and runs nothing.
 
 ## 4. F1 Notebook builder
 
-1. A `Notebook` value: an ordered list of cells built with `md(text)` and `code(text, execution_count=None)`; `code` dedents its text so tests read naturally. Notebook metadata defaults to a Python kernelspec, with options for none (Kaggle HTML reconstructions) and for another language.
-2. `write(directory, name="nb.ipynb") -> Path` writes nbformat 4.5 JSON with cell IDs. Options for CRLF line endings and non-UTF-8 residue belong here, since they are properties of the file.
-3. The same `Notebook` value feeds the kernel runner (F7), so one scenario runs in file mode and in live mode. That gives file-versus-live parity checks for free (G15, K12).
-4. Manifest-carrying notebooks come from running a real `snapshot` on a builder notebook. Scenarios that need an altered manifest (old baseline, tampered hash) use one support function that edits the literal and, when wanted, recomputes the hash through `models`: the one place tests touch manifest internals.
-5. Saved notebooks: real-world patterns used by several tests or worth a human reading (a Colab-guarded install, a cookbook-style multi-install cell, a conda cell). `kitchen_sink.ipynb` and `magic_sink.ipynb` stay. Single-test scenarios are built inline, so test and data sit together.
+1. `Notebook(*cells, metadata=None)`, with cells from `md(text)` and `code(text, execution_count=None)`. Both dedent their text and drop only the newline that follows opening triple quotes, plus trailing whitespace; a cell that must start with blank lines (G13) adds them after that newline. `metadata=None` gives a Python kernelspec; `{}` gives none (Kaggle HTML reconstructions); any other dict is used as given (another language).
+2. `Notebook.write(directory, name="nb.ipynb") -> Path` writes nbformat 4.5 JSON: deterministic cell IDs (`cell-N`), sources split after each `\n` as Jupyter stores them, UTF-8, written with `newline="\n"` so the file is byte-identical on Windows and Linux. The self-test validates with `nbformat` with warnings as errors, since `nbformat` repairs missing IDs with only a warning.
+3. Deferred: options for CRLF line endings and non-UTF-8 residue, which belong on `write` since they are properties of the file.
+4. The same `Notebook` value feeds the kernel runner (F7), so one scenario runs in file mode and in live mode. That gives file-versus-live parity checks for free (G15, K12).
+5. Manifest-carrying notebooks come from running a real `snapshot` on a builder notebook. Deferred: scenarios that need an altered manifest (old baseline, tampered hash) use one support function that edits the literal and, when wanted, recomputes the hash through `models`: the one place tests touch manifest internals.
+6. Saved notebooks: real-world patterns used by several tests or worth a human reading (a Colab-guarded install, a cookbook-style multi-install cell, a conda cell). `kitchen_sink.ipynb` and `magic_sink.ipynb` stay. Single-test scenarios are built inline, so test and data sit together.
 
 ## 5. F2 Runner and outcomes
 
-1. One `Outcome` type for every way of running the tool: `exit_code`, `report` (parsed JSON or None), `log` (text), `written` (paths).
-2. `run(*argv)` runs in-process through `cli.main(argv)` and catches `SystemExit`. It captures stdout with `redirect_stdout`, and log output with a handler attached to the `steady_py` logger for the call, not stderr: `configure_console` binds `sys.stderr` on its first call and keeps it, so a later test's stderr capture would miss messages. It restores the logger's level and handlers afterward, because `--quiet` and `--verbose` set the level for the life of the process.
-3. `run_in(venv, *argv)` runs the same arguments as a subprocess of a venv's interpreter and returns the same `Outcome`, so a test can move between layers without changing its assertions.
-4. Accessors over the report, the only code that knows its shape: `pins()` (canonical name to specifier), `dependency(name)` (status, flags), `raw_installs()`, `warnings(type=None, cell=None)`, `notices(...)`, `delta()`. Diagnostics match on `DiagnosticEvent.type`, never on message text.
-5. `manifest(path)` reads a written notebook with its own per-cell `ast` search for the `STEADY_PY_MANIFEST` assignment and `ast.literal_eval`. It deliberately doesn't use steady-py's extractor, which has its own bug (K1); an oracle must not share the code under test.
-6. Rendered text is asserted only where the text is the behavior (E8, D6, runtime summaries), through `cell2_text()` and `install_output()` accessors, with a short comment in each test saying why text is the contract.
+1. One `Outcome` type for every way of running the tool: `exit_code`, `stdout`, `log` (text), `report` (parsed JSON or None), and `written` (paths, derived from the report's `artifacts_written`).
+2. `run(*argv)` runs in-process through `cli.main(argv)` and catches `SystemExit`. It adds `--format json` unless a format is given. It captures stdout with `redirect_stdout`, and log output with a handler attached to the `steady_py` logger for the call, not stderr: `configure_console` binds `sys.stderr` on its first call and keeps it, so a later test's stderr capture would miss messages. The handler is a subclass of `StreamHandler`, so the CLI still installs its own stderr handler exactly as in real use. The logger's level and handlers are restored afterward, because `--quiet` and `--verbose` set the level for the life of the process.
+3. `run_in(venv, *argv, env=None)` runs `python -m steady_py` with the same arguments on the venv's interpreter and returns the same `Outcome`, with stderr as the log, so a test can move between layers without changing its assertions. It removes the inherited `PYTHONPATH`, `PYTHONHOME` and `VIRTUAL_ENV`, then applies `env` (such as `sites.pythonpath(...)`), so nothing from the test process leaks in.
+4. Accessors over the report, the only code that knows its shape: `dependencies()`, `pins()` (canonical name to version, for entries Cell 2 installs; a commented entry is excluded, since the comment is the only reliable discriminator while `status` is wrong, P6), `dependency(name)` (the entry, or None), `warnings(type=None)`, `notices(type=None)`, `delta()`. Diagnostics match on `DiagnosticEvent.type`, never on message text. There is no cell filter: today's cell numbering is itself a finding (P7), so cell position is asserted only in P7's test, by notebook position. Tests assert `exit_code` before using accessors.
+5. Deferred: `raw_installs()`, and a per-notebook view for directory reports (accessors raise `ValueError` on a directory report today).
+6. `manifest(path)` reads a written notebook with its own search for the `STEADY_PY_MANIFEST` assignment and `ast.literal_eval`: each code cell parsed alone (cells that don't parse are skipped; Cell 2 is plain Python), top-level assignments only, exactly one required. It deliberately doesn't use steady-py's extractor, which has its own bug (K1); an oracle must not share the code under test.
+7. Rendered text is asserted only where the text is the behavior (E8, D6, runtime summaries), through `cell2_text()` and `install_output()` accessors (deferred), with a short comment in each test saying why text is the contract.
 
 ## 6. F3 Fake PyPI
 
-1. A threaded `http.server` on `127.0.0.1`, one per session on an ephemeral port. The `pypi` fixture clears its registry per test and sets `STEADY_PY_PYPI_URL`, so it works in-process and in subprocesses (the V tier passes the environment through).
-2. Registry API: `pypi.add(name, releases={version: {...}})`, where each release takes `requires_dist`, `requires_python`, `yanked`, `upload_time`. The fake builds PyPI-shaped JSON for `/pypi/<name>/json` and `/pypi/<name>/<version>/json` with only the fields steady-py reads, and normalizes the path name per PEP 503.
-3. Failure injection per project or version: 404, HTTP 500, and a connection closed mid-body (K3's `IncompleteRead` and `RemoteDisconnected`). A true timeout is left out: the client timeout is 10 seconds and not configurable, and the closed-connection case exercises the same handler.
-4. Strict by default: a lookup of an unregistered project returns 404 and is recorded, and the fixture fails the test at teardown unless the test declared `pypi.allow_unknown()`. A silent 404 would otherwise masquerade as "not on PyPI".
-5. Realistic graphs (torch's platform-marked `requires_dist` for K5) load from trimmed real responses in `tests/fixtures/pypi/`, captured once by a small script and reduced to the fields used.
+1. A threaded `http.server` on `127.0.0.1`, one per session on an ephemeral port. The `pypi` fixture clears its registry per test and sets `STEADY_PY_PYPI_URL` and `no_proxy=127.0.0.1` through the environment, so it works in-process and in subprocesses.
+2. Registry API: `pypi.add(name, releases={version: {...}})`, where each release takes `requires_dist`, `requires_python`, `yanked`, `yanked_reason`, `upload_time`, all optional. The fake builds PyPI-shaped JSON for `/pypi/<n>/json` and `/pypi/<n>/<version>/json` with only the fields steady-py reads. Names are normalized per PEP 503, and versions match by PEP 440 equality, as live PyPI does (`/pypi/packaging/21.0.0/json` returns 21.0); a local tag such as `+cu126` matches only itself. `info.version` is the highest final release. `upload_time` defaults to 30 days before the request, so heuristic staleness findings never appear as fixtures age.
+3. Failure injection per project or per version with `pypi.fail(name, mode, version=None)`: `404`, `500`, `drop` (the connection closes with no status line; the client raises `RemoteDisconnected`) and `truncate` (a Content-Length longer than the body; the client raises `IncompleteRead`). Both of the last two escape `urllib` as raw `http.client` errors, which is K3's premise. A true timeout is left out: the client timeout is 10 seconds and not configurable, and the closed-connection case exercises the same handler.
+4. Strict by default: a lookup of an unregistered project returns 404 and is recorded, and the fixture fails the test at teardown unless the test declared `pypi.allow_unknown()`. A silent 404 would otherwise masquerade as "not on PyPI". A missing version of a registered project is a plain 404, since removed versions are a scenario.
+5. Deferred until K5: realistic graphs (torch's platform-marked `requires_dist`) load from trimmed real responses in `tests/fixtures/pypi/`, captured once by a small script and reduced to the fields used.
 6. Later: the PEP 691 simple API, when index lookups for custom-index pins are built (CI1).
 7. This replaces the three `offline` fixtures and the `urlopen` patch in `test_drift_check.py` when those files are migrated.
 
 ## 7. F4 Site directories and dist-infos
 
-1. `SiteDir(path).add(name, version, ...)` writes `<name>-<version>.dist-info/` with `METADATA` (name, version, `Requires-Dist`, `Provides-Extra`), `INSTALLER`, `RECORD`, `top_level.txt`, and optional `direct_url.json`, plus the module files it lists. `RECORD` entries need no hashes; neither `importlib.metadata` nor `pip freeze` checks them.
-2. Recurring shapes are plain functions, not subclasses: `conda_stub` (INSTALLER `conda`, METADATA only, as conda-forge's OpenCV recipe writes), `vcs_ref(commit, subdirectory)`, `file_url(path)`, `editable(source_dir)` (`dir_info.editable` plus a `.pth`).
+1. `SiteDir(path).add(name, version, *, requires, extras, modules, top_level, installer, direct_url, metadata_only)` writes `<n>-<version>.dist-info/` with `METADATA` (name, version, `Requires-Dist`, `Provides-Extra`), `INSTALLER`, `RECORD`, optional `top_level.txt` and `direct_url.json`, plus the module files it lists. `modules` are paths relative to the site dir (default: one package named after the project); `top_level=False` models backends that don't write `top_level.txt`. `RECORD` entries need no hashes; neither `importlib.metadata` nor `pip freeze` checks them.
+2. Recurring shapes are keyword bundles for `add`, not subclasses: `CONDA_STUB` (INSTALLER `conda`, METADATA only, as conda-forge's OpenCV recipe writes), `vcs_ref(url, commit, subdirectory=None)`, `file_url(path)`. There is no editable shape: a `.pth` file is processed only in a real site directory, never in a `PYTHONPATH` entry, so the module wouldn't import. Editables come from real `pip install -e` in F5's per-test venvs.
 3. Versions are written verbatim, so legacy versions (E6) and local tags (`2.6.0+cu124`) need no build tool.
-4. Consumption is subprocess-only. The tool reads its own interpreter, and it runs `pip freeze` in a subprocess that sees `PYTHONPATH` but not in-process `sys.path` edits, so in-process use would give inconsistent environments. Site dirs are placed on `PYTHONPATH` of a `run_in` call, in order, which also produces shadowing (E3, K6) without a second venv.
-5. The writer has self-tests with an independent oracle: `pip freeze` and `importlib.metadata` in the base venv must both report each written shape as intended.
+4. Consumption is subprocess-only. The tool reads its own interpreter, and it runs `pip freeze` in a subprocess that sees `PYTHONPATH` but not in-process `sys.path` edits, so in-process use would give inconsistent environments. `pythonpath(*sites)` builds the environment entry (joined with `os.pathsep`) for a `run_in` call, in order, which also produces shadowing (E3, K6) without a second venv.
+5. The writer's self-test uses the current interpreter in a subprocess as its independent oracle: `pip freeze` and `importlib.metadata` must both report each written shape as intended (plain with an extra, shadowed copy, legacy `===`, local tag, conda stub, VCS with `#subdirectory=`, `file://` archive, a namespace package shared by two distributions). Invented names are used, since real ones (`google`) are often provided by packages already installed.
 
 ## 8. F5 Venvs and wheelhouse
 
-1. Base venv: session-scoped, `python -m venv`, with steady-py installed from a wheel built once per session. Non-editable on purpose, so steady-py itself doesn't appear as an editable in the environment it inspects. It contains only pip, steady-py and its dependencies, so it is deterministic.
-2. `venv.python` abstracts `bin/python` versus `Scripts\python.exe`.
-3. Variants: `without_pip` (E1: freeze has nothing to run), and fresh per-test venvs for tests that need real installs (editables, R1 to R3, D6, E2a, E5). Those cost a few seconds each; about 12 tests.
-4. Wheelhouse contents:
+1. Base venv: session-scoped `base_venv` fixture. `pip wheel` builds steady-py from the repository once per session, and the wheel is installed into a new venv. Non-editable on purpose, so steady-py itself doesn't appear as an editable in the environment it inspects. It contains only pip, steady-py and its dependencies, so it is deterministic. The build takes about 7 seconds on Linux and currently needs network access (build isolation fetches setuptools; the install fetches `packaging` and `resolvelib`).
+2. `create_venv(path, with_pip=True)` returns a `Venv`; `Venv.python` abstracts `bin/python` versus `Scripts\python.exe`.
+3. Pending: the `without_pip` variant for E1 (freeze has nothing to run; `create_venv(..., with_pip=False)` provides the venv), and fresh per-test venvs for tests that need real installs (editables, R1 to R3, D6, E2a, E5). Those cost a few seconds each; about 12 tests.
+4. Pending: wheelhouse contents.
    1. Build backends (setuptools, wheel, hatchling, pdm-backend, editables), downloaded once with `pip download`. The tier skips when they're absent and there's no network.
    2. Stub wheels built per session from `tests/fixtures/projects/`: `demo-extras` (an extra, R1), `demo-a` and `demo-b` (installing B moves A, R2), `demo-loc` at `1.0+cu126` (R3), `demo-broken` (D6), an in-tree project depending on `demo-a` (ED1, avoiding a network dependency), a hatchling fork providing a renamed module (ED4), a pdm project, and a monorepo with `alpha` and `beta` (E5, via F6). The existing `notebook_env_test_fixture` package folds in here under a new name.
 5. Installs run with `PIP_NO_INDEX=1` and `PIP_FIND_LINKS=<wheelhouse>`, the mechanism development.md already documents for Cell 2. Editable builds keep build isolation, which also resolves backends from find-links offline, so backends never land in the test venv.
@@ -94,7 +99,6 @@ Scope: the shared support code that the tests in `test_triage_matrix.md` are bui
 
 1. `pypi.py`: the PyPI base URL comes from `STEADY_PY_PYPI_URL` (default `https://pypi.org`), read on every call. It's also mirror support; README and HELP don't mention it yet.
 2. `cli.py`: `main(argv=None)` passes `argv` to `parse_args`, so the in-process runner doesn't patch `sys.argv`. Behavior is otherwise unchanged; the console script and `__main__` call it with no arguments.
-3. Verified: `test_drift_check.py` and `test_cli.py` pass (223 tests) on a locally rebuilt `src/` layout.
 
 ## 13. To verify while coding
 
@@ -103,3 +107,7 @@ Scope: the shared support code that the tests in `test_triage_matrix.md` are bui
 3. `DiagnosticEvent.to_dict` omits `level`; warnings and notices are separate lists, so matching by `type` within the list should suffice. Confirm no two diagnostics share a `type` with different meanings.
 4. Whether per-session base-venv creation is fast enough, or should be cached across sessions keyed on a hash of `src/` and `pyproject.toml`.
 5. The ANSI code-page case in E1 runs only on the Windows host.
+6. Windows: with no proxy environment variables, `urllib` reads the registry proxy settings; a system proxy without a `<local>` bypass would route requests to the fake PyPI through the proxy.
+7. Windows: when the dev environment is itself a venv, `python -m venv` bases the new venv on the underlying installation, as intended.
+8. How PyPI chooses `info.version` when the newest release is yanked; the fake counts yanked releases. It matters only for the stale and newer-major heuristics.
+9. Suite time: each snapshot-based case runs its own snapshot (K1 and K2 add about 30 seconds on Linux). If later snapshot-based groups push the default run past about 2 minutes, snapshot a plain notebook once and append each case's cell to a copy.
