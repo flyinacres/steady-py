@@ -1,11 +1,11 @@
-"""Tests under tests/behavior reach steady-py only through its public API and tests/support, so
+"""Tests under tests/behavior and tests/characterization reach steady-py only through its public API and tests/support, so
 they survive the rearchitecture. This check keeps them honest."""
 import ast
 from pathlib import Path
 
 import steady_py
 
-BEHAVIOR_DIR = Path(__file__).resolve().parents[1] / "behavior"
+BOUNDARY_DIRS = [Path(__file__).resolve().parents[1] / d for d in ("behavior", "characterization")]
 PUBLIC = set(steady_py.__all__)
 
 
@@ -26,8 +26,8 @@ def violations(source: str) -> list:
     return found
 
 
-def test_behavior_tests_use_only_the_public_api():
-    bad = {p.name: v for p in BEHAVIOR_DIR.rglob("*.py") if (v := violations(p.read_text(encoding="utf-8")))}
+def test_boundary_tests_use_only_the_public_api():
+    bad = {p.name: v for d in BOUNDARY_DIRS for p in d.rglob("*.py") if (v := violations(p.read_text(encoding="utf-8")))}
     assert bad == {}
 
 

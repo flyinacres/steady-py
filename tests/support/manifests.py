@@ -33,15 +33,17 @@ def snapshotted(directory: Path, *cells: Cell, extra: Iterable[Cell] = ()) -> Pa
     return write_json(data, directory, "nb_merged.ipynb")
 
 
-def altered(path: Path, edit: Callable[[dict], None]) -> Path:
+def altered(path: Path, edit: Callable[[dict], None], rehash: bool = True) -> Path:
     """The notebook at `path`, rewritten in place with `edit` applied to its manifest literal and
-    the hash recomputed through models, as a manifest another tool version wrote would be."""
+    the hash recomputed through models, as a manifest another tool version wrote would be.
+    rehash=False keeps the stored hash, as a hand edit would."""
     path = Path(path)
     data = json.loads(path.read_text(encoding="utf-8"))
     cell, node = find_manifest(data)
     literal = ast.literal_eval(node.value)
     edit(literal)
-    literal["dependency_hash"] = SteadyPyManifest.from_literal(literal).verified_hash
+    if rehash:
+        literal["dependency_hash"] = SteadyPyManifest.from_literal(literal).verified_hash
     lines = "".join(cell["source"]).splitlines(keepends=True)
     lines[node.lineno - 1:node.end_lineno] = [f"STEADY_PY_MANIFEST = {literal!r}\n"]
     cell["source"] = lines

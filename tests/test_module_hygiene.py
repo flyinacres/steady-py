@@ -12,6 +12,7 @@ from pathlib import Path
 
 import steady_py
 from steady_py import resolution
+from tests.support.markers import finding
 
 SRC_DIR = str(Path(steady_py.__file__).resolve().parents[1])
 
@@ -37,6 +38,7 @@ def test_import_leaves_streams_and_logging_untouched():
     assert out == "True ['NullHandler'] True"
 
 
+@finding("H3")
 def test_library_messages_reach_a_hosts_root_logger():
     """H3: a host that configures only the root logger (a library user, a notebook) gets them."""
     out = _run(
@@ -135,6 +137,7 @@ def _unimported_submodule_uses(path: Path) -> list:
     return sorted(found)
 
 
+@finding("K4")
 def test_every_submodule_used_is_imported_explicitly():
     package_dir = Path(steady_py.__file__).resolve().parent
     assert [u for path in sorted(package_dir.glob("*.py")) for u in _unimported_submodule_uses(path)] == []
