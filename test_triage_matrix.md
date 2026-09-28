@@ -38,23 +38,23 @@ Now: a point fix that survives any architecture; write the test and fix together
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ----- | ------- | ---------------------------------------------------------------------------------------------------------------- |
 | K1  | One IPython line breaks manifest extraction; blanking corrupts valid Python                                                                                           | Y       | U     | F1      | check and scan-delta on a notebook with `x = !ls`, `df?`, a triple-quote ending on a `%` line                    |
 | K2  | Unparseable cell drops its imports silently                                                                                                                           | Y       | U     | F1      | Expect imports found or a diagnostic naming the cell, never silence                                              |
-| G1  | Guarded install line erases the cell's imports                                                                                                                        | Y       | U     | F1      |                                                                                                                  |
+| G1  | Guarded install line erases the cell's imports                                                                                                                        | Y       | U     | F1      | Corpus: 14.6% of install lines in 3.10+ notebooks are guarded (3.6% in 3.7 and earlier) |
 | G13 | `%%writefile` with leading blank lines scanned as code                                                                                                                | Y       | U     | F1      |                                                                                                                  |
 | G15 | Live kernel reads transformed source; no install lines harvested                                                                                                      | Y       | L     | F7      | One cell per form: `%pip`, `!pip`, `%%writefile`, `%conda`. Existing tests patch the reader and can't catch this |
-| D1  | Live session counts `steady_py` as an import Also in file mode: a scan of a snapshotted notebook reports Cell 2's import steady_py as a platform module (tested at U) | Y       | L     | F7      |                                                                                                                  |
+| D1  | Live session counts `steady_py` as an import | Y       | L     | F7      | Also in file mode: a scan of a snapshotted notebook reports Cell 2's `import steady_py` as a platform module (tested at U) |
 | P7  | Batch notices lose their notebook; cell numbers match nothing visible                                                                                                 | Y       | U     | F1      | Markdown cells before code; same notice in two notebooks                                                         |
 
 ## Install-line harvesting
 
 | ID  | Finding                                                               | Settled | Layer | Fixture    | Notes                                                                                                                                       |
 | --- | --------------------------------------------------------------------- | ------- | ----- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| G3  | Guarded install treated as top-level                                  | Y       | U     | F1         | Per the guarded-installs decision: not pinned unconditionally, reported                                                                     |
+| G3  | Guarded install treated as top-level                                  | Y       | U     | F1         | Per the guarded-installs decision: not pinned unconditionally, reported; Corpus: see G1 |
 | G6  | Exclusive branches collapse to the last pin                           | Y       | U     | F1         | Follows G3; one test file                                                                                                                   |
 | G4  | `%pip install $pkg` becomes package `$pkg`                            | Y       | U     | F1         | Warning, no package                                                                                                                         |
-| G5  | Missed install forms                                                  | Y       | U     | F1         | Parametrize: `python -m pip`, `{sys.executable} -m pip`, `os.system`, `subprocess` list, `get_ipython().system`, `%uv pip`, `conda run pip` |
+| G5  | Missed install forms                                                  | Y       | U     | F1         | Parametrize: `python -m pip`, `{sys.executable} -m pip`, `os.system`, `subprocess` list, `get_ipython().system`, `%uv pip`, `conda run pip`; Corpus: the `subprocess` list form is 11.2% of install lines in 3.10+ notebooks |
 | G11 | `--opt=value` flags dropped                                           | Y       | U     | F1         |                                                                                                                                             |
 | G12 | PEP 508 direct reference split into three entries                     | Y       | U     | F1         | Unquoted form flagged                                                                                                                       |
-| G14 | `--no-deps` and raw-install index flags dropped                       | Y       | U     | F1         | Assert on manifest fields                                                                                                                   |
+| G14 | `--no-deps` and raw-install index flags dropped                       | Y       | U     | F1         | Assert on manifest fields; Corpus: `--no-deps` on 11.5% of install lines in 3.10+ notebooks |
 | G16 | Install line with extras produces an invalid pin                      | Y       | V     | F4, F3     | Pair with R1                                                                                                                                |
 | P4  | `-e path` vanishes with no warning                                    | Y       | U     | F1         |                                                                                                                                             |
 | C2  | mamba, micromamba, `conda env update` give no notice                  | Y       | U     | F1         | `--file` handled like `-r`                                                                                                                  |
@@ -63,7 +63,9 @@ Now: a point fix that survives any architecture; write the test and fix together
 | G7  | Non-literal dynamic imports: generic warning                          | N       |       |            | Behavior undefined                                                                                                                          |
 | G8  | Guard tagging coarse                                                  | N       |       |            | No agreed guard classes                                                                                                                     |
 | G9  | Wrapper helper loses guard                                            | N       |       |            | Follows the AST change                                                                                                                      |
-| G17 | Non-canonical install name listed twice, plus a nameless header entry | Y       | U     | F1         | D5 is its directory-scan symptom                                                                                                            |
+| G17 | Non-canonical install name listed twice, plus a nameless header entry | Y       | U     | F1         | D5 is its directory-scan symptom; also the nameless `%%writefile` header entry                                                                                                            |
+| G18 | Trailing comment on an install line harvested as packages | Y | U | F1 | 99 corpus lines |
+| G19 | Combined short flags (`-qr file`) hide `-r` | Y | U | F1 | 48 corpus lines |
 
 ## Environment capture
 
@@ -158,9 +160,9 @@ DG1 optional-dependency candidates, DG2 guarded-alternative reporting, DG3 platf
 
 ## Totals
 
-80 rows: 56 Y, 5 P, 13 N, 3 S, 3 C.
+83 rows: 59 Y, 5 P, 13 N (including the six design gaps), 3 S, 3 C.
 
-By layer (Y and P, 61 rows): 31 U, 24 V, 3 L, 3 D. Docker is needed for three runtime rows plus a one-time conda confirmation.
+By layer (Y and P, 64 rows): 34 U, 24 V, 3 L, 3 D. Docker is needed for three runtime rows plus a one-time conda confirmation.
 
 Now: K3, K4, H3, DR1, all fixed.
 

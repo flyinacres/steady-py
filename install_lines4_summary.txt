@@ -1,0 +1,115 @@
+corpus_install_scan.py test_notebooks install_lines4.csv
+
+combined_short_flag_lines                48
+conda:conda_create                       6
+conda:conda_env                          2
+conda:conda_install                      47
+conda:mamba_create                       2
+conda:mamba_install                      7
+duplicate_skipped                        1033
+enclosing:)                              1
+enclosing:def                            85
+enclosing:elif                           8
+enclosing:else                           32
+enclosing:except                         76
+enclosing:for                            26
+enclosing:if                             298
+enclosing:shell_cond                     22
+enclosing:top_level                      4123
+enclosing:try                            15
+enclosing:with                           2
+enclosing_platform:colab                 97
+enclosing_platform:import_error          37
+enclosing_platform:kaggle                1
+force_reinstall_lines                    31
+form:bare_pip                            199
+form:call                                29
+form:other                               1
+form:pip_magic                           363
+form:python_m_pip                        41
+form:shell                               3727
+form:subprocess_list                     307
+form:sys_executable                      21
+install_lines                            4688
+nb_condacolab                            1
+nb_platform:colab                        299
+nb_platform:gpu_check                    936
+nb_platform:import_error                 153
+nb_platform:kaggle                       5854
+nb_python:2.7                            6
+nb_python:3.10                           2031
+nb_python:3.11                           1223
+nb_python:3.12                           1610
+nb_python:3.13                           45
+nb_python:3.14                           50
+nb_python:3.4                            2
+nb_python:3.5                            406
+nb_python:3.6                            4952
+nb_python:3.7                            183
+nb_python:3.8                            122
+nb_python:3.9                            124
+nb_python:unknown                        1013
+nb_signal:excel                          130
+nb_signal:hdf                            26
+nb_signal:html_xml                       2
+nb_signal:hv_extension                   11
+nb_signal:nltk_download                  150
+nb_signal:parquet                        227
+nb_signal:spacy_model                    47
+nb_signal:sql                            49
+nb_signal:styler                         344
+nb_signal:to_markdown                    9
+nb_signal_undeclared:excel               112
+nb_signal_undeclared:hdf                 24
+nb_signal_undeclared:html_xml            2
+nb_signal_undeclared:parquet             217
+nb_signal_undeclared:spacy_model         43
+nb_signal_undeclared:sql                 45
+nb_signal_undeclared:styler              344
+nb_signal_undeclared:to_markdown         8
+nb_with_install                          2600
+nb_with_repeat_install                   98
+no_deps_lines                            341
+notebooks                                11767
+req_join:cli_only                        61
+req_join:computed                        239
+req_join:imported_after_install          3709
+req_join:imported_before_install         220
+req_join:not_imported                    2148
+req_join:pip_itself                      30
+req_join:unnamed                         670
+req_kind:bare                            5049
+req_kind:exact                           591
+req_kind:path                            496
+req_kind:range                           527
+req_kind:unparsed                        11
+req_kind:url                             164
+req_kind:variable                        239
+requirement_file_lines                   114
+skipped:comment_mention                  10
+skipped:string_mention                   58
+skipped_language:r                       271
+skipped_language:scala                   1
+trailing_comment_lines                   99
+unreadable                               3
+upgrade_lines                            806
+
+group                              nbs      dups    w/inst     lines        -U        == imp_after   not_imp   guarded     colab  odd_form     conda    undecl
+GTXvsRTX                             3         0         0         0         0         0         0         0         0         0         0         0         0
+ISLP_labs                            6         0         1         1         0         0         1         0         0         0         0         0         0
+PythonDataScienceHandbook          101        35         0         0         0         0         0         0         0         0         0         0         0
+big_data                             8         0         0         0         0         0         0         0         0         0         0         0         0
+cookbook                           148         5       131       168       130        11       204        25         1       145         0         0         2
+databricks                           6         0         3         6         2         1         2         3         0         0         0         0         0
+datashader                           7         2         0         0         0         0         0         0         0         0         0         0         1
+fastbook                            21        23        21        21        21         1        24         1        21        21         0         0         3
+handson-ml3                         26         2         5         7         6         0         4         3         7         9         0         0         1
+huggingface                        683       842       537       724        64        79      1047       630         8         7         5         3         3
+kaggle_corpus                    10470       124      1843      3624       565       496      2389      1466       328        76       355        57       778
+kaggle_samples                      46         0         6         8         1         0         9         8         0         1         0         0         2
+mine                                 2         0         2         2         0         0         3         2         0         0         0         0         0
+packt                               32         0         9        44        12         1        10         3        16         5        38         0         1
+papermill                            7         0         0         0         0         0         0         0         0         0         0         0         0
+sagemaker                            9         0         6        12         5         2         9         3         0         0         1         0         0
+teachopencadd                       35         0        35        70         0         0         6         4        70        35         0         4         4
+trainindata                        157         0         1         1         0         0         1         0         0         0         0         0         0

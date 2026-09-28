@@ -2,9 +2,16 @@
 
 1. Import/install join   2. Guards and platform checks
 3. Optional-dependency signals   4. Install and conda forms
-Usage: python corpus_install_scan.py <corpus_dir> [out.csv]
-Stdlib only; independent of steady-py's harvester.
+Usage: python corpus_install_scan.py <corpus_dir> [out.csv] [--min-python X.Y]
+Stdlib only; independent of steady-py's harvester. Install lines are parsed as the shell and pip
+would: a trailing ' #' comment is dropped and combined short flags (-qr file) are expanded; both are
+counted (trailing_comment_lines, combined_short_flag_lines) and flagged in the CSV detail.
+Mentions of 'pip install' in comments or ordinary strings (print, variables) are skipped and counted.
 Notebooks whose code (comments ignored) duplicates an earlier one are skipped and counted.
+--min-python skips notebooks whose recorded Python is older (e.g. 3.8); unknown versions are kept.
+Notebooks in other languages (R, Julia) are skipped and counted as skipped_language:<name>.
+The CSV has a python column (major.minor, or empty) for cross-tabs by era. The console summary is
+also written to <out>_summary.txt next to the CSV.
 """
 import csv, hashlib, itertools, json, re, shlex, sys
 from collections import Counter, defaultdict
@@ -61,6 +68,7 @@ def first_import(imports, pip):
 
 def form_of(s):
     if s.startswith("%uv"): return "uv_magic"
+    if re.match(r"pip3?\s", s): return "bare_pip"  # IPython automagic
     if s.startswith("%pip"): return "pip_magic"
     if "{sys.executable}" in s: return "sys_executable"
     if s.startswith("%"): return "magic"
@@ -69,8 +77,29 @@ def form_of(s):
     if s.startswith("!"): return "shell"
     return "other"
 
+def split_comment(text):
+    """(code, had_comment): cut at a '#' that starts a word outside quotes, as the shell does.
+    A '#' inside a word (url#egg=x) is kept."""
+    quote = None
+    for i, ch in enumerate(text):
+        if quote:
+            quote = None if ch == quote else quote
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "#" and (i == 0 or text[i - 1].isspace()):
+            return text[:i], True
+    return text, False
+
+def mention_kind(prefix, form):
+    """Why a 'pip install' match is only a mention: inside a comment, or inside a string that is
+    not passed to a shell-running call. None when it is a real install."""
+    if split_comment(prefix)[1]: return "comment_mention"
+    in_string = sum(prefix.count(q) for q in "'\"") % 2 == 1
+    return "string_mention" if in_string and form not in ("call", "sys_executable") else None
+
 def parse_tokens(toks):
-    flags, reqs, skip = set(), [], False
+    """(flags, reqs, combined): combined is True when a value flag sat inside a short-flag cluster."""
+    flags, reqs, skip, combined = set(), [], False, False
     for t in toks:
         if t in STOP or t.startswith((">", "2>")): break
         t = t.strip("'\"),;]")
@@ -80,10 +109,14 @@ def parse_tokens(toks):
             name = t.split("=", 1)[0]; flags.add(name)
             skip = name in VALUE_FLAGS and "=" not in t
         elif t.startswith("-") and len(t) > 1:
-            if "-" + t[1] in VALUE_FLAGS: flags.add("-" + t[1]); skip = len(t) == 2
-            else: flags.update("-" + c for c in t[1:])
+            for k, c in enumerate(t[1:], 1):  # -qr file, -rfile: optparse reads the rest as the value
+                flags.add("-" + c)
+                if "-" + c in VALUE_FLAGS:
+                    combined |= k > 1
+                    skip = k == len(t) - 1
+                    break
         else: reqs.append(req_info(t))
-    return flags, reqs
+    return flags, reqs, combined
 
 def req_info(t):
     if "$" in t or "{" in t: return None, "variable"
@@ -118,8 +151,22 @@ def code_hash(cells):
         code += [l.strip() for l in src.splitlines() if l.strip() and not l.strip().startswith("#")]
     return hashlib.sha1("\n".join(code).encode()).hexdigest()
 
-def scan_notebook(nb, cells, rows):
+def language(meta):
+    """The notebook's language, lowercased; python when nothing is recorded."""
+    info, spec = meta.get("language_info") or {}, meta.get("kernelspec") or {}
+    return str(info.get("name") or spec.get("language") or "python").lower()
+
+def python_version(meta):
+    """Major.minor of the notebook's recorded Python, or None (also for other languages)."""
+    if language(meta) != "python": return None
+    version = (meta.get("language_info") or {}).get("version") or ""
+    if not version and "python2" in str((meta.get("kernelspec") or {}).get("name", "")): return "2"
+    m = re.match(r"(\d+)\.(\d+)", version)
+    return f"{m.group(1)}.{m.group(2)}" if m else None
+
+def scan_notebook(nb, cells, rows, meta=None):
     stats = Counter()
+    stats[f"nb_python:{python_version(meta or {}) or 'unknown'}"] += 1
     imports, installs, shell_cmds, text = {}, [], set(), []
     for ci, cell in enumerate(cells, 1):
         if cell.get("cell_type") != "code": continue
@@ -128,7 +175,7 @@ def scan_notebook(nb, cells, rows):
         body = "\n".join(lines)
         for m in PIP_LIST.finditer(body):  # list-form subprocess calls, matched across lines
             li = body.count("\n", 0, m.start())
-            flags, reqs = parse_tokens(re.findall(r"['\"]([^'\"]+)['\"]", m.group(1)))
+            flags, reqs, _ = parse_tokens(re.findall(r"['\"]([^'\"]+)['\"]", m.group(1)))
             if not reqs and not flags & {"-r", "--requirement"}:
                 reqs = [(None, "variable")]  # package passed as a variable, e.g. a loop
             installs.append(dict(pos=(ci, li), form="subprocess_list", flags=flags, reqs=reqs,
@@ -153,13 +200,18 @@ def scan_notebook(nb, cells, rows):
                 w = w[1:] if w[:1] == ["sudo"] else w
                 if w: shell_cmds.add(w[0])
             for m in PIP_STR.finditer(raw):
-                try: toks = shlex.split(m.group(1))
-                except ValueError: toks = m.group(1).split()
                 form, prefix = form_of(s), raw[:m.start()]
-                flags, reqs = parse_tokens(toks)
+                if (why := mention_kind(prefix, form)):
+                    stats[f"skipped:{why}"] += 1
+                    continue
+                args, commented = split_comment(m.group(1))
+                try: toks = shlex.split(args)
+                except ValueError: toks = args.split()
+                flags, reqs, combined = parse_tokens(toks)
                 enc = enclosing(lines, li)
                 if SHELL_GUARD.search(prefix): enc = "shell_cond " + prefix.strip()
-                installs.append(dict(pos=(ci, li), form=form, flags=flags, reqs=reqs, enc=enc, line=s))
+                installs.append(dict(pos=(ci, li), form=form, flags=flags, reqs=reqs, enc=enc, line=s,
+                                     notes=[n for n, on in (("#comment", commented), ("combined_flags", combined)) if on]))
             if (c := CONDA.search(raw)):
                 stats[f"conda:{c.group(1)}_{c.group(2).split()[0]}"] += 1
                 rows.append(["conda", nb, ci, form_of(s), c.group(0).strip(), "", s[:200]])
@@ -180,7 +232,11 @@ def scan_notebook(nb, cells, rows):
         stats["force_reinstall_lines"] += "--force-reinstall" in ins["flags"]
         stats["no_deps_lines"] += "--no-deps" in ins["flags"]
         stats["requirement_file_lines"] += bool(ins["flags"] & {"-r", "--requirement"})
+        notes = ins.get("notes", [])
+        stats["trailing_comment_lines"] += "#comment" in notes
+        stats["combined_short_flag_lines"] += "combined_flags" in notes
         detail = f"{' '.join(sorted(ins['flags']))} | enc={head}{'/' + '+'.join(platform) if platform else ''}"
+        detail += "".join(f" | {n}" for n in notes)
         if not ins["reqs"]: rows.append(["install", nb, ins["pos"][0], ins["form"], detail, "no_reqs", ins["line"][:200]])
         for name, kind in ins["reqs"]:
             stats[f"req_kind:{kind}"] += 1
@@ -221,7 +277,12 @@ GROUP_COLS = {  # column: keys summed from per-notebook stats
 def group_value(c, keys):
     return sum(v for k, v in c.items() for key in keys if (k == key or (key.endswith(":") and k.startswith(key))))
 
-def main(root, out_csv):
+def older(version, minimum):
+    if not minimum or version is None: return False
+    as_tuple = lambda v: tuple(int(p) for p in v.split("."))
+    return as_tuple(version) < as_tuple(minimum)
+
+def main(root, out_csv, min_python=None):
     root = Path(root)
     total, groups, rows, hashes = Counter(), defaultdict(Counter), [], set()
     for nb in sorted(root.rglob("*.ipynb")):
@@ -229,25 +290,36 @@ def main(root, out_csv):
         rel = nb.relative_to(root).parts
         group = rel[0] if len(rel) > 1 else "(root)"
         try:
-            cells = json.loads(nb.read_text(encoding="utf-8")).get("cells", [])
+            data = json.loads(nb.read_text(encoding="utf-8"))
+            cells, meta = data.get("cells", []), data.get("metadata", {})
             h = code_hash(cells)
+            py = python_version(meta)
             if h in hashes: c = Counter(duplicate_skipped=1)
+            elif language(meta) != "python": c = Counter({f"skipped_language:{language(meta)}": 1})
+            elif older(py, min_python): c = Counter(skipped_old_python=1)
             else:
                 hashes.add(h); nb_rows = []
-                c = scan_notebook(nb, cells, nb_rows)
-                rows += [[group] + r for r in nb_rows]
+                c = scan_notebook(nb, cells, nb_rows, meta)
+                rows += [[group, py or ""] + r for r in nb_rows]
         except Exception as e: c = Counter(unreadable=1); print(f"skip {nb}: {e}")
         total.update(c); groups[group].update(c)
-    for k in sorted(total): print(f"{k:40} {total[k]}")
-    print()
-    print(f"{'group':28}" + "".join(f"{col:>10}" for col in GROUP_COLS))
+    summary = [f"{k:40} {total[k]}" for k in sorted(total)] + [""]
+    summary.append(f"{'group':28}" + "".join(f"{col:>10}" for col in GROUP_COLS))
     for g in sorted(groups):
-        print(f"{g[:28]:28}" + "".join(f"{group_value(groups[g], keys):>10}" for keys in GROUP_COLS.values()))
+        summary.append(f"{g[:28]:28}" + "".join(f"{group_value(groups[g], keys):>10}" for keys in GROUP_COLS.values()))
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["group", "kind", "notebook", "cell", "form_or_signal", "detail", "status", "line"])
+        w.writerow(["group", "python", "kind", "notebook", "cell", "form_or_signal", "detail", "status", "line"])
         w.writerows(rows)
-    print(f"detail rows: {out_csv}")
+    summary_path = Path(out_csv).with_name(Path(out_csv).stem + "_summary.txt")
+    args = " ".join(sys.argv[1:])
+    summary_path.write_text(f"corpus_install_scan.py {args}\n\n" + "\n".join(summary) + "\n", encoding="utf-8")
+    print("\n".join(summary))
+    print(f"detail rows: {out_csv}\nsummary: {summary_path}")
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "install_lines.csv")
+    args = sys.argv[1:]
+    minimum = None
+    if "--min-python" in args:
+        i = args.index("--min-python"); minimum = args[i + 1]; del args[i:i + 2]
+    main(args[0], args[1] if len(args) > 1 else "install_lines.csv", minimum)
