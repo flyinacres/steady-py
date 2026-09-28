@@ -56,6 +56,7 @@ class Notebook:
 
     def write(self, directory: Path, name: str = "nb.ipynb") -> Path:
         path = Path(directory) / name
+        path.parent.mkdir(parents=True, exist_ok=True)
         # newline="\n" so the file is byte-identical on Windows and Linux.
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(self.to_json(), indent=1, ensure_ascii=False) + "\n")

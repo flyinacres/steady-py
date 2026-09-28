@@ -54,6 +54,12 @@ class Outcome:
     def delta(self) -> Optional[dict]:
         return self._single().get("delta")
 
+    def summary(self) -> dict:
+        """The repository summary of a directory report."""
+        if self.report is None or self.report.get("mode") != "batch":
+            raise ValueError("summary() needs a directory report")
+        return self.report["summary"]
+
 
 def _strings(value) -> list:
     if isinstance(value, str):
