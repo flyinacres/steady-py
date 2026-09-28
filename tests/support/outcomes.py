@@ -47,11 +47,14 @@ class Outcome:
         """Match on DiagnosticEvent.type, and on `about` appearing in the text (a package name,
         not wording). Cell numbers are asserted only by the cell-numbering test (P7), since
         today's numbering is itself a finding."""
-        return [w for w in self._single().get("warnings", [])
-                if type in (None, w["type"]) and (about is None or about in w["detail"])]
+        return self._diagnostics("warnings", type, about)
 
-    def notices(self, type: Optional[str] = None) -> list:
-        return [n for n in self._single().get("notices", []) if type in (None, n["type"])]
+    def notices(self, type: Optional[str] = None, about: Optional[str] = None) -> list:
+        return self._diagnostics("notices", type, about)
+
+    def _diagnostics(self, kind: str, type: Optional[str], about: Optional[str]) -> list:
+        return [d for d in self._single().get(kind, [])
+                if type in (None, d["type"]) and (about is None or about in d["detail"])]
 
     def findings(self, signal: Optional[str] = None, package: Optional[str] = None) -> list:
         """A check report's findings from every severity list; each carries `severity` and, once
@@ -120,3 +123,8 @@ def managed_cells(path: Path) -> dict:
 def setup_markdown(path: Path) -> str:
     """The text of the setup markdown cell (Cell 1) in a written notebook."""
     return "".join(managed_cells(path)["setup_markdown"]["source"])
+
+
+def cell2_text(path: Path) -> str:
+    """The text of the setup code cell (Cell 2). Assert on it only where the text is the behavior."""
+    return "".join(managed_cells(path)["setup_code"]["source"])

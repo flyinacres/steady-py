@@ -73,10 +73,10 @@ Now: a point fix that survives any architecture; write the test and fix together
 | E2a | Local `file://` wheel dropped                                          | Y       | V     | F5                   | Expect a creator candidate report                                                        |
 | E2b | Conda-built `file://` packages dropped                                 | Y       | V     | F4                   | `INSTALLER=conda`; confirm once in F8                                                    |
 | E3  | Overlay pins a shadowed copy                                           | Y       | V     | F4                   | Two site dirs, first without `direct_url.json`                                           |
-| E5  | `#subdirectory=` lost; monorepo packages merged                        | Y       | V     | F6                   |                                                                                          |
+| E5  | `#subdirectory=` lost; monorepo packages merged                        | Y       | V     | F4                   | The loss is in reading `direct_url.json`; a runtime install from a monorepo needs F6     |
 | E6  | `===` versions stored with a stray `=`                                 | Y       | V     | F4                   | Can't be built with modern tools; hand-written only                                      |
 | E7  | Directory scan reports git and conda packages as missing               | Y       | V     | F4                   |                                                                                          |
-| E8  | Cell 2 claims a direct reference is installed when nothing installs it | Y       | U     | F1                   | One of few assertions on rendered text                                                   |
+| E8  | Cell 2 claims a direct reference is installed when nothing installs it | Y       | V     | F4                   | One of few assertions on rendered text; a direct reference exists only in a venv         |
 | K6  | OpenCV variant from `pip list`; shadowed variant pinned                | Y       | V     | F4                   | cv2 stubs in two site dirs                                                               |
 | C1  | conda-forge OpenCV stubs: wrong variant, false removed                 | Y       | V     | F4, F3               |                                                                                          |
 | K12 | Live kernel treats site-packages modules as local                      | Y       | L     | F7                   |                                                                                          |
@@ -160,7 +160,7 @@ DG1 optional-dependency candidates, DG2 guarded-alternative reporting, DG3 platf
 
 80 rows: 56 Y, 5 P, 13 N, 3 S, 3 C.
 
-By layer (Y and P, 61 rows): 32 U, 23 V, 3 L, 3 D. Docker is needed for three runtime rows plus a one-time conda confirmation.
+By layer (Y and P, 61 rows): 31 U, 24 V, 3 L, 3 D. Docker is needed for three runtime rows plus a one-time conda confirmation.
 
 Now: K3, K4, H3, DR1, all fixed.
 
