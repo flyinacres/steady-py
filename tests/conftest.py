@@ -1,7 +1,10 @@
-"""Tier markers (default runs skip them), matrix IDs, and the --findings listing."""
+"""Tier markers (default runs skip them), matrix IDs, the --findings listing, and shared fixtures."""
 import re
 from collections import defaultdict
 
+import pytest
+
+from tests.support.fake_pypi import FakePyPI
 from tests.support.markers import TIERS
 
 _TIER_DOCS = {
@@ -52,3 +55,23 @@ def pytest_collection_finish(session):
 
 def pytest_runtestloop(session):
     return True if session.config.getoption("findings") else None
+
+
+@pytest.fixture(scope="session")
+def _pypi_server():
+    server = FakePyPI()
+    yield server
+    server.close()
+
+
+@pytest.fixture
+def pypi(_pypi_server, monkeypatch):
+    """The fake PyPI, empty and strict. The URL goes through the environment, so subprocesses
+    (the venv tier) see it too."""
+    _pypi_server.reset()
+    monkeypatch.setenv("STEADY_PY_PYPI_URL", _pypi_server.url)
+    monkeypatch.setenv("no_proxy", "127.0.0.1")
+    yield _pypi_server
+    if _pypi_server.strict and _pypi_server.unknown:
+        pytest.fail(f"lookups of unregistered projects {sorted(set(_pypi_server.unknown))}: "
+                    "register them with pypi.add(), or call pypi.allow_unknown()", pytrace=False)
