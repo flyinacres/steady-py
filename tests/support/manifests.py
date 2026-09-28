@@ -1,12 +1,15 @@
 """Notebooks that carry a manifest, made by a real snapshot (design §4.5). The snapshot of a given
 set of cells runs once per session; each caller gets a copy with its own cells appended, as a
-creator's later edits would be."""
+creator's later edits would be. `altered` is the one place tests change a manifest's content."""
+import ast
 import copy
 import json
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
+from steady_py.models import SteadyPyManifest
 from tests.support.notebooks import Cell, Notebook, write_json
+from tests.support.outcomes import find_manifest
 from tests.support.runner import run
 
 _SNAPSHOTS: dict = {}
@@ -28,3 +31,19 @@ def snapshotted(directory: Path, *cells: Cell, extra: Iterable[Cell] = ()) -> Pa
         cell["id"] = f"extra-{i}"
     data["cells"] += added
     return write_json(data, directory, "nb_merged.ipynb")
+
+
+def altered(path: Path, edit: Callable[[dict], None]) -> Path:
+    """The notebook at `path`, rewritten in place with `edit` applied to its manifest literal and
+    the hash recomputed through models, as a manifest another tool version wrote would be."""
+    path = Path(path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    cell, node = find_manifest(data)
+    literal = ast.literal_eval(node.value)
+    edit(literal)
+    literal["dependency_hash"] = SteadyPyManifest.from_literal(literal).verified_hash
+    lines = "".join(cell["source"]).splitlines(keepends=True)
+    lines[node.lineno - 1:node.end_lineno] = [f"STEADY_PY_MANIFEST = {literal!r}\n"]
+    cell["source"] = lines
+    path.write_text(json.dumps(data, indent=1), encoding="utf-8")
+    return path

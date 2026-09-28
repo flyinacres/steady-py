@@ -99,12 +99,12 @@ Now: a point fix that survives any architecture; write the test and fix together
 
 | ID  | Finding                                                     | Settled | Layer | Fixture | Notes                                                             |
 | --- | ----------------------------------------------------------- | ------- | ----- | ------- | ----------------------------------------------------------------- |
-| P1  | Version operators stripped into invalid pins                | Y       | V     | F4      |                                                                   |
+| P1  | Version operators stripped into invalid pins                | Y       | U     | F1      | Host `packaging` is the installed version                         |
 | P2  | Namespace import resolves to an arbitrary distribution      | Y       | V     | F4      | Needs `RECORD` for `dist.files`                                   |
 | P6  | Not-found imports labeled `pinned`                          | Y       | U     | F1      | JSON status                                                       |
 | LV4 | Cell 1 lists flag names as URLs                             | Y       | U     | F1      |                                                                   |
-| K9  | Extras promotion nondeterministic                           | P       | V     | F4      | Determinism settled (two `PYTHONHASHSEED` values); heuristic open |
-| CI2 | Environment version paired with an unversioned line's index | P       | V     | F4      | Warning settled; pairing rule open                                |
+| K9  | Extras promotion nondeterministic                           | P       | V     | F4      | Determinism settled (four `PYTHONHASHSEED` values); heuristic open |
+| CI2 | Environment version paired with an unversioned line's index | P       | U     | F1      | Warning settled; pairing rule open                                |
 | K10 | Display text parsed back as data                            | S       |       |         | Visible effect covered by E7                                      |
 | G10 | `--universal` duplicates resolution                         | C       |       |         |                                                                   |
 | LV3 | `--universal` can't install `+cu` builds                    | C       |       |         |                                                                   |
@@ -113,8 +113,8 @@ Now: a point fix that survives any architecture; write the test and fix together
 
 | ID  | Finding                                                        | Settled | Layer | Fixture | Notes                                                                      |
 | --- | -------------------------------------------------------------- | ------- | ----- | ------- | -------------------------------------------------------------------------- |
-| K3  | Dropped connection crashes the run                             | Y       | U     | F3      | Now                                                                        |
-| K5  | Transitive markers use the host platform                       | Y       | U     | F3      | Linux-marked dependencies, run on the Windows host                         |
+| K3  | Dropped connection crashes the run                             | Y       | U     | F3      | Now; fixed                                                                 |
+| K5  | Transitive markers use the host platform                       | N       |       |         | Fires only when check runs on a different OS than snapshot; see decision 6 |
 | K8  | Lookup failure reported as a confirmed conflict                | Y       | U     | F3      |                                                                            |
 | LV1 | Local-version pins skip every PyPI check                       | Y       | U     | F3      | Include an old baseline: not_checked_at_generation, not new                |
 | CI1 | Custom-index project on PyPI reported removed; graph abandoned | Y       | U     | F3      | Index lookup through the simple API deferred until a fake index exists     |
@@ -158,11 +158,11 @@ DG1 optional-dependency candidates, DG2 guarded-alternative reporting, DG3 platf
 
 ## Totals
 
-80 rows: 57 Y, 5 P, 12 N, 3 S, 3 C.
+80 rows: 56 Y, 5 P, 13 N, 3 S, 3 C.
 
-By layer (Y and P, 62 rows): 31 U, 25 V, 3 L, 3 D. Docker is needed for three runtime rows plus a one-time conda confirmation.
+By layer (Y and P, 61 rows): 32 U, 23 V, 3 L, 3 D. Docker is needed for three runtime rows plus a one-time conda confirmation.
 
-Now: K3, K4, H3, DR1.
+Now: K3 (fixed), K4, H3, DR1.
 
 ## Decisions that unblock rows
 
@@ -171,3 +171,4 @@ Now: K3, K4, H3, DR1.
 3. What `generated_at` records (P5).
 4. Build-tag runtime policy and manifest field (LV2, DG6).
 5. Whether the CLI describes its own interpreter or the kernel's (DG5).
+6. Whether the manifest records the target platform (K5). The manifest has no platform field, so check can't know it; a field adds complexity for a case that arises only when check runs on a different OS than snapshot (a Colab repository checked from a laptop, say). Revisit if that becomes a supported workflow.

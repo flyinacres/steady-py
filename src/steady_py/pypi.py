@@ -1,4 +1,5 @@
 """Read-only PyPI JSON metadata client used by drift checks."""
+import http.client
 import json
 import os
 import urllib.error
@@ -70,8 +71,10 @@ def _fetch_pypi_json(url: str) -> Tuple[str, Optional[Dict[str, Any]], Optional[
         if e.code == 404:
             return FetchStatus.NOT_FOUND, None, None
         return FetchStatus.NETWORK_ERROR, None, f"HTTP {e.code}"
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
-        return FetchStatus.NETWORK_ERROR, None, str(e)
+    except (OSError, http.client.HTTPException, json.JSONDecodeError) as e:
+        # OSError covers URLError, timeouts and SSL errors; HTTPException covers a connection that
+        # drops mid-response (RemoteDisconnected is both, IncompleteRead only the latter).
+        return FetchStatus.NETWORK_ERROR, None, str(e) or type(e).__name__
 
 
 @util.memoize_for_run

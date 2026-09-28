@@ -43,13 +43,25 @@ class Outcome:
         key = canonicalize_name(name)
         return next((d for d in self.dependencies() if canonicalize_name(d["name"]) == key), None)
 
-    def warnings(self, type: Optional[str] = None) -> list:
-        """Match on DiagnosticEvent.type only. Cell numbers are asserted only by the cell-numbering
-        test (P7), since today's numbering is itself a finding."""
-        return [w for w in self._single().get("warnings", []) if type in (None, w["type"])]
+    def warnings(self, type: Optional[str] = None, about: Optional[str] = None) -> list:
+        """Match on DiagnosticEvent.type, and on `about` appearing in the text (a package name,
+        not wording). Cell numbers are asserted only by the cell-numbering test (P7), since
+        today's numbering is itself a finding."""
+        return [w for w in self._single().get("warnings", [])
+                if type in (None, w["type"]) and (about is None or about in w["detail"])]
 
     def notices(self, type: Optional[str] = None) -> list:
         return [n for n in self._single().get("notices", []) if type in (None, n["type"])]
+
+    def findings(self, signal: Optional[str] = None, package: Optional[str] = None) -> list:
+        """A check report's findings from every severity list; each carries `severity` and, once
+        classified, `baseline_status`."""
+        report = self._single()
+        if report["mode"] != "check_drift":
+            raise ValueError("findings() needs a check report")
+        key = package and canonicalize_name(package)
+        return [f for group in ("confirmed", "heuristic", "errors", "notices") for f in report[group]
+                if signal in (None, f["signal"]) and key in (None, canonicalize_name(f["package"]))]
 
     def delta(self) -> Optional[dict]:
         return self._single().get("delta")
@@ -69,18 +81,34 @@ def _strings(value) -> list:
 
 
 def manifest(path: Path) -> dict:
-    """The STEADY_PY_MANIFEST literal in a written notebook, found without steady-py's extractor
-    (which has its own bug, K1): each code cell parsed alone, top-level assignments only."""
+    """The STEADY_PY_MANIFEST literal in a written notebook."""
+    _, node = find_manifest(json.loads(Path(path).read_text(encoding="utf-8")))
+    return ast.literal_eval(node.value)
+
+
+def find_manifest(notebook: dict):
+    """(cell, assignment node) of the STEADY_PY_MANIFEST literal in notebook JSON, found without
+    steady-py's extractor (which has its own bug, K1): each code cell parsed alone, top-level
+    assignments only, exactly one required."""
     found = []
-    for cell in json.loads(Path(path).read_text(encoding="utf-8"))["cells"]:
+    for cell in notebook["cells"]:
         if cell["cell_type"] != "code":
             continue
         try:
             body = ast.parse("".join(cell["source"])).body
         except SyntaxError:
             continue  # IPython syntax; Cell 2 is plain Python
-        found += [node.value for node in body if isinstance(node, ast.Assign)
+        found += [(cell, node) for node in body if isinstance(node, ast.Assign)
                   and any(isinstance(t, ast.Name) and t.id == "STEADY_PY_MANIFEST" for t in node.targets)]
     if len(found) != 1:
-        raise LookupError(f"expected one STEADY_PY_MANIFEST assignment in {path}, found {len(found)}")
-    return ast.literal_eval(found[0])
+        raise LookupError(f"expected one STEADY_PY_MANIFEST assignment, found {len(found)}")
+    return found[0]
+
+
+def setup_markdown(path: Path) -> str:
+    """The text of the setup markdown cell (Cell 1) in a written notebook, found by its role tag."""
+    cells = [c for c in json.loads(Path(path).read_text(encoding="utf-8"))["cells"]
+             if c.get("metadata", {}).get("steady_py", {}).get("role") == "setup_markdown"]
+    if len(cells) != 1:
+        raise LookupError(f"expected one setup markdown cell in {path}, found {len(cells)}")
+    return "".join(cells[0]["source"])
