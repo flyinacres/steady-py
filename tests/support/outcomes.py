@@ -81,11 +81,29 @@ class Outcome:
             raise ValueError("notebooks() needs a directory report")
         return [Path(n["notebook_path"]) for n in self.report["notebooks"]]
 
+    def unreadable(self) -> list:
+        """Paths of the notebooks a directory report could not read, from scan, snapshot or check."""
+        if self.report is None or self.report.get("mode") not in _DIRECTORY_MODES:
+            raise ValueError("unreadable() needs a directory report")
+        if self.report["mode"] == "check_batch":
+            root = Path(self.report["target_dir"])
+            return [root / n["path"] for n in self.report["notebooks"] if n["error"] is not None]
+        return [Path(e["path"]) for e in self.report["summary"]["parse_errors"]]
+
+    def validation(self) -> Optional[dict]:
+        """A directory report's validation: each distinct finding once, with the notebooks it's in."""
+        if self.report is None or self.report.get("mode") not in _DIRECTORY_MODES:
+            raise ValueError("validation() needs a directory report")
+        return self.report["validation"]
+
     def summary(self) -> dict:
         """The repository summary of a directory report."""
         if self.report is None or self.report.get("mode") != "batch":
             raise ValueError("summary() needs a directory report")
         return self.report["summary"]
+
+
+_DIRECTORY_MODES = ("batch", "check_batch")  # scan and snapshot; check
 
 
 def _strings(value) -> list:
