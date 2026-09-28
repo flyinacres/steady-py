@@ -21,6 +21,13 @@ Layer (lowest that observes the finding faithfully):
 
 Now: a point fix that survives any architecture; write the test and fix together.
 
+Reading test status:
+
+- Only Y and P rows get tests. N, S and C rows have none by design.
+- `pytest --findings` lists every test tagged with a matrix ID, one line each: ID, status, tier, test. A line means the test exists. Status `covered` means it passes; `known bug` means a strict xfail that fails until the bug is fixed, and fails the run if it starts passing. Tier says which `-m` run executes it (unit runs by default).
+- A Y or P row with no lines in `--findings` has no test yet.
+- `tests/characterization/` is the regression net for the rearchitecture: plain passing tests of current behavior at the public boundary. They carry no matrix IDs, so `--findings` doesn't list them.
+
 ## Foundations
 
 1. F1 Notebook builder: cells in notebook order (markdown and code), magics, execution counts, writes a tmp `.ipynb`.
@@ -66,6 +73,7 @@ Now: a point fix that survives any architecture; write the test and fix together
 | G17 | Non-canonical install name listed twice, plus a nameless header entry | Y       | U     | F1         | D5 is its directory-scan symptom; also the nameless `%%writefile` header entry                                                                                                            |
 | G18 | Trailing comment on an install line harvested as packages | Y | U | F1 | 99 corpus lines |
 | G19 | Combined short flags (`-qr file`) hide `-r` | Y | U | F1 | 48 corpus lines |
+| CH3 | PEP 508 `name @ url` stored as the bare URL | N | | | Found in the characterization pass; pip installs it the same; classify (decision 10) |
 
 ## Environment capture
 
@@ -119,8 +127,9 @@ Now: a point fix that survives any architecture; write the test and fix together
 | K5  | Transitive markers use the host platform                       | N       |       |         | Fires only when check runs on a different OS than snapshot; see decision 6 |
 | K8  | Lookup failure reported as a confirmed conflict                | Y       | U     | F3      |                                                                            |
 | LV1 | Local-version pins skip every PyPI check                       | Y       | U     | F3      | Include an old baseline: not_checked_at_generation, not new                |
-| CI1 | Custom-index project on PyPI reported removed; graph abandoned | Y       | U     | F3      | Index lookup through the simple API deferred until a fake index exists     |
+| CI1 | Custom-index project on PyPI reported removed; graph abandoned | Y       | U     | F3      | Index lookup through the simple API deferred until a fake index exists. A removed pin also gets a duplicate `conflict` on itself |
 | LV2 | `custom_sourced` decided by the wrong rule                     | P       | U     | F3      | Network-error case settled; build-tag field and runtime message open (DG6) |
+| CH1 | A manifest with an unknown or missing required field can't be read (exit 2) | N |  |  | Found in the characterization pass: an older steady-py can't read a newer manifest; see decision 9 |
 
 ## Cell 2 runtime
 
@@ -142,6 +151,7 @@ Now: a point fix that survives any architecture; write the test and fix together
 | DR1 | Venvs not named venv are scanned and rewritten   | Y       | U     | F1      | Dirs with `pyvenv.cfg`, `conda-meta/`, `site-packages`. Now; fixed           |
 | K7  | Prior-setup-cell match discards user code        | Y       | U     | F1      | Warning expected                                                          |
 | P3  | Delta ignores flags, raw installs, local modules | Y       | U     | F1      | Per manifest-updating item 6                                              |
+| CH2 | Delta matches package names without normalizing them | N |  |  | Found in the characterization pass: `Packaging` vs `packaging` at one version is removed plus added; classify (decision 10) |
 | D4  | Single-file text scan fails                      | Y       | U     | F1      |                                                                           |
 | P5  | Unchanged notebook rewritten                     | P       | U     | F1      | Cell ID reuse settled; `generated_at` open                                |
 | K11 | Setup markdown matched by heading text           | N       |       |         | No fix agreed                                                             |
@@ -160,7 +170,9 @@ DG1 optional-dependency candidates, DG2 guarded-alternative reporting, DG3 platf
 
 ## Totals
 
-83 rows: 59 Y, 5 P, 13 N (including the six design gaps), 3 S, 3 C.
+86 rows: 59 Y, 5 P, 16 N (including the six design gaps and three rows from the characterization pass), 3 S, 3 C.
+
+Tests exist for 57 of the 64 Y and P rows. Not yet written: G18, G19 (unit), and ED1, ED2, ED4, ED5, ED6 (venv), which are written with the rearchitecture.
 
 By layer (Y and P, 64 rows): 34 U, 24 V, 3 L, 3 D. Docker is needed for three runtime rows plus a one-time conda confirmation.
 
@@ -175,3 +187,6 @@ Now: K3, K4, H3, DR1, all fixed.
 5. Whether the CLI describes its own interpreter or the kernel's (DG5).
 6. Whether the manifest records the target platform (K5). The manifest has no platform field, so check can't know it; a field adds complexity for a case that arises only when check runs on a different OS than snapshot (a Colab repository checked from a laptop, say). Revisit if that becomes a supported workflow.
 7. Whether DG1 (undeclared optional dependencies) becomes a settled row. Corpus: where the trigger appears, the dependency is undeclared in nearly every notebook (Styler without jinja2 344 of 344, parquet without pyarrow 217 of 227, Excel without an engine 112 of 130). The platform image hides it, so the notebook fails only once it leaves Kaggle or Colab. Open: report as candidates, or pin what's installed.
+8. The exit code for a heuristic finding classified `not_checked_at_generation`. Today it exits 1 (only `known` heuristics are exempt), and the characterization tests pin that; the comment in LV1's test says a newly visible finding on an old notebook must not start exiting 1. If the comment is the rule, this is a finding and the characterization test flips with the fix.
+9. Manifest schema compatibility (CH1): whether a reader tolerates unknown fields, and what a missing field means.
+10. Classify CH2 and CH3.
