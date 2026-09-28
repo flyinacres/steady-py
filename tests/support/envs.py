@@ -1,13 +1,20 @@
-"""F5: real virtual environments for the venv tier. The base venv holds only pip, steady-py (from a
-wheel, not editable, so steady-py isn't an editable in the environment it inspects) and steady-py's
-dependencies."""
+"""F5: real virtual environments for the venv tier, installed offline from the wheelhouse. A venv
+holds only pip, steady-py (from a wheel, not editable, so steady-py isn't an editable in the
+environment it inspects), steady-py's dependencies, and whatever the test installs."""
 import os
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+WHEELHOUSE = REPO_ROOT / "tests" / ".wheelhouse"
+PROJECTS = REPO_ROOT / "tests" / "fixtures" / "projects"
+# Build backends for the stub projects, plus steady-py's own build backend and dependencies.
+TOOLING = ["setuptools>=64", "wheel", "hatchling", "pdm-backend", "editables", "packaging", "resolvelib"]
+OFFLINE = ("--no-index", "--find-links", str(WHEELHOUSE))
 
 
 @dataclass(frozen=True)
@@ -25,15 +32,46 @@ def _check(*cmd) -> None:
         raise RuntimeError(f"{' '.join(map(str, cmd))} failed:\n{result.stdout}{result.stderr}")
 
 
+def _pip(python, *args) -> None:
+    _check(python, "-m", "pip", "--disable-pip-version-check", "-q", *args)
+
+
+def ensure_wheelhouse() -> Optional[str]:
+    """None when all of TOOLING resolves from the wheelhouse, downloading it once if not;
+    otherwise the reason, for a skip."""
+    try:
+        _pip(sys.executable, "download", *OFFLINE, "-d", WHEELHOUSE, *TOOLING)
+        return None
+    except RuntimeError:
+        pass
+    try:
+        _pip(sys.executable, "download", "-d", WHEELHOUSE, *TOOLING)
+        return None
+    except RuntimeError as error:
+        return f"wheelhouse {WHEELHOUSE} is incomplete and could not be downloaded: {error}"
+
+
+def build_steady_py(dist: Path) -> Path:
+    """steady-py's wheel from the repository, built offline. Returns the directory holding it."""
+    _pip(sys.executable, "wheel", "--no-deps", *OFFLINE, "-w", dist, REPO_ROOT)
+    return dist
+
+
 def create_venv(path: Path, with_pip: bool = True) -> Venv:
     _check(sys.executable, "-m", "venv", *([] if with_pip else ["--without-pip"]), path)
     return Venv(Path(path))
 
 
-def build_base_venv(workdir: Path) -> Venv:
-    """Builds steady-py's wheel from the repository, then installs it into a new venv."""
-    _check(sys.executable, "-m", "pip", "wheel", "--no-deps", "-q", "-w", workdir / "dist", REPO_ROOT)
-    venv = create_venv(workdir / "base")
-    wheel = next((workdir / "dist").glob("steady_py-*.whl"))
-    _check(venv.python, "-m", "pip", "install", "-q", "--disable-pip-version-check", wheel)
+def steady_venv(path: Path, dist: Path) -> Venv:
+    """A new venv with steady-py from `dist` and its dependencies from the wheelhouse."""
+    venv = create_venv(path)
+    _pip(venv.python, "install", *OFFLINE, "--find-links", dist, "steady-py")
     return venv
+
+
+def install_project(venv: Venv, name: str, workdir: Path, editable: bool = False) -> Path:
+    """Copies tests/fixtures/projects/<name> into `workdir` (builds write into the source tree)
+    and installs it offline. Returns the copy."""
+    source = Path(shutil.copytree(PROJECTS / name, Path(workdir) / name))
+    _pip(venv.python, "install", *OFFLINE, *(["-e"] if editable else []), source)
+    return source

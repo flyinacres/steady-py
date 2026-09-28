@@ -2,8 +2,9 @@
 from the test process's environment."""
 import pytest
 
+from tests.support.envs import PROJECTS, install_project
 from tests.support.notebooks import Notebook, code
-from tests.support.runner import run, run_in
+from tests.support.runner import run_in
 from tests.support.sites import SiteDir, pythonpath
 
 
@@ -20,3 +21,10 @@ def test_run_in_sees_only_the_venv_and_the_given_sites(tmp_path, base_venv, monk
     assert outcome.report["environment"]["active_interpreter"].startswith(str(base_venv.path))
     assert outcome.pins()["demo"] == "1.0"
     assert run_in(base_venv, "scan", path).dependency("demo")["version"] is None  # no leak without sites
+
+
+@pytest.mark.venv
+def test_projects_install_offline_from_a_copy(tmp_path, fresh_venv):
+    copy = install_project(fresh_venv, "demo-editable", tmp_path, editable=True)
+    assert list(copy.glob("*.egg-info"))  # the build wrote into the copy...
+    assert not list((PROJECTS / "demo-editable").glob("*.egg-info"))  # ...not the saved project

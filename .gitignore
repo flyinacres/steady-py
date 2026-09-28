@@ -21,3 +21,11 @@ output_executed.ipynb
 
 test_notebooks/
 hugging_face/
+
+# e2e runner scratch and outputs (deleted at the end of a run, present while it runs)
+.test_artifacts/
+tests/fixtures/**/*_merged.ipynb
+tests/fixtures/**/temp_*.ipynb
+tests/fixtures/mock_pkgs/
+ # venv tier (planned)
+tests/.wheelhouse/

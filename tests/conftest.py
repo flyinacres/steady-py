@@ -4,7 +4,7 @@ from collections import defaultdict
 
 import pytest
 
-from tests.support.envs import build_base_venv
+from tests.support.envs import build_steady_py, ensure_wheelhouse, steady_venv
 from tests.support.fake_pypi import FakePyPI
 from tests.support.markers import TIERS
 
@@ -79,6 +79,21 @@ def pypi(_pypi_server, monkeypatch):
 
 
 @pytest.fixture(scope="session")
-def base_venv(tmp_path_factory):
-    """pip, steady-py from a freshly built wheel, and its dependencies; built once per session."""
-    return build_base_venv(tmp_path_factory.mktemp("venvs"))
+def steady_dist(tmp_path_factory):
+    """steady-py's wheel, built once per session. Skips the tier when the wheelhouse is unavailable."""
+    reason = ensure_wheelhouse()
+    if reason:
+        pytest.skip(reason)
+    return build_steady_py(tmp_path_factory.mktemp("dist"))
+
+
+@pytest.fixture(scope="session")
+def base_venv(steady_dist, tmp_path_factory):
+    """pip, steady-py and its dependencies; shared, so tests must not install into it."""
+    return steady_venv(tmp_path_factory.mktemp("venvs") / "base", steady_dist)
+
+
+@pytest.fixture
+def fresh_venv(steady_dist, tmp_path):
+    """Like base_venv, but new for this test, which may install into it."""
+    return steady_venv(tmp_path / "venv", steady_dist)
