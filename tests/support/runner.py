@@ -1,11 +1,14 @@
-"""F2: run the CLI in-process (run) or in a venv (run_in), returning the same Outcome."""
+"""F2: run the CLI in-process (run) or in a venv (run_in), and Cell 2's installer in a venv
+(install_in), each returning an Outcome."""
 import contextlib
 import io
 import json
 import logging
 import os
 import subprocess
-from typing import Optional
+import sys
+from pathlib import Path
+from typing import Iterable, Optional, Tuple
 
 from steady_py import cli
 from tests.support.envs import Venv
@@ -65,3 +68,40 @@ def _report(argv: list, stdout: str) -> Optional[dict]:
         return json.loads(stdout)
     except json.JSONDecodeError:
         return None
+
+
+# What Cell 2 runs after its bootstrap, with the result printed on a marked line.
+_RESULT_MARK = "STEADY_PY_TEST_INSTALL_RESULT "
+INSTALL_SCRIPT = ("import dataclasses, json, sys, steady_py\n"
+                  "with open(sys.argv[1], encoding='utf-8') as f:\n"
+                  "    result = steady_py.install(json.load(f))\n"
+                  f"print({_RESULT_MARK!r} + json.dumps(dataclasses.asdict(result)))\n")
+
+
+def write_install_inputs(directory: Path, pins: Iterable[str], python: Tuple[int, int] = sys.version_info[:2]) -> Path:
+    """Writes install.py and manifest.json for `pins` ("name==version", extras allowed) into
+    `directory`; returns the script. The manifest holds only the fields install() reads."""
+    deps = [dict(zip(("name", "version"), pin.split("==", 1)), flags=[]) for pin in pins]
+    manifest = {"python_version": {"major": python[0], "minor": python[1]}, "dependencies": deps, "raw_installs": []}
+    (Path(directory) / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    script = Path(directory) / "install.py"
+    script.write_text(INSTALL_SCRIPT, encoding="utf-8")
+    return script
+
+
+def install_in(venv: Venv, pins: Iterable[str], wheels: Path) -> Outcome:
+    """steady_py.install() for `pins` in `venv`, installing from `wheels` only, as Cell 2 does with
+    pip's own PIP_NO_INDEX/PIP_FIND_LINKS."""
+    script = write_install_inputs(Path(wheels).parent, pins)
+    env = {**os.environ, "PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(wheels)}
+    result = subprocess.run([str(venv.python), str(script), str(script.parent / "manifest.json")],
+                            capture_output=True, text=True, encoding="utf-8", env=env)
+    return install_outcome(result.returncode, result.stdout, result.stderr)
+
+
+def install_outcome(returncode: int, stdout: str, stderr: str) -> Outcome:
+    """An Outcome for an installer run: stdout is what the runner sees, the report the InstallResult."""
+    marked = [line for line in stdout.splitlines() if line.startswith(_RESULT_MARK)]
+    report = json.loads(marked[-1][len(_RESULT_MARK):]) if marked else None
+    printed = "\n".join(line for line in stdout.splitlines() if not line.startswith(_RESULT_MARK))
+    return Outcome(returncode, printed, stderr, report)

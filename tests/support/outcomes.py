@@ -66,6 +66,12 @@ class Outcome:
         return [f for group in ("confirmed", "heuristic", "errors", "notices") for f in report[group]
                 if signal in (None, f["signal"]) and key in (None, canonicalize_name(f["package"]))]
 
+    def install_result(self) -> dict:
+        """An installer run's InstallResult: total, installed and failed."""
+        if not self.report or "installed" not in self.report:
+            raise LookupError(f"no install result (exit {self.exit_code}); log:\n{self.log}")
+        return self.report
+
     def delta(self) -> Optional[dict]:
         return self._single().get("delta")
 

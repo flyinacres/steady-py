@@ -126,11 +126,11 @@ Now: a point fix that survives any architecture; write the test and fix together
 
 | ID  | Finding                                             | Settled | Layer | Fixture | Notes                                       |
 | --- | --------------------------------------------------- | ------- | ----- | ------- | ------------------------------------------- |
-| R1  | Extras pins never pass the installed check          | Y       | V     | F5      |                                             |
+| R1  | Extras pins never pass the installed check          | Y       | V     | F5      | Written wheels                              |
 | R2  | Pin that drifts after verification still counts     | Y       | V     | F5      | Installing B moves A                        |
 | R3  | String equality instead of PEP 440                  | Y       | V     | F5      | `demo-loc 1.0+cu126` installed, pin `==1.0` |
 | D6  | Troubleshooting advice drops the version            | Y       | V     | F5      | Failing wheel                               |
-| R4  | User-site install counts as verified                | Y       | D     | F8      |                                             |
+| R4  | User-site install counts as verified                | Y       | D     | F8      | Non-root user, root-owned Python            |
 | R5  | Helper bootstrap succeeds, import fails or is older | Y       | D     | F8      | Cases (a) and (b)                           |
 | D2  | Cell 2 silently uses another steady-py version      | Y       | D     | F8      | Same scenario as R5                         |
 | D3  | Same advice for every failure                       | N       |       |         | Needs a design pass                         |

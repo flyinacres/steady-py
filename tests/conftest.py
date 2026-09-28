@@ -1,10 +1,13 @@
 """Tier markers (default runs skip them), matrix IDs, the --findings listing, and shared fixtures."""
 import re
+import shutil
 from collections import defaultdict
+from pathlib import Path
 
 import pytest
 
-from tests.support.envs import build_steady_py, ensure_wheelhouse, steady_venv
+from tests.support import docker
+from tests.support.envs import WHEELHOUSE, build_steady_py, ensure_wheelhouse, steady_venv
 from tests.support.fake_pypi import FakePyPI
 from tests.support.markers import TIERS
 
@@ -97,3 +100,17 @@ def base_venv(steady_dist, tmp_path_factory):
 def fresh_venv(steady_dist, tmp_path):
     """Like base_venv, but new for this test, which may install into it."""
     return steady_venv(tmp_path / "venv", steady_dist)
+
+
+@pytest.fixture
+def docker_work(steady_dist, tmp_path):
+    """A directory to mount at /work, with steady-py's wheel and its dependencies in wheels/. Skips
+    the test when Docker can't run."""
+    reason = docker.unavailable()
+    if reason:
+        pytest.skip(reason)
+    wheels = tmp_path / "work" / "wheels"
+    wheels.mkdir(parents=True)
+    for wheel in [*Path(steady_dist).glob("*.whl"), *WHEELHOUSE.glob("*.whl")]:
+        shutil.copy2(wheel, wheels)
+    return tmp_path / "work"

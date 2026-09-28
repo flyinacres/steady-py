@@ -88,3 +88,16 @@ def install_project(venv: Venv, name: str, workdir: Path, editable: bool = False
 def uninstall(venv: Venv, *names: str) -> None:
     """Removes distributions from `venv`. Uninstalling pip itself gives a venv like uv's (E1)."""
     _check(venv.python, "-m", "pip", "uninstall", "-y", "-q", *names)
+
+
+def pip_install(venv: Venv, wheels: Path, *requirements: str) -> None:
+    """Installs `requirements` into `venv` from the `wheels` directory only."""
+    _pip(venv.python, "install", "--no-index", "--find-links", wheels, *requirements)
+
+
+def installed_version(venv: Venv, name: str) -> Optional[str]:
+    """The version of `name` installed in `venv`, or None."""
+    code = ("import importlib.metadata as m, sys\n"
+            "try:\n    print(m.version(sys.argv[1]))\nexcept m.PackageNotFoundError:\n    print('')")
+    result = subprocess.run([str(venv.python), "-c", code, name], capture_output=True, text=True, check=True)
+    return result.stdout.strip() or None
