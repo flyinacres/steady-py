@@ -69,7 +69,7 @@ Scope: the shared support code that the tests in `test_triage_matrix.md` are bui
 
 ## 8. F5 Venvs and wheelhouse
 
-1. Wheelhouse: `tests/.wheelhouse/` (gitignored) holds the build backends (setuptools, wheel, hatchling, pdm-backend, editables) and steady-py's dependencies (`packaging`, `resolvelib`). `ensure_wheelhouse()` first resolves them offline from the wheelhouse and downloads them only if that fails, so the tier needs the network once. If the wheelhouse can't be completed, the session fixture `steady_dist` skips the tier with pip's reason.
+1. Wheelhouse: `tests/.wheelhouse/` (gitignored) holds the build backends (setuptools, wheel, hatchling, pdm-backend, editables), steady-py's dependencies (`packaging`, `resolvelib`), and ipykernel for the kernel tier. `ensure_wheelhouse()` first resolves them offline from the wheelhouse and downloads them only if that fails, so the tier needs the network once. If the wheelhouse can't be completed, the session fixture `steady_dist` skips the tier with pip's reason.
 2. `steady_dist` builds steady-py's wheel once per session, offline, from a temporary copy of the packaging inputs (`pyproject.toml`, `src/`, and any `README*`, `LICENSE*`, `setup.*`). setuptools builds in the source tree, so building from the repository would leave `build/` there and collide between parallel workers.
 3. `steady_venv(path, dist)` creates a venv and installs steady-py from `dist` with its dependencies from the wheelhouse: non-editable, so steady-py itself doesn't appear as an editable in the environment it inspects, and deterministic. Fixtures: `base_venv` (session, shared, never installed into) and `fresh_venv` (per test, about 3 seconds, the test may install into it). `Venv.python` abstracts `bin/python` versus `Scripts\python.exe`.
 4. `install_project(venv, name, workdir, editable=False)` copies `tests/fixtures/projects/<name>` into the test's directory (builds write into the source tree) and installs it offline, with build isolation resolving backends from the wheelhouse. `uninstall(venv, *names)` removes distributions; uninstalling pip gives a venv like uv's (E1).
@@ -84,10 +84,10 @@ Scope: the shared support code that the tests in `test_triage_matrix.md` are bui
 
 ## 10. F7 Kernel runner
 
-1. The kernel manager moves from `tests/runners/e2e_harness.py` into `tests/support/kernel.py`; the runners import it rather than keep a second copy.
-2. The kernel runs in a kernel venv: the base venv plus ipykernel from the wheelhouse.
-3. `run_live(notebook, call)` executes the builder notebook's code cells in order through `jupyter_client`, then runs the steady-py call and prints its JSON between markers, parsed into the same `Outcome`. Kernel-side errors land in `Outcome.log`.
-4. A parity helper compares a file-mode and a live-mode `Outcome` on chosen fields (pins, raw installs, warning types).
+1. `tests/support/kernel.py`: `kernel(venv, cwd, env=None)` starts a real kernel on `venv`'s interpreter through `jupyter_client`, with a kernelspec written beside `cwd` (so the kernel is the venv's, not the test process's) and `PIP_NO_INDEX=1`, so install lines in cells resolve against what's installed. The `live_venv` session fixture is the base venv plus ipykernel; it skips when the test process lacks `jupyter_client`.
+2. `run_live(venv, cwd, cells, verb="scan")` runs the cells as typed, magics included, so IPython's own session history is what steady-py reads. It then makes the live call and prints the CLI's own JSON between markers, parsed into the same `Outcome`. The call runs with `store_history=False`, so the harness's import of steady-py is not part of the session it scans (a selftest proves it). Kernel stderr and cell tracebacks are the log.
+3. Parity: each live test is parametrized over `mode` = `file` (`run_in` on the same cells saved as a notebook, the passing control) and `live` (the known bug), with one assertion for both. No separate parity helper was needed.
+4. Deferred to the runner conversion (§11.3): `tests/runners/e2e_harness.py` keeps its own kernel manager, which runs the host's kernel with `src` on `PYTHONPATH`.
 
 ## 11. F8 Docker scenarios
 

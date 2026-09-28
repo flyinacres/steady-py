@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests.support import docker
-from tests.support.envs import WHEELHOUSE, build_steady_py, ensure_wheelhouse, steady_venv
+from tests.support.envs import WHEELHOUSE, build_steady_py, ensure_wheelhouse, kernel_venv, steady_venv
 from tests.support.fake_pypi import FakePyPI
 from tests.support.markers import TIERS
 
@@ -94,6 +94,14 @@ def steady_dist(tmp_path_factory):
 def base_venv(steady_dist, tmp_path_factory):
     """pip, steady-py and its dependencies; shared, so tests must not install into it."""
     return steady_venv(tmp_path_factory.mktemp("venvs") / "base", steady_dist)
+
+
+@pytest.fixture(scope="session")
+def live_venv(steady_dist, tmp_path_factory):
+    """base_venv plus ipykernel, shared by kernel-tier tests (which must not install into it).
+    Skips when this process can't drive a kernel."""
+    pytest.importorskip("jupyter_client", reason="the kernel tier needs jupyter_client in the test environment")
+    return kernel_venv(tmp_path_factory.mktemp("venvs") / "kernel", steady_dist)
 
 
 @pytest.fixture

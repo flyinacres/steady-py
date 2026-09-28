@@ -12,8 +12,9 @@ from typing import Optional
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WHEELHOUSE = REPO_ROOT / "tests" / ".wheelhouse"
 PROJECTS = REPO_ROOT / "tests" / "fixtures" / "projects"
-# Build backends for the stub projects, plus steady-py's own build backend and dependencies.
-TOOLING = ["setuptools>=64", "wheel", "hatchling", "pdm-backend", "editables", "packaging", "resolvelib"]
+# Build backends for the stub projects, steady-py's own build backend and dependencies, and
+# ipykernel for the kernel tier.
+TOOLING = ["setuptools>=64", "wheel", "hatchling", "pdm-backend", "editables", "packaging", "resolvelib", "ipykernel"]
 OFFLINE = ("--no-index", "--find-links", str(WHEELHOUSE))
 
 
@@ -74,6 +75,13 @@ def steady_venv(path: Path, dist: Path) -> Venv:
     """A new venv with steady-py from `dist` and its dependencies from the wheelhouse."""
     venv = create_venv(path)
     _pip(venv.python, "install", *OFFLINE, "--find-links", dist, "steady-py")
+    return venv
+
+
+def kernel_venv(path: Path, dist: Path) -> Venv:
+    """steady_venv plus ipykernel, for the kernel tier."""
+    venv = steady_venv(path, dist)
+    _pip(venv.python, "install", *OFFLINE, "ipykernel")
     return venv
 
 
