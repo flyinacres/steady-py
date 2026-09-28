@@ -12,7 +12,7 @@ from typing import Iterable, Optional, Tuple
 
 from steady_py import cli
 from tests.support.envs import Venv
-from tests.support.outcomes import Outcome
+from tests.support.outcomes import Outcome, cell2_text
 
 
 class _Capture(logging.StreamHandler):
@@ -78,25 +78,43 @@ INSTALL_SCRIPT = ("import dataclasses, json, sys, steady_py\n"
                   f"print({_RESULT_MARK!r} + json.dumps(dataclasses.asdict(result)))\n")
 
 
-def write_install_inputs(directory: Path, pins: Iterable[str], python: Tuple[int, int] = sys.version_info[:2]) -> Path:
-    """Writes install.py and manifest.json for `pins` ("name==version", extras allowed) into
-    `directory`; returns the script. The manifest holds only the fields install() reads."""
+def write_install_inputs(directory: Path, pins: Iterable[str], python: Tuple[int, int] = sys.version_info[:2],
+                         raw_installs: Iterable[str] = ()) -> Path:
+    """Writes install.py and manifest.json for `pins` ("name==version", extras allowed) and
+    `raw_installs` (verbatim) into `directory`; returns the script. The manifest holds only the
+    fields install() reads."""
     deps = [dict(zip(("name", "version"), pin.split("==", 1)), flags=[]) for pin in pins]
-    manifest = {"python_version": {"major": python[0], "minor": python[1]}, "dependencies": deps, "raw_installs": []}
+    manifest = {"python_version": {"major": python[0], "minor": python[1]}, "dependencies": deps,
+                "raw_installs": list(raw_installs)}
     (Path(directory) / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     script = Path(directory) / "install.py"
     script.write_text(INSTALL_SCRIPT, encoding="utf-8")
     return script
 
 
-def install_in(venv: Venv, pins: Iterable[str], wheels: Path) -> Outcome:
-    """steady_py.install() for `pins` in `venv`, installing from `wheels` only, as Cell 2 does with
-    pip's own PIP_NO_INDEX/PIP_FIND_LINKS."""
-    script = write_install_inputs(Path(wheels).parent, pins)
-    env = {**os.environ, "PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(wheels)}
+def _from_wheels_only(wheels: Path) -> dict:
+    """The environment for pip to install from `wheels` alone, as Cell 2's runner would configure it."""
+    return {**os.environ, "PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(wheels)}
+
+
+def install_in(venv: Venv, pins: Iterable[str], wheels: Path, *, raw_installs: Iterable[str] = (),
+               python: Tuple[int, int] = sys.version_info[:2]) -> Outcome:
+    """steady_py.install() for `pins` and `raw_installs` in `venv`, installing from `wheels` only,
+    as Cell 2 does with pip's own PIP_NO_INDEX/PIP_FIND_LINKS. `python` is the manifest's target."""
+    script = write_install_inputs(Path(wheels).parent, pins, python, raw_installs)
     result = subprocess.run([str(venv.python), str(script), str(script.parent / "manifest.json")],
-                            capture_output=True, text=True, encoding="utf-8", env=env)
+                            capture_output=True, text=True, encoding="utf-8", env=_from_wheels_only(wheels))
     return install_outcome(result.returncode, result.stdout, result.stderr)
+
+
+def run_cell2(venv: Venv, notebook: Path, wheels: Path) -> Outcome:
+    """The setup code cell of `notebook`, unmodified, run as a script in `venv`, installing from
+    `wheels` only. There is no report: Cell 2 prints for a person, not a program."""
+    script = Path(wheels).parent / "cell2.py"
+    script.write_text(cell2_text(notebook), encoding="utf-8")
+    result = subprocess.run([str(venv.python), str(script)], capture_output=True, text=True,
+                            encoding="utf-8", env=_from_wheels_only(wheels))
+    return Outcome(result.returncode, result.stdout, result.stderr, None)
 
 
 def install_outcome(returncode: int, stdout: str, stderr: str) -> Outcome:
