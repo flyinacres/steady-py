@@ -12,8 +12,20 @@ Notebooks whose code (comments ignored) duplicates an earlier one are skipped an
 Notebooks in other languages (R, Julia) are skipped and counted as skipped_language:<name>.
 The CSV has a python column (major.minor, or empty) for cross-tabs by era. The console summary is
 also written to <out>_summary.txt next to the CSV.
+
+Rearchitecture sizing (counts in the summary, up to five example cells per category at its end):
+5. Magic forms (magic_form:*): assignments from shell or magic (x = !cmd, x = %cmd), help (obj?),
+   indented magics, lines starting with a % or != operator (continuations the blanking breaks),
+   and cell magics by name (cell_magic:*). Rare forms also get CSV rows (kind "magic").
+6. Parse outcome per Python cell (parse:*): as written, after blanking %/! lines the way steady-py
+   does today, and, when IPython is importable, after IPython's own transform. Cells that fail
+   either way get CSV rows (kind "parse"); *_with_import counts those that hold an import.
+7. Shell-joined install lines (shell_joined:and/or/seq): '&&', '||' or ';' before 'pip install'.
+   '&&' now counts as guarded (enclosing:shell_cond). Installs inside a %%bash if/for/while/case
+   block count as enclosing:shell_block, and installs anywhere inside a function as in_function.
+Progress: a dot per 100 notebooks, a count per 1000.
 """
-import csv, hashlib, itertools, json, re, shlex, sys
+import ast, csv, hashlib, itertools, json, re, shlex, sys, warnings
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -49,8 +61,65 @@ SIGNALS = {  # name: (pattern, packages that count as declared)
 }
 PIP_LIST = re.compile(r"""['"]pip3?['"]\s*,\s*['"]install['"]\s*,([^\]]*)""")  # may span lines
 PIP_STR = re.compile(r"\bpip3?\s+install\b((?:(?!&&|\|\||;).)*)")  # stops at shell chaining
-SHELL_GUARD = re.compile(r"\[\s|\[\[|\btest\s|\bif\s|\|\|")
+SHELL_GUARD = re.compile(r"\[\s|\[\[|\btest\s|\bif\s|\|\||&&")
 CONDA = re.compile(r"(?:^|[!%\s'\"])(conda|mamba|micromamba)\s+(install|create|env\s+(?:create|update))\b")
+
+NAME = r"[A-Za-z_][\w.]*"
+MAGIC_FORMS = {  # form: (pattern, gets CSV rows)
+    "assign_shell": (re.compile(rf"^\s*{NAME}(?:\s*,\s*{NAME})*\s*=\s*!(?!=)"), True),
+    "assign_magic": (re.compile(rf"^\s*{NAME}(?:\s*,\s*{NAME})*\s*=\s*%\w"), True),
+    "help": (re.compile(rf"^\s*(?:\?{{1,2}}{NAME}|{NAME}(?:\(\))?\?{{1,2}})\s*$"), True),
+    "indented_line_magic": (re.compile(r"^\s+%\w"), True),
+    "indented_shell": (re.compile(r"^\s+!(?!=)"), True),
+    "percent_operator_line": (re.compile(r"^\s*%(?=[\s(\[{'\"])"), True),
+    "not_equal_line": (re.compile(r"^\s*!="), True),
+    "line_magic": (re.compile(r"^%\w"), False),
+    "shell_line": (re.compile(r"^!(?!=)"), False),
+}
+SHELL_CELL = re.compile(r"^%%(?:bash|sh|script\s+(?:ba)?sh)\b")
+SHELL_OPEN = re.compile(r"^\s*(?:if|for|while|until|case)\b")
+SHELL_CLOSE = re.compile(r"^\s*(?:fi|done|esac)\b")
+EXAMPLES = defaultdict(list)  # category: up to five "notebook:cell" strings
+try:
+    from IPython.core.inputtransformer2 import TransformerManager
+    IPY = TransformerManager()
+except ImportError:
+    IPY = None
+
+def example(category, nb, ci):
+    if len(EXAMPLES[category]) < 5: EXAMPLES[category].append(f"{nb}:{ci}")
+
+def parses(src):
+    """None when src parses, else the SyntaxError message and line."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ast.parse(src)
+        return None
+    except SyntaxError as e: return f"{e.msg} (line {e.lineno})"
+    except Exception as e: return f"{type(e).__name__}: {e}"
+
+def parse_outcome(src):
+    """(raw, blanked, ipython) error messages, each None when that version parses; ipython is
+    'n/a' without IPython. Blanking mirrors steady-py: lines starting with % or ! become empty."""
+    blanked = "\n".join("" if l.strip().startswith(("%", "!")) else l for l in src.splitlines())
+    ipy = "n/a"
+    if IPY is not None:
+        try: ipy = parses(IPY.transform_cell(src))
+        except Exception as e: ipy = f"transform {type(e).__name__}: {e}"
+    return parses(src), parses(blanked), ipy
+
+def ancestors(lines, i):
+    """Every block header enclosing line i, innermost first (see enclosing)."""
+    ind = len(lines[i]) - len(lines[i].lstrip())
+    for j in range(i - 1, -1, -1):
+        if ind == 0: return
+        l = lines[j]
+        if not l.strip() or l.lstrip().startswith("#"): continue
+        lind = len(l) - len(l.lstrip())
+        if lind < ind:
+            if l.split("#")[0].rstrip().endswith(":"): yield l.strip()
+            ind = lind
 
 def canon(n): return re.sub(r"[-_.]+", "-", n).lower()
 def import_candidates(pip):
@@ -173,6 +242,38 @@ def scan_notebook(nb, cells, rows, meta=None):
         src = cell.get("source", "")
         lines = re.sub(r"\\\n", " ", "".join(src) if isinstance(src, list) else src).splitlines()
         body = "\n".join(lines)
+        raw_src = "".join(src) if isinstance(src, list) else src
+        first = raw_src.lstrip().split("\n", 1)[0].strip()
+        if first.startswith("%%"):
+            stats[f"cell_magic:{first[2:].split()[0] if first[2:].split() else ''}"] += 1
+        else:
+            outcome = dict(zip(("raw", "blanked", "ipython"), parse_outcome(raw_src)))
+            has_import = bool(re.search(r"^\s*(?:import|from)\s+[\w.]+", raw_src, re.M))
+            stats["parse:cells"] += 1
+            for how, err in outcome.items():
+                if err and err != "n/a":
+                    stats[f"parse:{how}_fail"] += 1
+                    stats[f"parse:{how}_fail_with_import"] += has_import
+            if outcome["blanked"] and outcome["ipython"] is None:
+                stats["parse:fixed_by_ipython"] += 1; example("parse:fixed_by_ipython", nb, ci)
+            if outcome["ipython"] not in (None, "n/a") and not outcome["blanked"]:
+                stats["parse:broken_by_ipython"] += 1; example("parse:broken_by_ipython", nb, ci)
+            if outcome["blanked"] or outcome["ipython"] not in (None, "n/a"):
+                status = "/".join(f"{how}_{'ok' if not err else 'n/a' if err == 'n/a' else 'fail'}" for how, err in outcome.items())
+                err = outcome["blanked"] or outcome["ipython"]
+                rows.append(["parse", nb, ci, "cell", err[:200], status, first[:200]])
+        shell_cell, depth, depths = bool(SHELL_CELL.match(first)), 0, []
+        for l in lines:
+            if shell_cell and SHELL_CLOSE.match(l): depth = max(depth - 1, 0)
+            depths.append(depth)
+            if shell_cell and SHELL_OPEN.match(l): depth += 1
+        python_body = not first.startswith("%%") or first[2:].split()[:1] in (["time"], ["timeit"], ["capture"])
+        for li, l in enumerate(lines if python_body else []):
+            if l.lstrip().startswith("#"): continue
+            for form, (pat, row) in MAGIC_FORMS.items():
+                if pat.match(l):
+                    stats[f"magic_form:{form}"] += 1; example(f"magic_form:{form}", nb, ci)
+                    if row: rows.append(["magic", nb, ci, form, "", "", l.strip()[:200]])
         for m in PIP_LIST.finditer(body):  # list-form subprocess calls, matched across lines
             li = body.count("\n", 0, m.start())
             flags, reqs, _ = parse_tokens(re.findall(r"['\"]([^'\"]+)['\"]", m.group(1)))
@@ -209,7 +310,13 @@ def scan_notebook(nb, cells, rows, meta=None):
                 except ValueError: toks = args.split()
                 flags, reqs, combined = parse_tokens(toks)
                 enc = enclosing(lines, li)
+                if depths[li]: enc = "shell_block " + first
+                shell_part = re.split(r"[!'\"]", prefix)[-1]
+                for op, name in (("&&", "and"), ("||", "or"), (";", "seq")):
+                    if op in shell_part: stats[f"shell_joined:{name}"] += 1; example(f"shell_joined:{name}", nb, ci)
                 if SHELL_GUARD.search(prefix): enc = "shell_cond " + prefix.strip()
+                if any(a.startswith(("def ", "async def ")) for a in ancestors(lines, li)):
+                    stats["in_function"] += 1; example("in_function", nb, ci)
                 installs.append(dict(pos=(ci, li), form=form, flags=flags, reqs=reqs, enc=enc, line=s,
                                      notes=[n for n, on in (("#comment", commented), ("combined_flags", combined)) if on]))
             if (c := CONDA.search(raw)):
@@ -269,7 +376,7 @@ def scan_notebook(nb, cells, rows, meta=None):
 GROUP_COLS = {  # column: keys summed from per-notebook stats
     "nbs": ["notebooks"], "dups": ["duplicate_skipped"], "w/inst": ["nb_with_install"], "lines": ["install_lines"],
     "-U": ["upgrade_lines"], "==": ["req_kind:exact"], "imp_after": ["req_join:imported_after_install"],
-    "not_imp": ["req_join:not_imported"], "guarded": ["enclosing:shell_cond", "enclosing:if", "enclosing:elif", "enclosing:else", "enclosing:try", "enclosing:except"],
+    "not_imp": ["req_join:not_imported"], "guarded": ["enclosing:shell_cond", "enclosing:shell_block", "enclosing:if", "enclosing:elif", "enclosing:else", "enclosing:try", "enclosing:except"],
     "colab": ["nb_platform:colab"], "odd_form": ["form:other", "form:sys_executable", "form:subprocess_list", "form:python_m_pip", "form:uv_magic", "form:magic", "form:call"],
     "conda": ["conda:"], "undecl": ["nb_signal_undeclared:"],
 }
@@ -285,7 +392,9 @@ def older(version, minimum):
 def main(root, out_csv, min_python=None):
     root = Path(root)
     total, groups, rows, hashes = Counter(), defaultdict(Counter), [], set()
-    for nb in sorted(root.rglob("*.ipynb")):
+    print(f"IPython transform: {'on' if IPY else 'off (IPython not importable; parse:ipython_* not counted)'}")
+    for n, nb in enumerate(sorted(root.rglob("*.ipynb")), 1):
+        if n % 100 == 0: print("." if n % 1000 else f" {n}", end="" if n % 1000 else "\n", flush=True)
         if ".ipynb_checkpoints" in nb.parts: continue
         rel = nb.relative_to(root).parts
         group = rel[0] if len(rel) > 1 else "(root)"
@@ -307,6 +416,7 @@ def main(root, out_csv, min_python=None):
     summary.append(f"{'group':28}" + "".join(f"{col:>10}" for col in GROUP_COLS))
     for g in sorted(groups):
         summary.append(f"{g[:28]:28}" + "".join(f"{group_value(groups[g], keys):>10}" for keys in GROUP_COLS.values()))
+    summary += ["", "examples (notebook:cell):"] + [f"{k}\n    " + "\n    ".join(v) for k, v in sorted(EXAMPLES.items())]
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["group", "python", "kind", "notebook", "cell", "form_or_signal", "detail", "status", "line"])
@@ -314,7 +424,7 @@ def main(root, out_csv, min_python=None):
     summary_path = Path(out_csv).with_name(Path(out_csv).stem + "_summary.txt")
     args = " ".join(sys.argv[1:])
     summary_path.write_text(f"corpus_install_scan.py {args}\n\n" + "\n".join(summary) + "\n", encoding="utf-8")
-    print("\n".join(summary))
+    print("\n" + "\n".join(summary))
     print(f"detail rows: {out_csv}\nsummary: {summary_path}")
 
 if __name__ == "__main__":
