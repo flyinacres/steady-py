@@ -61,9 +61,9 @@ Each step runs in its own context, ends with a handoff, and is reviewed before t
 
 1. Install-line pipeline. The largest step; plans are revisited after it.
    1. One reader for file and live mode, with notebook-order positions: G15, D1, P7.
-   2. Magics through IPython's transform, then one AST: K1, K2, G13.
+   2. Magics through IPython's transform, then one AST: K1, K2, G13. When a cell uses syntax newer than steady-py's interpreter (for example `lazy import` before 3.15), K2's diagnostic names both versions; steady-py doesn't rewrite such syntax.
    3. Guard detection: G1, G3, G6, and G9 (installs inside functions: 123 lines in 44 notebooks), settled here.
-   4. Pip-style argument parsing: G4, G5, G11, G12, G14, G16 (with R1), G17, G18, G19, P4, C2, D5. Needs CH3 and the offline-wheel decision first (section 7).
+   4. Pip-style argument parsing: G4, G5, G11, G12, G14, G16 (with R1), G17, G18, G19, P4, C2, D5, and CH3 (`name @ url` stored as written). Needs the offline-wheel decision first (section 7).
 2. Installed-state capture and the import join.
    1. Capture, run side by side first: E1, E2a, E2b, E3, E5, E6, E7, E8, K6, C1, and the DG5 warning.
    2. One `root_dir` derivation and one import-to-distribution join: ED1 to ED6, P2, G2, K12 (in live mode it drops nearly every pin on Kaggle), and development.md's known bug that live-kernel local modules outside `notebook_dir` are all tagged `root_dir`. check's missing-root-module message gains a `--root-dir` hint.
@@ -84,7 +84,7 @@ Not on the features' path; each is done when convenient, in any step.
 
 Numbers refer to the matrix's "Decisions that unblock rows".
 
-1. Before step 1.4: CH3 (decision 10: `name @ url` stored as a bare URL) and offline `/kaggle/input/...whl` installs (pin, keep as raw installs, or report as needing the attached dataset).
+1. Before step 1.4: offline `/kaggle/input/...whl` installs (pin, keep as raw installs, or report as needing the attached dataset).
 2. Before step 2.1: none open.
 3. Before step 3: decision 9 (manifest compatibility) and CH2 (decision 10).
 4. Before step 4: decision 8 (exit code for a heuristic finding `not_checked_at_generation`), and the install-lines spec's open decisions 10.1 to 10.4.

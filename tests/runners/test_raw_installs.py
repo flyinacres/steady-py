@@ -22,16 +22,13 @@ All pip activity runs with PIP_NO_INDEX=1, so PyPI is never consulted.
 
 from __future__ import annotations
 
-import base64
 from functools import partial
-import hashlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import sys
 import tempfile
 import threading
-import zipfile
 
 import platform
 
@@ -47,12 +44,12 @@ from e2e_harness import (
     temp_notebook,
 )
 
-sys.path.insert(0, str(WORKSPACE_ROOT / "src"))
+sys.path[:0] = [str(WORKSPACE_ROOT / "src"), str(WORKSPACE_ROOT)]
 from steady_py import generate  # noqa: E402  (needs WORKSPACE_ROOT/src on sys.path)
+from tests.support.wheels import write_wheel  # noqa: E402  (needs WORKSPACE_ROOT on sys.path)
 
 DIST_NAME = "rawpkg-probe"
 IMPORT_NAME = "rawpkg_probe"
-WHEEL_NAME = "rawpkg_probe-1.0.0-py3-none-any.whl"
 
 
 def verify_code(label: str) -> str:
@@ -61,29 +58,6 @@ def verify_code(label: str) -> str:
         f"assert {IMPORT_NAME}.VERSION == '1.0.0'\n"
         f"print('RAW-INSTALL-VERIFIED {label}')\n"
     )
-
-
-def build_wheel(dest_dir: Path) -> Path:
-    """A minimal valid wheel, written by hand so the test needs no build tooling."""
-    def record_hash(data: bytes) -> str:
-        return "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
-
-    dist_info = "rawpkg_probe-1.0.0.dist-info"
-    files = {
-        f"{IMPORT_NAME}/__init__.py": b'VERSION = "1.0.0"\n',
-        f"{dist_info}/METADATA": f"Metadata-Version: 2.1\nName: {DIST_NAME}\nVersion: 1.0.0\n".encode(),
-        f"{dist_info}/WHEEL": b"Wheel-Version: 1.0\nGenerator: hand\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
-    }
-    record_lines = [f"{name},{record_hash(data)},{len(data)}" for name, data in files.items()]
-    record_lines.append(f"{dist_info}/RECORD,,")
-    files[f"{dist_info}/RECORD"] = ("\n".join(record_lines) + "\n").encode()
-
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    wheel_path = dest_dir / WHEEL_NAME
-    with zipfile.ZipFile(wheel_path, "w") as zf:
-        for name, data in files.items():
-            zf.writestr(name, data)
-    return wheel_path
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -200,7 +174,7 @@ def main() -> None:
     os.environ["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
 
     SCRATCH = Path(tempfile.mkdtemp(prefix="raw_installs_e2e_"))
-    wheel = build_wheel(SCRATCH / "serve")
+    wheel = write_wheel(SCRATCH / "serve", DIST_NAME, "1.0.0", source='VERSION = "1.0.0"\n')
     server = start_server(SCRATCH / "serve")
     url = f"http://127.0.0.1:{server.server_address[1]}/{wheel.name}"
     merged_files: list[Path] = []

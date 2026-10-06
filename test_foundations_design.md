@@ -21,7 +21,7 @@ Scope: the shared support code that the tests in `test_triage_matrix.md` are bui
 6. `tests/selftest/`: tests of the support code itself (markers, hygiene, notebook builder, runner, fake PyPI, site dirs, venvs).
 7. `tests/fixtures/`: saved artifacts. `notebooks/` (real-world patterns worth reading), `projects/` (stub package sources wheels are built from), `pypi/` (trimmed real PyPI responses shared by several tests).
 8. `tests/.wheelhouse/` (gitignored): downloaded build backends and built wheels.
-9. Existing test files stay in place until the pruning step.
+9. Existing test files stay in place until the pruning step; §14 maps each to its replacement.
 
 ## 3. Markers and tiers
 
@@ -119,3 +119,56 @@ Scope: the shared support code that the tests in `test_triage_matrix.md` are bui
 9. Suite time: each in-process run spends about 1 second in steady-py's own `pip freeze` subprocess, which dominates the default run (about 95 seconds on Linux). Sharing snapshots (§4.5) saved about 12 seconds. The remaining lever is pytest-xdist on a multi-core host.
 10. Docker: `runuser` and `useradd` are present in `python:3.11-slim`, and the bind mount is readable by the non-root user on Docker Desktop for Windows and macOS (Apple Silicon pulls the arm64 image; every wheel used is py3-none-any).
 11. Verified: the kernel tier on Windows (Python 3.13), 7 passed and 7 xfailed, matching Linux.
+
+## 14. Existing tests at the rearchitecture
+
+Each older test file, by what it couples to and what replaces it. "Breaks" means it imports module internals or patches them, so it fails as soon as those move; it is deleted once its replacement covers it, and not repaired. "Gap" names behavior that no boundary test (`tests/behavior/`, `tests/characterization/`) covers yet; those tests stay until a replacement is written or the behavior is cut.
+
+Gaps referred to below:
+
+1. Accelerator detection and hardware tags (torch, TensorFlow, JAX, fastai's transitive torch; GPU recorded in the manifest and markdown).
+2. Notebook language detection: non-Python kernels skipped, conflicting or missing metadata, majority and tie-break rules.
+3. Directory walks skipping hidden and `.ipynb_checkpoints` directories.
+4. Guarded and dynamic imports: guarded packages written as optional, an unconditional import overriding a guarded one, literal and variable `importlib.import_module`.
+5. Index-URL harvesting rules: per-package scoping, last-wins conflicts with a warning, directory-level aggregation.
+6. The JSON report contract: schema and tool-version fields, field shapes, console and JSON agreeing on counts. Boundary tests read the JSON but don't pin its shape.
+7. Delta for Python version, GPU, and findings that appeared or resolved (package changes are covered).
+8. Cell 2 runtime edges: install timeout, pip that can't start, scoped flags shown on failure, the custom-sourced failure pointing to the author, the timeout baked into generated cells.
+9. `--universal` and `--full-freeze`: pending the scope cut (matrix decision 1), so not gaps to fill yet.
+
+Top-level `tests/test_*.py`:
+
+| File | At the rearchitecture | Replaced by | Gaps |
+| --- | --- | --- | --- |
+| `test_batch_failures.py` | Breaks: calls analyze/generate directly, patches `get_installed_environment` | characterization/test_directory_runs.py | 2, 3, 5 |
+| `test_batch_mode.py` | Breaks: same coupling | characterization/test_directory_runs.py, test_local_modules.py; behavior/test_environment.py (directory scan), test_writing.py | 1, 2 |
+| `test_cli.py` | Breaks: 60 patches of endpoints and drift | characterization/test_check_signals.py (exit code per signal), test_directory_runs.py, test_manifest_lifecycle.py; behavior/test_writing.py (text report) | none; its heuristic exit-code cases are the subject of matrix decision 8 |
+| `test_constants.py` | Survives | | The module list in `test_scan_covers_every_module_in_the_package` tracks the new layout; the manifest-literal case builds a baseline through `drift` |
+| `test_delta.py` | Breaks if `compute_delta` moves (pure, no patches) | characterization/test_scan_delta.py; behavior/test_writing.py (P3) | 7 |
+| `test_direct_references.py` | Breaks | behavior/test_environment.py (E5, E8), test_install_lines.py (G12); characterization/test_setup_runtime.py (VCS line verbatim) | none known |
+| `test_disk_output.py` | Breaks | characterization/test_manifest_lifecycle.py; behavior/test_writing.py (K7) | 1 |
+| `test_drift_check.py` | Breaks: patches `_fetch_pypi_json` and drift internals | characterization/test_check_signals.py; behavior/test_validation.py | Extras in the resolution graph walk (which extras are walked, conflicts an extra creates) |
+| `test_drift_check_live.py` | Breaks: calls `drift` and `pypi` against real PyPI | behavior/test_validation.py against the fake | The fake's response shapes are trimmed real responses; a slim real-PyPI contract check is still worth keeping |
+| `test_endpoints.py` | Breaks: 40 patches | characterization (all files); behavior/test_live.py for the live-session target | 1, 8 |
+| `test_installed.py` | Breaks: pin-string parsing internals | behavior/test_runtime.py (R1, R3) | none |
+| `test_json_format.py` | Breaks: patches `sys.argv` and the environment | none | 6 |
+| `test_magic_harvesting.py` | Breaks: calls `magics` and `scanning` directly, no patches | behavior/test_install_lines.py, test_reading.py (G13) | 5 |
+| `test_manifest_roundtrip.py` | Breaks | characterization/test_manifest_lifecycle.py, test_local_modules.py; behavior/test_reading.py (K1) | none known; the malformed-entry cases border CH1 |
+| `test_module_hygiene.py` | Survives, except `test_failed_opencv_probe_falls_back_and_is_logged_at_debug`, which patches `resolution.subprocess` | | |
+| `test_results.py` | Mostly survives: the result types are public API, but its helpers build them from `models` and `drift` | | |
+| `test_runtime.py` | Breaks: patches `subprocess.run` | characterization/test_setup_runtime.py; behavior/test_runtime.py | 8 |
+| `test_steady_py.py` | Breaks: 57 patches across most modules | behavior/test_reading.py, test_install_lines.py, test_pins.py; characterization/test_distribution_names.py | 1, 4 |
+| `test_steady_py_fixtures.py` | Breaks: patches the environment and OpenCV probe | characterization/test_distribution_names.py; behavior/test_pins.py (K9) | none known |
+| `test_structural_fixtures.py` | Breaks: same coupling | characterization (all files) | none known |
+
+`tests/runners/` (docker tier, driven by `run_suite.py`): all survive the rearchitecture unchanged in form, since they run the CLI and kernels as subprocesses, but their assertions on Cell 2 and report text will need updating as that output changes.
+
+| File | Replaced by | Notes |
+| --- | --- | --- |
+| `run_suite.py` | | Kept as the thin driver after the conversion (§11.3). The Kaggle, Colab and python3.11 image tiers have no other coverage |
+| `e2e_harness.py` | `tests/support/kernel.py`, `docker.py` | Retired by the conversion |
+| `test_check_drift.py` | characterization/test_check_signals.py, test_manifest_lifecycle.py | Candidate for deletion at the conversion |
+| `test_hardware_mock.py` | none | Only end-to-end coverage of gap 1; convert, don't drop |
+| `test_live_kernel_phase0_regressions.py` | behavior/test_live.py | Candidate for deletion at the conversion |
+| `test_live_kernel_stale_repin.py` | The restart note is covered by characterization/test_setup_runtime.py | The in-kernel staleness it demonstrates is Python's behavior; keep as a demonstration or drop |
+| `test_raw_installs.py` | characterization/test_setup_runtime.py (raw installs after pins, from local wheels) | Its URL-served and unreachable-source cases have no other coverage; its wheel comes from `wheels.write_wheel` |
