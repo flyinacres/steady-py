@@ -1,12 +1,12 @@
 # Test triage matrix for review findings
 
-Purpose: decide, per finding in review_findings.md (plus the open known bugs in development.md, prefixed D), whether a test can be written before the rearchitecture, at which layer, and with which fixture.
+Owns, for each finding in review_findings.md: its ID and title, whether its expected behavior is settled, the layer and fixture of its test, its status, and the fix_plan.md step that fixes it. It also owns the decisions that unblock rows.
 
 ## Legend
 
 Settled:
 
-- Y: expected behavior is agreed; write a strict xfail (or test and fix now, if marked Now).
+- Y: expected behavior is agreed; write a strict xfail.
 - P: part of the expectation is agreed; test only that part (named in Notes).
 - N: blocked on a decision; no test yet.
 - S: structural, no behavioral symptom of its own; enforce by lint or type gate.
@@ -19,14 +19,20 @@ Layer (lowest that observes the finding faithfully):
 - L: real kernel through `jupyter_client` in the base venv. Runs on the host; Docker is not required.
 - D: Docker, only where the host can't reproduce the condition.
 
-Now: a point fix that survives any architecture; write the test and fix together.
+Step (fix_plan.md):
+
+- 1.1 to 5: the sub-step or step in section 5.
+- pf1 to pf4: the point fixes in section 6, items 1 to 4.
+- fixed: fixed; its tests pass.
+- out: out of scope (section 2).
+- touched: S rows, fixed only in code a step touches.
 
 Reading test status:
 
 - Only Y and P rows get tests. N, S and C rows have none by design.
 - `pytest --findings` lists every test tagged with a matrix ID, one line each: ID, status, tier, test. A line means the test exists. Status `covered` means it passes; `known bug` means a strict xfail that fails until the bug is fixed, and fails the run if it starts passing. Tier says which `-m` run executes it (unit runs by default).
 - A Y or P row with no lines in `--findings` has no test yet.
-- The Status column holds only what markers can't express: `tested (see --findings)`, `deferred: <reason>` (listed under Deferred), or `not planned` for N, S and C rows, which get tests only once a decision settles them. Pass and xfail state is never recorded here; `--findings` owns it.
+- The Status column holds only what markers can't express: blank for a row with tests, `deferred` for a Y or P row whose test waits (reasons under Deferred), or `not planned` for N, S and C rows, which get tests only once a decision settles them. Pass and xfail state is never recorded here; `--findings` owns it.
 - `tests/characterization/` is the regression net for the rearchitecture: plain passing tests of current behavior at the public boundary. They carry no matrix IDs, so `--findings` doesn't list them.
 
 ## Foundations
@@ -42,151 +48,152 @@ Reading test status:
 
 ## Parsing and notebook reading
 
-| ID  | Finding                                                                                                                                                               | Settled | Status                                               | Layer | Fixture | Notes                                                                                                            |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ---------------------------------------------------- | ----- | ------- | ---------------------------------------------------------------------------------------------------------------- |
-| K1  | One IPython line breaks manifest extraction; blanking corrupts valid Python                                                                                           | Y       | tested (see --findings)                              | U     | F1      | check and scan-delta on a notebook with `x = !ls`, `df?`, a triple-quote ending on a `%` line                    |
-| K2  | Unparseable cell drops its imports silently                                                                                                                           | Y       | tested (see --findings)                              | U     | F1      | Expect imports found or a diagnostic naming the cell, never silence; a cell using syntax newer than the running interpreter (`lazy import`) gets a diagnostic naming both versions                                              |
-| G1  | Guarded install line erases the cell's imports                                                                                                                        | Y       | tested (see --findings)                              | U     | F1      | Corpus: 14.6% of install lines in 3.10+ notebooks are guarded (3.6% in 3.7 and earlier) |
-| G13 | `%%writefile` with leading blank lines scanned as code                                                                                                                | Y       | tested (see --findings)                              | U     | F1      |                                                                                                                  |
-| G15 | Live kernel reads transformed source; no install lines harvested                                                                                                      | Y       | tested (see --findings)                              | L     | F7      | One cell per form: `%pip`, `!pip`, `%%writefile`, `%conda`; file mode is each test's control. Existing tests patch the reader and can't catch this |
-| D1  | Live session counts `steady_py` as an import | Y       | tested (see --findings)                              | L     | F7      | Also in file mode: a scan of a snapshotted notebook reports Cell 2's `import steady_py` as a platform module (tested at U), and a user's own `import steady_py` in either mode |
-| K13 | Deeply nested expression exceeds the import visitor's recursion limit | Y | tested (see --findings) | U | F1 | Found by the corpus baseline; a notebook with a few hundred chained operations loses all its imports. A single-file run crashes with a traceback |
-| P7  | Batch notices lose their notebook; cell numbers match nothing visible                                                                                                 | Y       | tested (see --findings)                              | U     | F1      | Markdown cells before code; same notice in two notebooks                                                         |
+| ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| K1 | One IPython line breaks manifest extraction; blanking corrupts valid Python | Y |  | 1.2 | U | F1 | check and scan-delta on a notebook with `x = !ls`, `df?`, a triple-quote ending on a `%` line |
+| K2 | Unparseable cell drops its imports silently | Y |  | 1.2 | U | F1 | Expect imports found or a diagnostic naming the cell, never silence; a cell using syntax newer than the running interpreter (`lazy import`) gets a diagnostic naming both versions |
+| G1 | Guarded install line erases the cell's imports | Y |  | 1.3 | U | F1 |  |
+| G13 | `%%writefile` with leading blank lines scanned as code | Y |  | 1.2 | U | F1 |  |
+| G15 | Live kernel reads transformed source; no install lines harvested | Y |  | 1.1 | L | F7 | One cell per form: `%pip`, `!pip`, `%%writefile`, `%conda`; file mode is each test's control. Existing tests patch the reader and can't catch this |
+| D1 | Live session counts `steady_py` as an import | Y |  | 1.1 | L | F7 | Also in file mode: a scan of a snapshotted notebook reports Cell 2's `import steady_py` as a platform module (tested at U), and a user's own `import steady_py` in either mode |
+| K13 | Deeply nested expression exceeds the import visitor's recursion limit | Y |  | 1.2 | U | F1 | A single-file run crashes with a traceback |
+| P7 | Batch notices lose their notebook; cell numbers match nothing visible | Y |  | 1.1 | U | F1 | Markdown cells before code; same notice in two notebooks |
 
 ## Install-line harvesting
 
-| ID  | Finding                                                               | Settled | Status                                               | Layer | Fixture    | Notes                                                                                                                                       |
-| --- | --------------------------------------------------------------------- | ------- | ---------------------------------------------------- | ----- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| G3  | Guarded install treated as top-level                                  | Y       | tested (see --findings)                              | U     | F1         | Per the guarded-installs decision: not pinned unconditionally, reported; Corpus: see G1 |
-| G6  | Exclusive branches collapse to the last pin                           | Y       | tested (see --findings)                              | U     | F1         | Follows G3; one test file                                                                                                                   |
-| G4  | `%pip install $pkg` becomes package `$pkg`                            | Y       | tested (see --findings)                              | U     | F1         | Warning, no package                                                                                                                         |
-| G5  | Missed install forms                                                  | Y       | tested (see --findings)                              | U     | F1         | Parametrize: `python -m pip`, `{sys.executable} -m pip`, `os.system`, `subprocess` list, `get_ipython().system`, `%uv pip`, `conda run pip`; Corpus: the `subprocess` list form is 11.2% of install lines in 3.10+ notebooks |
-| G11 | `--opt=value` flags dropped                                           | Y       | tested (see --findings)                              | U     | F1         |                                                                                                                                             |
-| G12 | PEP 508 direct reference split into three entries                     | Y       | tested (see --findings)                              | U     | F1         | Unquoted form flagged                                                                                                                       |
-| G14 | `--no-deps` and raw-install index flags dropped                       | Y       | tested (see --findings)                              | U     | F1         | Assert on manifest fields; Corpus: `--no-deps` on 11.5% of install lines in 3.10+ notebooks |
-| G16 | Install line with extras produces an invalid pin                      | Y       | tested (see --findings)                              | V     | F4, F3     | Pair with R1                                                                                                                                |
-| P4  | `-e path` vanishes with no warning                                    | Y       | tested (see --findings)                              | U     | F1         |                                                                                                                                             |
-| C2  | mamba, micromamba, `conda env update` give no notice                  | Y       | tested (see --findings)                              | U     | F1         | `--file` handled like `-r`                                                                                                                  |
-| D5  | Folder scan reports a package named `---`                             | Y       | tested (see --findings)                              | U     | magic_sink |                                                                                                                                             |
-| G2  | Pip/import name mismatch drops guard; paddle double entry             | P       | tested (see --findings)                              | V     | F4         | Single entry settled; unconditional install vs guarded import precedence, python-dotenv does not double; only paddle doeopen                |
-| G7  | Non-literal dynamic imports: generic warning                          | N       | not planned                                          |       |            | Behavior undefined                                                                                                                          |
-| G8  | Guard tagging coarse                                                  | N       | not planned                                          |       |            | No agreed guard classes                                                                                                                     |
-| G9  | Wrapper helper loses guard                                            | N       | not planned                                          |       |            | Follows the AST change                                                                                                                      |
-| G17 | Non-canonical install name listed twice, plus a nameless header entry | Y       | tested (see --findings)                              | U     | F1         | D5 is its directory-scan symptom; also the nameless `%%writefile` header entry                                                                                                            |
-| G18 | Trailing comment on an install line harvested as packages | Y | deferred: written with the install-line rework       | U | F1 | 99 corpus lines |
-| G19 | Combined short flags (`-qr file`) hide `-r` | Y | deferred: written with the install-line rework       | U | F1 | 48 corpus lines |
-| CH3 | PEP 508 `name @ url` stored as the bare URL | Y | deferred: written with step 1.4                      | U | F1 | Decided (decision 10): stored as written, `name @ url`; test alongside G12 |
+| ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| G3 | Guarded install treated as top-level | Y |  | 1.3 | U | F1 | Per the guarded-installs decision: not pinned unconditionally, reported |
+| G6 | Exclusive branches collapse to the last pin | Y |  | 1.3 | U | F1 | Follows G3; one test file |
+| G4 | `%pip install $pkg` becomes package `$pkg` | Y |  | 1.4 | U | F1 | Warning, no package |
+| G5 | Missed install forms | Y |  | 1.4 | U | F1 | Parametrize: `python -m pip`, `{sys.executable} -m pip`, `os.system`, `subprocess` list, `get_ipython().system`, `%uv pip`, `conda run pip` |
+| G11 | `--opt=value` flags dropped | Y |  | 1.4 | U | F1 |  |
+| G12 | PEP 508 direct reference split into three entries | Y |  | 1.4 | U | F1 | Unquoted form flagged |
+| G14 | `--no-deps` and raw-install index flags dropped | Y |  | 1.4 | U | F1 | Assert on manifest fields |
+| G16 | Install line with extras produces an invalid pin | Y |  | 1.4 | V | F4, F3 | Pair with R1 |
+| P4 | `-e path` vanishes with no warning | Y |  | 1.4 | U | F1 |  |
+| C2 | mamba, micromamba, `conda env update` give no notice | Y |  | 1.4 | U | F1 | `--file` handled like `-r` |
+| D5 | Folder scan reports a package named `---` | Y |  | 1.4 | U | magic_sink |  |
+| G2 | Pip/import name mismatch drops guard; paddle double entry | P |  | 2.2 | V | F4 | Single entry settled; unconditional install vs guarded import precedence, python-dotenv does not double; only paddle doeopen |
+| G7 | Non-literal dynamic imports: generic warning | N | not planned | out |  |  | Behavior undefined |
+| G8 | Guard tagging coarse | N | not planned | out |  |  | No agreed guard classes |
+| G9 | Wrapper helper loses guard | N | not planned | 1.3 |  |  | Follows the AST change |
+| G17 | Non-canonical install name listed twice, plus a nameless header entry | Y |  | 1.4 | U | F1 | D5 is its directory-scan symptom; also the nameless `%%writefile` header entry |
+| G18 | Trailing comment on an install line harvested as packages | Y | deferred | 1.4 | U | F1 |  |
+| G19 | Combined short flags (`-qr file`) hide `-r` | Y | deferred | 1.4 | U | F1 |  |
+| CH3 | PEP 508 `name @ url` stored as the bare URL | Y | deferred | 1.4 | U | F1 | Decided (decision 10): stored as written, `name @ url`; test alongside G12 |
 
 ## Environment capture
 
-| ID  | Finding                                                                | Settled | Status                                               | Layer | Fixture              | Notes                                                                                    |
-| --- | ---------------------------------------------------------------------- | ------- | ---------------------------------------------------- | ----- | -------------------- | ---------------------------------------------------------------------------------------- |
-| E1  | Failed freeze gives an empty verified manifest, exit 0                 | Y       | tested (see --findings)                              | V     | `venv --without-pip` | Exit 2, nothing written. Non-ASCII editable path variant on the Windows host             |
-| E2a | Local `file://` wheel dropped                                          | Y       | tested (see --findings)                              | V     | F5                   | Expect a creator candidate report                                                        |
-| E2b | Conda-built `file://` packages dropped                                 | Y       | tested (see --findings)                              | V     | F4                   | `INSTALLER=conda`; confirm once in F8                                                    |
-| E3  | Overlay pins a shadowed copy                                           | Y       | tested (see --findings)                              | V     | F4                   | Two site dirs, first without `direct_url.json`                                           |
-| E5  | `#subdirectory=` lost; monorepo packages merged                        | Y       | tested (see --findings)                              | V     | F4                   | The loss is in reading `direct_url.json`; a runtime install from a monorepo needs F6     |
-| E6  | `===` versions stored with a stray `=`                                 | Y       | tested (see --findings)                              | V     | F4                   | Can't be built with modern tools; hand-written only                                      |
-| E7  | Directory scan reports git and conda packages as missing               | Y       | tested (see --findings)                              | V     | F4                   |                                                                                          |
-| E8  | Cell 2 claims a direct reference is installed when nothing installs it | Y       | tested (see --findings)                              | V     | F4                   | One of few assertions on rendered text; a direct reference exists only in a venv         |
-| K6  | OpenCV variant from `pip list`; shadowed variant pinned                | Y       | tested (see --findings)                              | V     | F4                   | cv2 stubs in two site dirs                                                               |
-| C1  | conda-forge OpenCV stubs: wrong variant, false removed                 | Y       | tested (see --findings)                              | V     | F4, F3               |                                                                                          |
-| K12 | Live kernel treats site-packages modules as local                      | Y       | tested (see --findings)                              | L     | F7                   | The live path is the Kaggle path, and 82% of Kaggle notebooks install nothing, so this drops nearly every pin |
-| E4  | `--full-freeze` embeds private paths                                   | C       | not planned                                          |       |                      | Pending removal decision                                                                 |
-| DG5 | Pins come from the CLI's interpreter (pipx, uv tool)                   | N       | not planned                                          | V     | F5                   | Characterization test to confirm the lead; expected behavior is an architecture decision |
+| ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| E1 | Failed freeze gives an empty verified manifest, exit 0 | Y |  | 2.1 | V | `venv --without-pip` | Exit 2, nothing written. Non-ASCII editable path variant on the Windows host |
+| E2a | Local `file://` wheel dropped | Y |  | 2.1 | V | F5 | Expect a creator candidate report |
+| E2b | Conda-built `file://` packages dropped | Y |  | 2.1 | V | F4 | `INSTALLER=conda`; confirm once in F8 |
+| E3 | Overlay pins a shadowed copy | Y |  | 2.1 | V | F4 | Two site dirs, first without `direct_url.json` |
+| E5 | `#subdirectory=` lost; monorepo packages merged | Y |  | 2.1 | V | F4 | The loss is in reading `direct_url.json`; a runtime install from a monorepo needs F6 |
+| E6 | `===` versions stored with a stray `=` | Y |  | 2.1 | V | F4 | Can't be built with modern tools; hand-written only |
+| E7 | Directory scan reports git and conda packages as missing | Y |  | 2.1 | V | F4 |  |
+| E8 | Cell 2 claims a direct reference is installed when nothing installs it | Y |  | 2.1 | V | F4 | One of few assertions on rendered text; a direct reference exists only in a venv |
+| K6 | OpenCV variant from `pip list`; shadowed variant pinned | Y |  | 2.1 | V | F4 | cv2 stubs in two site dirs |
+| C1 | conda-forge OpenCV stubs: wrong variant, false removed | Y |  | 2.1 | V | F4, F3 |  |
+| K12 | Live kernel treats site-packages modules as local | Y |  | 2.2 | L | F7 |  |
+| E4 | `--full-freeze` embeds private paths | C | not planned | out |  |  | Pending removal decision |
+| DG5 | Pins come from the CLI's interpreter (pipx, uv tool) | N | not planned | 2.1 | V | F5 | Characterization test to confirm the lead; expected behavior is an architecture decision |
 
 ## Editables and local modules
 
-| ID  | Finding                                                      | Settled | Status                                               | Layer | Fixture    | Notes                                                        |
-| --- | ------------------------------------------------------------ | ------- | ---------------------------------------------------- | ----- | ---------- | ------------------------------------------------------------ |
-| ED1 | Editable's own dependencies never pinned                     | Y       | deferred: venv layer, written with the rearchitecture | V     | F5         |                                                              |
-| ED2 | Directory and file runs classify the same import differently | Y       | deferred: venv layer, written with the rearchitecture | V     | F5         | Also covers test_plan item 3 (file and directory runs agree) |
-| ED3 | Editable import: no warning, exit 0                          | Y       | tested (see --findings)                              | V     | F5         |                                                              |
-| ED4 | Join misses hatchling, pdm, legacy editables                 | Y       | deferred: venv layer, written with the rearchitecture | V     | F5         | `conda develop` confirmed once in F8                         |
-| ED5 | VCS editable reported as a local path                        | Y       | deferred: needs F6                                   | V     | F5, F6     |                                                              |
-| ED6 | Data folder hides an installed package                       | Y       | deferred: venv layer, written with the rearchitecture | V     | F4         | `datasets/` holding only a CSV                               |
-| K4  | `importlib.machinery` bound only incidentally                | Y       | tested (see --findings)                              | U     | lint       | Now; fixed. Structural: no behavioral symptom while it's latent |
+| ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| ED1 | Editable's own dependencies never pinned | Y | deferred | 2.2 | V | F5 |  |
+| ED2 | Directory and file runs classify the same import differently | Y | deferred | 2.2 | V | F5 | Also covers test_plan item 3 (file and directory runs agree) |
+| ED3 | Editable import: no warning, exit 0 | Y |  | 2.2 | V | F5 |  |
+| ED4 | Join misses hatchling, pdm, legacy editables | Y | deferred | 2.2 | V | F5 | `conda develop` confirmed once in F8 |
+| ED5 | VCS editable reported as a local path | Y | deferred | 2.2 | V | F5, F6 |  |
+| ED6 | Data folder hides an installed package | Y | deferred | 2.2 | V | F4 | `datasets/` holding only a CSV |
+| K4 | `importlib.machinery` bound only incidentally | Y |  | fixed | U | lint | Structural: no behavioral symptom while it is latent |
 
 ## Resolution and pins
 
-| ID  | Finding                                                     | Settled | Status                                               | Layer | Fixture | Notes                                                             |
-| --- | ----------------------------------------------------------- | ------- | ---------------------------------------------------- | ----- | ------- | ----------------------------------------------------------------- |
-| P1  | Version operators stripped into invalid pins                | Y       | tested (see --findings)                              | U     | F1      | Host `packaging` is the installed version                         |
-| P2  | Namespace import resolves to an arbitrary distribution      | Y       | tested (see --findings)                              | V     | F4      | Needs `RECORD` for `dist.files`                                   |
-| P6  | Not-found imports labeled `pinned`                          | Y       | tested (see --findings)                              | U     | F1      | JSON status                                                       |
-| LV4 | Cell 1 lists flag names as URLs                             | Y       | tested (see --findings)                              | U     | F1      |                                                                   |
-| K9  | Extras promotion nondeterministic                           | P       | tested (see --findings)                              | V     | F4      | Determinism settled (four `PYTHONHASHSEED` values); heuristic open |
-| CI2 | Environment version paired with an unversioned line's index | P       | tested (see --findings)                              | U     | F1      | Warning settled; pairing rule open                                |
-| K10 | Display text parsed back as data                            | S       | not planned                                          |       |         | Visible effect covered by E7                                      |
-| G10 | `--universal` duplicates resolution                         | C       | not planned                                          |       |         |                                                                   |
-| LV3 | `--universal` can't install `+cu` builds                    | C       | not planned                                          |       |         |                                                                   |
+| ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| P1 | Version operators stripped into invalid pins | Y |  | pf3 | U | F1 | Host `packaging` is the installed version |
+| P2 | Namespace import resolves to an arbitrary distribution | Y |  | 2.2 | V | F4 | Needs `RECORD` for `dist.files` |
+| P6 | Not-found imports labeled `pinned` | Y |  | pf3 | U | F1 | JSON status |
+| LV4 | Cell 1 lists flag names as URLs | Y |  | pf3 | U | F1 |  |
+| K9 | Extras promotion nondeterministic | P |  | pf3 | V | F4 | Determinism settled (four `PYTHONHASHSEED` values); heuristic open |
+| CI2 | Environment version paired with an unversioned line's index | P |  | pf2 | U | F1 | Warning settled; pairing rule open |
+| K10 | Display text parsed back as data | S | not planned | touched |  |  | Visible effect covered by E7 |
+| G10 | `--universal` duplicates resolution | C | not planned | out |  |  |  |
+| LV3 | `--universal` can't install `+cu` builds | C | not planned | out |  |  |  |
 
 ## Validation
 
-| ID  | Finding                                                        | Settled | Status                                               | Layer | Fixture | Notes                                                                      |
-| --- | -------------------------------------------------------------- | ------- | ---------------------------------------------------- | ----- | ------- | -------------------------------------------------------------------------- |
-| K3  | Dropped connection crashes the run                             | Y       | tested (see --findings)                              | U     | F3      | Now; fixed                                                                 |
-| K5  | Transitive markers use the host platform                       | N       | not planned                                          |       |         | Fires only when check runs on a different OS than snapshot; see decision 6 |
-| K8  | Lookup failure reported as a confirmed conflict                | Y       | tested (see --findings)                              | U     | F3      |                                                                            |
-| LV1 | Local-version pins skip every PyPI check                       | Y       | tested (see --findings)                              | U     | F3      | Include an old baseline: not_checked_at_generation, not new                |
-| CI1 | Custom-index project on PyPI reported removed; graph abandoned | Y       | tested (see --findings)                              | U     | F3      | Index lookup through the simple API deferred until a fake index exists. A removed pin also gets a duplicate `conflict` on itself |
-| LV2 | `custom_sourced` decided by the wrong rule                     | P       | tested (see --findings)                              | U     | F3      | Network-error case settled; build-tag field and runtime message open (DG6) |
-| CH1 | A manifest with an unknown or missing required field can't be read (exit 2) | N | not planned                                          |  |  | Found in the characterization pass: an older steady-py can't read a newer manifest; see decision 9 |
+| ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| K3 | Dropped connection crashes the run | Y |  | fixed | U | F3 |  |
+| K5 | Transitive markers use the host platform | N | not planned | out |  |  | Fires only when check runs on a different OS than snapshot; see decision 6 |
+| K8 | Lookup failure reported as a confirmed conflict | Y |  | pf2 | U | F3 |  |
+| LV1 | Local-version pins skip every PyPI check | Y |  | pf2 | U | F3 | Include an old baseline: not_checked_at_generation, not new |
+| CI1 | Custom-index project on PyPI reported removed; graph abandoned | Y |  | pf2 | U | F3 | Index lookup through the simple API deferred until a fake index exists. A removed pin also gets a duplicate `conflict` on itself |
+| LV2 | `custom_sourced` decided by the wrong rule | P |  | pf2 | U | F3 | Network-error case settled; build-tag field and runtime message open (DG6) |
+| CH1 | A manifest with an unknown or missing required field can't be read (exit 2) | N | not planned | 3 |  |  | Found in the characterization pass: an older steady-py can't read a newer manifest; see decision 9 |
 
 ## Cell 2 runtime
 
-| ID  | Finding                                             | Settled | Status                                               | Layer | Fixture | Notes                                       |
-| --- | --------------------------------------------------- | ------- | ---------------------------------------------------- | ----- | ------- | ------------------------------------------- |
-| R1  | Extras pins never pass the installed check          | Y       | tested (see --findings)                              | V     | F5      | Written wheels                              |
-| R2  | Pin that drifts after verification still counts     | Y       | tested (see --findings)                              | V     | F5      | Installing B moves A                        |
-| R3  | String equality instead of PEP 440                  | Y       | tested (see --findings)                              | V     | F5      | `demo-loc 1.0+cu126` installed, pin `==1.0` |
-| D6  | Troubleshooting advice drops the version            | Y       | tested (see --findings)                              | V     | F5      | Failing wheel                               |
-| R4  | User-site install counts as verified                | Y       | tested (see --findings)                              | D     | F8      | Non-root user, root-owned Python            |
-| R5  | Helper bootstrap succeeds, import fails or is older | Y       | tested (see --findings)                              | D     | F8      | Cases (a) and (b)                           |
-| D2  | Cell 2 silently uses another steady-py version      | Y       | tested (see --findings)                              | D     | F8      | Same scenario as R5                         |
-| D3  | Same advice for every failure                       | N       | not planned                                          |       |         | Needs a design pass                         |
+| ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| R1 | Extras pins never pass the installed check | Y |  | 1.4 | V | F5 | Written wheels |
+| R2 | Pin that drifts after verification still counts | Y |  | pf1 | V | F5 | Installing B moves A |
+| R3 | String equality instead of PEP 440 | Y |  | pf1 | V | F5 | `demo-loc 1.0+cu126` installed, pin `==1.0` |
+| D6 | Troubleshooting advice drops the version | Y |  | pf1 | V | F5 | Failing wheel |
+| R4 | User-site install counts as verified | Y |  | pf1 | D | F8 | Non-root user, root-owned Python |
+| R5 | Helper bootstrap succeeds, import fails or is older | Y |  | pf1 | D | F8 | Cases (a) and (b) |
+| D2 | Cell 2 silently uses another steady-py version | Y |  | pf1 | D | F8 | Same scenario as R5 |
+| D3 | Same advice for every failure | N | not planned | pf1 |  |  | Needs a design pass |
 
 ## Writing and output
 
-| ID  | Finding                                          | Settled | Status                                               | Layer | Fixture | Notes                                                                     |
-| --- | ------------------------------------------------ | ------- | ---------------------------------------------------- | ----- | ------- | ------------------------------------------------------------------------- |
-| DR1 | Venvs not named venv are scanned and rewritten   | Y       | tested (see --findings)                              | U     | F1      | Dirs with `pyvenv.cfg`, `conda-meta/`, `site-packages`. Now; fixed           |
-| DR2 | One notebook's unexpected error ends a directory run with no output | Y | tested (see --findings) | U | F1 | Found by the corpus baseline; fixed: the notebook is reported unreadable and named in the log, and the run continues |
-| K7  | Prior-setup-cell match discards user code        | Y       | tested (see --findings)                              | U     | F1      | Warning expected                                                          |
-| P3  | Delta ignores flags, raw installs, local modules | Y       | tested (see --findings)                              | U     | F1      | Per manifest-updating item 6                                              |
-| CH2 | Delta matches package names without normalizing them | N | not planned                                          |  |  | Found in the characterization pass: `Packaging` vs `packaging` at one version is removed plus added; classify (decision 10) |
-| D4  | Single-file text scan fails                      | Y       | tested (see --findings)                              | U     | F1      |                                                                           |
-| P5  | Unchanged notebook rewritten                     | P       | tested (see --findings)                              | U     | F1      | Cell ID reuse settled; `generated_at` open                                |
-| K11 | Setup markdown matched by heading text           | N       | not planned                                          |       |         | No fix agreed                                                             |
+| ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| DR1 | Venvs not named venv are scanned and rewritten | Y |  | fixed | U | F1 | Dirs with `pyvenv.cfg`, `conda-meta/`, `site-packages` |
+| DR2 | One notebook's unexpected error ends a directory run with no output | Y |  | fixed | U | F1 | The notebook is reported unreadable and named in the log, and the run continues |
+| K7 | Prior-setup-cell match discards user code | Y |  | pf4 | U | F1 | Warning expected |
+| P3 | Delta ignores flags, raw installs, local modules | Y |  | 3 | U | F1 | Per manifest-updating item 6 |
+| CH2 | Delta matches package names without normalizing them | N | not planned | 3 |  |  | Found in the characterization pass: `Packaging` vs `packaging` at one version is removed plus added; classify (decision 10) |
+| D4 | Single-file text scan fails | Y |  | 3 | U | F1 |  |
+| P5 | Unchanged notebook rewritten | P |  | 3 | U | F1 | Cell ID reuse settled; `generated_at` open |
+| K11 | Setup markdown matched by heading text | N | not planned | pf4 |  |  | No fix agreed |
 
 ## Code health
 
-| ID  | Finding                                 | Settled | Status                                               | Layer | Notes                                                       |
-| --- | --------------------------------------- | ------- | ---------------------------------------------------- | ----- | ----------------------------------------------------------- |
-| H3  | Logger never propagates as a library    | Y       | tested (see --findings)                              | U     | Now; fixed                                                  |
-| H1  | `Any` parameters, tuple-unpacking shims | S       | not planned                                          |       | `mypy --strict` gate on touched modules                     |
-| H2  | Broad `except Exception`                | S       | not planned                                          |       | Ruff `BLE001` gate with an allowlist for third-party probes |
+| ID | Finding | Settled | Status | Step | Layer | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| H3 | Logger never propagates as a library | Y |  | fixed | U |  |
+| H1 | `Any` parameters, tuple-unpacking shims | S | not planned | touched |  | `mypy --strict` gate on touched modules |
+| H2 | Broad `except Exception` | S | not planned | touched |  | Ruff `BLE001` gate with an allowlist for third-party probes |
 
 ## Design gaps (no tests yet)
 
-DG1 optional-dependency candidates, DG2 guarded-alternative reporting, DG3 platform baseline, DG4 guard status in the manifest, DG6 build-tag runtime policy, DG7 creator install lines undoing Cell 2: all N, blocked on feature design.
+All N, blocked on feature design. DG5 is under Environment capture.
 
-## Totals
-
-88 rows: 62 Y, 5 P, 15 N (including the six design gaps and three rows from the characterization pass), 3 S, 3 C.
-
-Tests exist for 59 of the 67 Y and P rows; the other eight are listed under Deferred.
-
-By layer (Y and P, 67 rows): 37 U, 24 V, 3 L, 3 D. Docker is needed for three runtime rows plus a one-time conda confirmation.
-
-Now: K3, K4, H3, DR1, DR2, all fixed.
+| ID | Finding | Settled | Status | Step | Notes |
+| --- | --- | --- | --- | --- | --- |
+| DG1 | Optional-dependency candidates | N | not planned | out | See decision 7 |
+| DG2 | Guarded-alternative reporting | N | not planned | 4 | |
+| DG3 | Platform baseline | N | not planned | out | Needed only by DG1 |
+| DG4 | Guard status in the manifest | N | not planned | 3 | |
+| DG6 | Build-tag runtime policy | N | not planned | pf1 | Decision 4 |
+| DG7 | Creator install lines undoing Cell 2 | N | not planned | 4 | |
+| DG8 | Offline `/kaggle/input` wheel installs | N | not planned | 4 | Decision 11, needed before step 1.4 |
+| D7 | Live-session recipe is clunky | N | not planned | 4 | The round trip runs there |
 
 ## Deferred
 
 Rows:
 
-1. G18, G19 (U): install-line tokenizing. Written with the install-line rework, so the tests and the parser change arrive together.
-2. ED1, ED2, ED4, ED6 (V): the editable and local-module join is rewritten in the rearchitecture. They need stub projects not yet in `tests/fixtures/projects/` (hatchling, pdm-backend, a legacy `setup.py develop`), and ED4 needs design §13.1 confirmed.
+1. G18, G19 (U): install-line tokenizing. Written with step 1.4, so the tests and the parser change arrive together.
+2. ED1, ED2, ED4, ED6 (V): the editable and local-module join is rewritten in step 2.2. They need stub projects not yet in `tests/fixtures/projects/` (hatchling, pdm-backend, a legacy `setup.py develop`), and ED4 needs design §13.1 confirmed.
 3. ED5 (V): also needs F6.
 4. CH3 (U): written with step 1.4's argument parsing, alongside G12.
 
@@ -205,7 +212,8 @@ Foundations and infrastructure:
 4. Build-tag runtime policy and manifest field (LV2, DG6).
 5. Whether the CLI describes its own interpreter or the kernel's (DG5).
 6. Whether the manifest records the target platform (K5). The manifest has no platform field, so check can't know it; a field adds complexity for a case that arises only when check runs on a different OS than snapshot (a Colab repository checked from a laptop, say). Revisit if that becomes a supported workflow.
-7. Whether DG1 (undeclared optional dependencies) becomes a settled row. Corpus: where the trigger appears, the dependency is undeclared in nearly every notebook (Styler without jinja2 344 of 344, parquet without pyarrow 217 of 227, Excel without an engine 112 of 130). The platform image hides it, so the notebook fails only once it leaves Kaggle or Colab. Open: report as candidates, or pin what's installed.
+7. Whether DG1 (undeclared optional dependencies) becomes a settled row. Where the trigger appears, the dependency is undeclared in nearly every notebook (review_findings.md, Corpus evidence). The platform image hides it, so the notebook fails only once it leaves Kaggle or Colab. Open: report as candidates, or pin what's installed.
 8. The exit code for a heuristic finding classified `not_checked_at_generation`. Today it exits 1 (only `known` heuristics are exempt), and the characterization tests pin that; the comment in LV1's test says a newly visible finding on an old notebook must not start exiting 1. If the comment is the rule, this is a finding and the characterization test flips with the fix.
 9. Manifest schema compatibility (CH1): whether a reader tolerates unknown fields, and what a missing field means.
 10. Classify CH2. CH3 is decided: `name @ url` is stored as written.
+11. Offline `/kaggle/input/...whl` installs (DG8): pin the installed version, keep the path as a raw install, or report the notebook as needing the attached dataset.

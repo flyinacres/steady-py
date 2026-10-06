@@ -4,7 +4,7 @@ Goal: show that steady-py works on real notebooks in real environments, not just
 
 Log findings as you go:
 
-- A bug → `development.md` → Known bugs (what's wrong, where, the notebook that showed it).
+- A bug → a row in `test_triage_matrix.md`, plus an entry in `review_findings.md` if it needs explanation (what's wrong, where, the notebook that showed it).
 - An import flagged missing that shouldn't be → the import name and its PyPI name, for `IMPORT_TO_PYPI_MAP`.
 - An environment or scenario you didn't get to → say so here, so it isn't assumed covered.
 
@@ -39,8 +39,6 @@ Run both forms in each environment: the CLI on a saved file (`steady-py snapshot
 | Databricks | A `.py` source-format notebook fails clearly, not by silently mis-parsing. | Medium |
 
 Also walk the README and HELP.md examples against real output; wording drifts.
-
-- [ ] The live session reports `steady_py` itself as an import (see Known bugs). Add a regression test to the live-kernel runner once it's fixed.
 
 Pass bar: for each cell, either the output matches what reading the notebook says it should, or a bug is logged. "Didn't look closely" is untested, not a pass.
 

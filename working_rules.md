@@ -49,6 +49,7 @@ How work on steady-py is done. Product rules (what the tool does for users) live
 1. Keep documents lean: remove resolved and historical content, and don't leave stale claims.
 2. No time-relative language ("new", "currently", "this session") in documents meant to last.
 3. Plain language, numbered lists rather than bullets so items can be referred to, no em dashes.
+4. Each fact has one owner document; others refer to it by ID or section. test_triage_matrix.md owns each finding's ID, title, settled state, layer, status and step, and the decisions that unblock rows. review_findings.md owns what is wrong and why, each finding's fix, the corpus evidence, rejected items and, until step 4, the feature specs. fix_plan.md owns how and when: scope, contracts, risks and each step's approach. A new finding is one matrix row, plus a review_findings.md entry if it needs explanation.
 
 ## 6. Environment
 

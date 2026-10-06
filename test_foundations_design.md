@@ -102,9 +102,7 @@ Scope: the shared support code that the tests in `test_triage_matrix.md` are bui
 
 1. `pypi.py`: the PyPI base URL comes from `STEADY_PY_PYPI_URL` (default `https://pypi.org`), read on every call. It's also mirror support; README and HELP don't mention it yet.
 2. `cli.py`: `main(argv=None)` passes `argv` to `parse_args`, so the in-process runner doesn't patch `sys.argv`. Behavior is otherwise unchanged; the console script and `__main__` call it with no arguments.
-3. `pypi.py` (the K3 fix, not a testability change): `_fetch_pypi_json` catches `OSError` and `http.client.HTTPException`, so a connection dropped mid-response is a network error like any other.
-4. Point fixes marked Now in the matrix, each written with its test: `analyze.iter_notebook_paths` also skips directories holding `pyvenv.cfg` or `conda-meta` and any `site-packages` or `dist-packages` (DR1); `localmodules.py` imports `importlib.machinery` (K4); `propagate = False` moved from `__init__.py` into `cli.configure_console` (H3).
-5. Characterization pass: no production changes.
+3. Characterization pass: no production changes.
 
 ## 13. To verify while coding
 

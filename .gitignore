@@ -20,6 +20,7 @@ pinned_requirements.txt
 output_executed.ipynb
 
 test_notebooks/
+artifacts/
 hugging_face/
 
 # e2e runner scratch and outputs (deleted at the end of a run, present while it runs)
