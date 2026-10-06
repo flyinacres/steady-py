@@ -50,6 +50,7 @@ Reading test status:
 | G13 | `%%writefile` with leading blank lines scanned as code                                                                                                                | Y       | tested (see --findings)                              | U     | F1      |                                                                                                                  |
 | G15 | Live kernel reads transformed source; no install lines harvested                                                                                                      | Y       | tested (see --findings)                              | L     | F7      | One cell per form: `%pip`, `!pip`, `%%writefile`, `%conda`; file mode is each test's control. Existing tests patch the reader and can't catch this |
 | D1  | Live session counts `steady_py` as an import | Y       | tested (see --findings)                              | L     | F7      | Also in file mode: a scan of a snapshotted notebook reports Cell 2's `import steady_py` as a platform module (tested at U), and a user's own `import steady_py` in either mode |
+| K13 | Deeply nested expression exceeds the import visitor's recursion limit | Y | tested (see --findings) | U | F1 | Found by the corpus baseline; a notebook with a few hundred chained operations loses all its imports. A single-file run crashes with a traceback |
 | P7  | Batch notices lose their notebook; cell numbers match nothing visible                                                                                                 | Y       | tested (see --findings)                              | U     | F1      | Markdown cells before code; same notice in two notebooks                                                         |
 
 ## Install-line harvesting
@@ -150,6 +151,7 @@ Reading test status:
 | ID  | Finding                                          | Settled | Status                                               | Layer | Fixture | Notes                                                                     |
 | --- | ------------------------------------------------ | ------- | ---------------------------------------------------- | ----- | ------- | ------------------------------------------------------------------------- |
 | DR1 | Venvs not named venv are scanned and rewritten   | Y       | tested (see --findings)                              | U     | F1      | Dirs with `pyvenv.cfg`, `conda-meta/`, `site-packages`. Now; fixed           |
+| DR2 | One notebook's unexpected error ends a directory run with no output | Y | tested (see --findings) | U | F1 | Found by the corpus baseline; fixed: the notebook is reported unreadable and named in the log, and the run continues |
 | K7  | Prior-setup-cell match discards user code        | Y       | tested (see --findings)                              | U     | F1      | Warning expected                                                          |
 | P3  | Delta ignores flags, raw installs, local modules | Y       | tested (see --findings)                              | U     | F1      | Per manifest-updating item 6                                              |
 | CH2 | Delta matches package names without normalizing them | N | not planned                                          |  |  | Found in the characterization pass: `Packaging` vs `packaging` at one version is removed plus added; classify (decision 10) |
@@ -171,13 +173,13 @@ DG1 optional-dependency candidates, DG2 guarded-alternative reporting, DG3 platf
 
 ## Totals
 
-86 rows: 60 Y, 5 P, 15 N (including the six design gaps and three rows from the characterization pass), 3 S, 3 C.
+88 rows: 62 Y, 5 P, 15 N (including the six design gaps and three rows from the characterization pass), 3 S, 3 C.
 
-Tests exist for 57 of the 65 Y and P rows; the other eight are listed under Deferred.
+Tests exist for 59 of the 67 Y and P rows; the other eight are listed under Deferred.
 
-By layer (Y and P, 65 rows): 35 U, 24 V, 3 L, 3 D. Docker is needed for three runtime rows plus a one-time conda confirmation.
+By layer (Y and P, 67 rows): 37 U, 24 V, 3 L, 3 D. Docker is needed for three runtime rows plus a one-time conda confirmation.
 
-Now: K3, K4, H3, DR1, all fixed.
+Now: K3, K4, H3, DR1, DR2, all fixed.
 
 ## Deferred
 

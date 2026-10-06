@@ -158,7 +158,14 @@ def walk_and_scan_directory(target_dir: str, skip_suffix: Optional[str] = None) 
             repo_map.companion_files_skipped.append(full_path)
             continue
 
-        ext_res = scanning.extract_from_file(str(full_path), strict=True)
+        logger.debug("Scanning %s", full_path)
+        try:
+            ext_res = scanning.extract_from_file(str(full_path), strict=True)
+        except Exception as exc:  # per-notebook isolation: one notebook's failure must not end the run
+            logger.error("Could not scan %s: %s: %s", full_path, type(exc).__name__, exc)
+            logger.debug("Traceback for %s", full_path, exc_info=True)
+            ext_res = ExtractionResult(success=False, lang_label="unknown",
+                                       error_msg=f"internal error while reading ({type(exc).__name__}: {exc})")
 
         parse_err = ext_res.error_msg if (not ext_res.success and "Skipped non-Python notebook" not in (ext_res.error_msg or "")) else None
         res = build_scan_result(

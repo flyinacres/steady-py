@@ -28,7 +28,7 @@ Out of scope:
 5. Recording transitive dependency versions. steady-py pins what a notebook imports and installs and warns on likely problems through check; it does not lock the whole environment.
 6. The remaining open design questions in development.md.
 
-Already fixed: K3, K4, H3, DR1.
+Already fixed: K3, K4, H3, DR1, DR2.
 
 ## 3. Contracts
 
@@ -61,7 +61,7 @@ Each step runs in its own context, ends with a handoff, and is reviewed before t
 
 1. Install-line pipeline. The largest step; plans are revisited after it.
    1. One reader for file and live mode, with notebook-order positions: G15, D1, P7.
-   2. Magics through IPython's transform, then one AST: K1, K2, G13. When a cell uses syntax newer than steady-py's interpreter (for example `lazy import` before 3.15), K2's diagnostic names both versions; steady-py doesn't rewrite such syntax.
+   2. Magics through IPython's transform, then one AST: K1, K2, K13, G13. When a cell uses syntax newer than steady-py's interpreter (for example `lazy import` before 3.15), K2's diagnostic names both versions; steady-py doesn't rewrite such syntax.
    3. Guard detection: G1, G3, G6, and G9 (installs inside functions: 123 lines in 44 notebooks), settled here.
    4. Pip-style argument parsing: G4, G5, G11, G12, G14, G16 (with R1), G17, G18, G19, P4, C2, D5, and CH3 (`name @ url` stored as written). Needs the offline-wheel decision first (section 7).
 2. Installed-state capture and the import join.

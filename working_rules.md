@@ -8,7 +8,7 @@ How work on steady-py is done. Product rules (what the tool does for users) live
 2. When a change touches a decision, first find every place in the code that makes it, and consolidate or update all of them in the same change. A partial edit is not complete.
 3. Diagnose before fixing: name a cause consistent with every symptom. If the symptoms don't fit one cause, say so instead of forcing one.
 4. Results and records are typed dataclasses, not tuples or loose dicts. Code touched by a change passes `mypy --strict` (H1).
-5. No broad `except Exception`, except around third-party probes on an explicit allowlist (H2). An error a user can act on becomes a diagnostic; one that stops the job maps to the exit rule: 0 clean, 1 needs attention, 2 could not do the job.
+5. No broad `except Exception`, except around third-party probes on an explicit allowlist (H2) and at the per-notebook boundary of a directory run, where one notebook's failure is logged with its path and reported, and the run continues. An error a user can act on becomes a diagnostic; one that stops the job maps to the exit rule: 0 clean, 1 needs attention, 2 could not do the job.
 6. Diagnostics carry the notebook and the cell's position in the notebook as the user sees it.
 7. The library never configures logging; only the CLI entry point does (H3).
 8. Use standard libraries (packaging, resolvelib, IPython, importlib.metadata) rather than parallel implementations.

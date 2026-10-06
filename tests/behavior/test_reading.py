@@ -5,7 +5,7 @@ from importlib.metadata import version
 import pytest
 
 from tests.support.manifests import snapshotted
-from tests.support.markers import known_bug
+from tests.support.markers import finding, known_bug
 from tests.support.notebooks import Notebook, code, md
 from tests.support.runner import run
 
@@ -99,3 +99,27 @@ def test_scan_of_a_snapshotted_notebook_ignores_the_setup_cells_import(tmp_path,
     outcome = run("scan", _snapshot(tmp_path, pypi))
     assert outcome.exit_code == 0, outcome.log
     assert outcome.dependency("steady_py") is None
+
+
+DEEP = "x = 1" + " + 1" * 1000  # parses, but nests deeper than Python's recursion limit
+
+
+@finding("DR2")
+@pytest.mark.parametrize("verb", ("scan", "snapshot"))
+def test_one_notebooks_internal_error_does_not_end_a_directory_run(tmp_path, pypi, verb):
+    """Exit 1, not a crash, shows the good notebook was processed; the failure is named."""
+    pypi.add("packaging", {version("packaging"): {}})
+    Notebook(code("import packaging")).write(tmp_path, "good.ipynb")
+    deep = Notebook(code(DEEP)).write(tmp_path, "deep.ipynb")
+    outcome = run(verb, tmp_path)
+    assert outcome.exit_code == 1, outcome.log
+    assert outcome.unreadable() == [deep]
+    assert f"Could not scan {deep}" in outcome.log
+
+
+@known_bug("K13", "a deeply nested expression exceeds the import visitor's recursion limit")
+def test_deeply_nested_expression_keeps_the_notebooks_imports(tmp_path):
+    Notebook(code("import packaging"), code(DEEP)).write(tmp_path, "deep.ipynb")
+    outcome = run("scan", tmp_path)
+    assert outcome.unreadable() == []
+    assert "packaging" in [d["name"] for n in outcome.report["notebooks"] for d in n["dependencies"]]
