@@ -1,0 +1,233 @@
+corpus_install_scan.py test_notebooks scan.csv
+
+cell_magic:HTML                          22
+cell_magic:bash                          103
+cell_magic:bigquery                      5
+cell_magic:capture                       98
+cell_magic:cython                        3
+cell_magic:file                          4
+cell_magic:html                          15
+cell_magic:javascript                    5
+cell_magic:opts                          1
+cell_magic:python                        4
+cell_magic:script                        2
+cell_magic:sh                            4
+cell_magic:sql                           103
+cell_magic:time                          1391
+cell_magic:timeit                        41
+cell_magic:wandb                         3
+cell_magic:write_and_run                 9
+cell_magic:writefile                     478
+combined_short_flag_lines                48
+conda:conda_create                       6
+conda:conda_env                          2
+conda:conda_install                      47
+conda:mamba_create                       2
+conda:mamba_install                      7
+duplicate_skipped                        1033
+enclosing:)                              1
+enclosing:def                            85
+enclosing:elif                           8
+enclosing:else                           32
+enclosing:except                         76
+enclosing:for                            26
+enclosing:if                             298
+enclosing:shell_cond                     43
+enclosing:top_level                      4102
+enclosing:try                            15
+enclosing:with                           2
+enclosing_platform:colab                 97
+enclosing_platform:import_error          37
+enclosing_platform:kaggle                1
+force_reinstall_lines                    31
+form:bare_pip                            199
+form:call                                29
+form:other                               1
+form:pip_magic                           363
+form:python_m_pip                        41
+form:shell                               3727
+form:subprocess_list                     307
+form:sys_executable                      21
+in_function                              29
+install_lines                            4688
+magic_form:assign_magic                  18
+magic_form:assign_shell                  16
+magic_form:help                          23
+magic_form:indented_line_magic           154
+magic_form:indented_shell                451
+magic_form:line_magic                    3258
+magic_form:not_equal_line                52
+magic_form:percent_operator_line         117
+magic_form:shell_line                    6859
+nb_condacolab                            1
+nb_platform:colab                        299
+nb_platform:gpu_check                    936
+nb_platform:import_error                 153
+nb_platform:kaggle                       5854
+nb_python:2.7                            6
+nb_python:3.10                           2031
+nb_python:3.11                           1223
+nb_python:3.12                           1610
+nb_python:3.13                           45
+nb_python:3.14                           50
+nb_python:3.4                            2
+nb_python:3.5                            406
+nb_python:3.6                            4952
+nb_python:3.7                            183
+nb_python:3.8                            122
+nb_python:3.9                            124
+nb_python:unknown                        1013
+nb_signal:excel                          130
+nb_signal:hdf                            26
+nb_signal:html_xml                       2
+nb_signal:hv_extension                   11
+nb_signal:nltk_download                  150
+nb_signal:parquet                        227
+nb_signal:spacy_model                    47
+nb_signal:sql                            49
+nb_signal:styler                         344
+nb_signal:to_markdown                    9
+nb_signal_undeclared:excel               112
+nb_signal_undeclared:hdf                 24
+nb_signal_undeclared:html_xml            2
+nb_signal_undeclared:parquet             217
+nb_signal_undeclared:spacy_model         43
+nb_signal_undeclared:sql                 45
+nb_signal_undeclared:styler              344
+nb_signal_undeclared:to_markdown         8
+nb_with_install                          2600
+nb_with_repeat_install                   98
+no_deps_lines                            341
+notebooks                                11767
+parse:blanked_fail                       1108
+parse:blanked_fail_with_import           209
+parse:cells                              278248
+parse:fixed_by_ipython                   570
+parse:ipython_fail                       538
+parse:ipython_fail_with_import           52
+parse:raw_fail                           7878
+parse:raw_fail_with_import               2926
+req_join:cli_only                        61
+req_join:computed                        239
+req_join:imported_after_install          3709
+req_join:imported_before_install         220
+req_join:not_imported                    2148
+req_join:pip_itself                      30
+req_join:unnamed                         670
+req_kind:bare                            5049
+req_kind:exact                           591
+req_kind:path                            496
+req_kind:range                           527
+req_kind:unparsed                        11
+req_kind:url                             164
+req_kind:variable                        239
+requirement_file_lines                   114
+shell_joined:and                         42
+shell_joined:seq                         6
+skipped:comment_mention                  10
+skipped:string_mention                   58
+skipped_language:r                       271
+skipped_language:scala                   1
+trailing_comment_lines                   99
+unreadable                               3
+upgrade_lines                            806
+
+group                              nbs      dups    w/inst     lines        -U        == imp_after   not_imp   guarded     colab  odd_form     conda    undecl
+GTXvsRTX                             3         0         0         0         0         0         0         0         0         0         0         0         0
+ISLP_labs                            6         0         1         1         0         0         1         0         0         0         0         0         0
+PythonDataScienceHandbook          101        35         0         0         0         0         0         0         0         0         0         0         0
+big_data                             8         0         0         0         0         0         0         0         0         0         0         0         0
+cookbook                           148         5       131       168       130        11       204        25         1       145         0         0         2
+databricks                           6         0         3         6         2         1         2         3         0         0         0         0         0
+datashader                           7         2         0         0         0         0         0         0         0         0         0         0         1
+fastbook                            21        23        21        21        21         1        24         1        21        21         0         0         3
+handson-ml3                         26         2         5         7         6         0         4         3         7         9         0         0         1
+huggingface                        683       842       537       724        64        79      1047       630        10         7         5         3         3
+kaggle_corpus                    10470       124      1843      3624       565       496      2389      1466       347        76       355        57       778
+kaggle_samples                      46         0         6         8         1         0         9         8         0         1         0         0         2
+mine                                 2         0         2         2         0         0         3         2         0         0         0         0         0
+packt                               32         0         9        44        12         1        10         3        16         5        38         0         1
+papermill                            7         0         0         0         0         0         0         0         0         0         0         0         0
+sagemaker                            9         0         6        12         5         2         9         3         0         0         1         0         0
+teachopencadd                       35         0        35        70         0         0         6         4        70        35         0         4         4
+trainindata                        157         0         1         1         0         0         1         0         0         0         0         0         0
+
+examples (notebook:cell):
+in_function
+    test_notebooks\kaggle_corpus\214281768.ipynb:1
+    test_notebooks\kaggle_corpus\214281768.ipynb:1
+    test_notebooks\kaggle_corpus\214281768.ipynb:1
+    test_notebooks\kaggle_corpus\214281768.ipynb:1
+    test_notebooks\kaggle_corpus\214281768.ipynb:1
+magic_form:assign_magic
+    test_notebooks\datashader\8_Polygons.ipynb:40
+    test_notebooks\datashader\8_Polygons.ipynb:40
+    test_notebooks\datashader\8_Polygons.ipynb:41
+    test_notebooks\datashader\8_Polygons.ipynb:41
+    test_notebooks\kaggle_corpus\1941726.ipynb:9
+magic_form:assign_shell
+    test_notebooks\cookbook\quickstarts\Authentication_with_OAuth.ipynb:20
+    test_notebooks\cookbook\quickstarts\Authentication_with_OAuth.ipynb:22
+    test_notebooks\kaggle_corpus\1533644.ipynb:2
+    test_notebooks\kaggle_corpus\171280652.ipynb:11
+    test_notebooks\kaggle_corpus\171280652.ipynb:26
+magic_form:help
+    test_notebooks\cookbook\quickstarts\Get_started_LearnLM.ipynb:27
+    test_notebooks\fastbook\05_pet_breeds.ipynb:125
+    test_notebooks\ISLP_labs\Ch02-statlearn-lab.ipynb:11
+    test_notebooks\ISLP_labs\Ch02-statlearn-lab.ipynb:43
+    test_notebooks\ISLP_labs\Ch02-statlearn-lab.ipynb:72
+magic_form:indented_line_magic
+    test_notebooks\cookbook\examples\Book_illustration.ipynb:58
+    test_notebooks\handson-ml3\03_classification.ipynb:244
+    test_notebooks\handson-ml3\10_neural_nets_with_keras.ipynb:136
+    test_notebooks\handson-ml3\10_neural_nets_with_keras.ipynb:156
+    test_notebooks\handson-ml3\15_processing_sequences_using_rnns_and_cnns.ipynb:34
+magic_form:indented_shell
+    test_notebooks\cookbook\examples\Datasets.ipynb:10
+    test_notebooks\cookbook\quickstarts\PDF_Files.ipynb:13
+    test_notebooks\handson-ml3\13_loading_and_preprocessing_data.ipynb:68
+    test_notebooks\handson-ml3\13_loading_and_preprocessing_data.ipynb:68
+    test_notebooks\handson-ml3\13_loading_and_preprocessing_data.ipynb:68
+magic_form:line_magic
+    test_notebooks\cookbook\examples\Agent_Module_EU_AI_Act_Compliance.ipynb:9
+    test_notebooks\cookbook\examples\Agents_Function_Calling_Barista_Bot.ipynb:5
+    test_notebooks\cookbook\examples\Analyze_a_Video_Classification.ipynb:5
+    test_notebooks\cookbook\examples\Analyze_a_Video_Historic_Event_Recognition.ipynb:5
+    test_notebooks\cookbook\examples\Analyze_a_Video_Summarization.ipynb:5
+magic_form:not_equal_line
+    test_notebooks\kaggle_corpus\333264643.ipynb:1
+    test_notebooks\kaggle_corpus\333264643.ipynb:1
+    test_notebooks\kaggle_corpus\333264643.ipynb:1
+    test_notebooks\kaggle_corpus\333264643.ipynb:1
+    test_notebooks\kaggle_corpus\333264643.ipynb:1
+magic_form:percent_operator_line
+    test_notebooks\kaggle_corpus\1002962.ipynb:2
+    test_notebooks\kaggle_corpus\1007960.ipynb:15
+    test_notebooks\kaggle_corpus\102285978.ipynb:8
+    test_notebooks\kaggle_corpus\1075599.ipynb:18
+    test_notebooks\kaggle_corpus\1093929.ipynb:2
+magic_form:shell_line
+    test_notebooks\cookbook\examples\Analyze_a_Video_Classification.ipynb:9
+    test_notebooks\cookbook\examples\Analyze_a_Video_Historic_Event_Recognition.ipynb:9
+    test_notebooks\cookbook\examples\Analyze_a_Video_Summarization.ipynb:9
+    test_notebooks\cookbook\examples\Animated_Story_Video_Generation_gemini.ipynb:12
+    test_notebooks\cookbook\examples\Animated_Story_Video_Generation_gemini.ipynb:12
+parse:fixed_by_ipython
+    test_notebooks\cookbook\examples\Datasets.ipynb:10
+    test_notebooks\cookbook\examples\langchain\SQL_Agent_Gemini_LangChain.ipynb:9
+    test_notebooks\cookbook\quickstarts\Authentication_with_OAuth.ipynb:12
+    test_notebooks\cookbook\quickstarts\Authentication_with_OAuth.ipynb:20
+    test_notebooks\cookbook\quickstarts\Authentication_with_OAuth.ipynb:22
+shell_joined:and
+    test_notebooks\fastbook\01_intro.ipynb:1
+    test_notebooks\fastbook\02_production.ipynb:1
+    test_notebooks\fastbook\03_ethics.ipynb:1
+    test_notebooks\fastbook\04_mnist_basics.ipynb:1
+    test_notebooks\fastbook\05_pet_breeds.ipynb:1
+shell_joined:seq
+    test_notebooks\kaggle_corpus\128598328.ipynb:7
+    test_notebooks\kaggle_corpus\128598328.ipynb:8
+    test_notebooks\kaggle_corpus\820775.ipynb:14
+    test_notebooks\kaggle_corpus\820775.ipynb:14
+    test_notebooks\kaggle_corpus\820775.ipynb:14
