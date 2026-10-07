@@ -11,7 +11,7 @@ import shutil
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Tuple
 
 LIST_FIELDS = ("local_modules", "build_and_packaging_tools", "platform_pseudo_modules", "promotions", "install_lines")
 
@@ -25,25 +25,30 @@ def _canon(item: Any) -> str:
     return json.dumps(item, sort_keys=True)
 
 
-def _items(nb: Dict[str, Any]) -> Dict[str, Set[str]]:
-    out: Dict[str, Set[str]] = {
-        "dependencies": {_canon({k: v for k, v in d.items() if k != "comment"}) for d in nb.get("dependencies", [])},
-        "warnings": {_canon([w["type"], w["detail"]]) for w in nb.get("warnings", [])},
-        "notices": {_canon([w["type"], w["detail"]]) for w in nb.get("notices", [])},
-        "parse_error": {_canon(nb["parse_error"])} if nb.get("parse_error") else set(),
+def _diagnostic(event: Dict[str, Any]) -> str:
+    return _canon([event["type"], event["detail"], event.get("cell_idx"), event.get("line_idx")])
+
+
+def _items(nb: Dict[str, Any]) -> Dict[str, Counter[str]]:
+    """Each field as a multiset, so repeated identical items are counted, not collapsed."""
+    out: Dict[str, Counter[str]] = {
+        "dependencies": Counter(_canon({k: v for k, v in d.items() if k != "comment"}) for d in nb.get("dependencies", [])),
+        "warnings": Counter(_diagnostic(w) for w in nb.get("warnings", [])),
+        "notices": Counter(_diagnostic(n) for n in nb.get("notices", [])),
+        "parse_error": Counter([_canon(nb["parse_error"])] if nb.get("parse_error") else []),
     }
     for field in LIST_FIELDS:
-        out[field] = {_canon(x) for x in nb.get(field) or []}
+        out[field] = Counter(_canon(x) for x in nb.get(field) or [])
     return out
 
 
-def _load(path: str) -> Dict[str, Dict[str, Set[str]]]:
+def _load(path: str) -> Dict[str, Dict[str, Counter[str]]]:
     with open(path, encoding="utf-8") as fh:
         run = json.load(fh)
     root = run.get("target_dir") or ""
     notebooks = {_norm(nb["notebook_path"], root): _items(nb) for nb in run["notebooks"]}
     for err in run.get("summary", {}).get("parse_errors", []):
-        notebooks.setdefault(_norm(err["path"], root), {})["unreadable"] = {_canon(err["cause"])}
+        notebooks.setdefault(_norm(err["path"], root), {})["unreadable"] = Counter([_canon(err["cause"])])
     return notebooks
 
 
@@ -57,8 +62,8 @@ def diff(old_path: str, new_path: str) -> int:
             print(".", end="", file=sys.stderr, flush=True)
         lines: List[str] = []
         for field in sorted(old[path].keys() | new[path].keys()):
-            a, b = old[path].get(field, set()), new[path].get(field, set())
-            for sign, items in (("-", sorted(a - b)), ("+", sorted(b - a))):
+            a, b = old[path].get(field, Counter()), new[path].get(field, Counter())
+            for sign, items in (("-", sorted((a - b).elements())), ("+", sorted((b - a).elements()))):
                 for item in items:
                     lines.append(f"  {sign} {field}: {item}")
                     counts[(field, sign)] += 1
