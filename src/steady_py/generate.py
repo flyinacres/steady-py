@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Typ
 
 from steady_py import accelerator, analyze, drift, installed, localmodules, pypi, resolution, scanning
 from steady_py.constants import DependencyStatus, FetchStatus, ReportKind, SETUP_MARKDOWN_HEADING, TOOL_VERSION
-from steady_py.models import DependencyEntry, GpuInfo, NotebookAnalysisReport, PinnedDependency, SteadyPyManifest
+from steady_py.models import Cell, DependencyEntry, GpuInfo, NotebookAnalysisReport, PinnedDependency, SteadyPyManifest
 
 logger = logging.getLogger("steady_py.generate")
 
@@ -29,46 +29,58 @@ class BlueprintResult(TypedDict):
 # file. No execution: ast.parse + ast.literal_eval only. "No manifest present"
 # is not an error -- it's the expected state for a pre-feature notebook.
 
-def extract_manifest_from_file(path: str) -> Tuple[Optional[SteadyPyManifest], Optional[str]]:
-    """Returns (manifest, error). No manifest found -> (None, None), not an error.
-    A real problem (unreadable file, corrupted embedded literal) -> (None, "message").
-    """
-    try:
-        if path.endswith(".ipynb"):
-            with open(path, "r", encoding="utf-8") as f:
-                nb_data = json.load(f)
-            cells = sorted(scanning.read_notebook_cells(nb_data.get("cells", [])), key=lambda c: c.position or 0)
-            cleaned_cells = []
-            for cell in cells:
-                cell_type, clean_body = scanning.classify_cell_source(cell.source)
-                if cell_type in {"SHELL_SCRIPT", "WRITEFILE"}:
-                    continue
-                cleaned_cells.append("\n".join(
-                    "" if (line.strip().startswith('%') or line.strip().startswith('!')) else line
-                    for line in clean_body.splitlines()
-                ))
-            source = "\n".join(cleaned_cells)
-        else:
-            with open(path, "r", encoding="utf-8") as f:
-                source = f.read()
-    except (OSError, json.JSONDecodeError) as e:
-        return None, f"Could not read {path}: {e}"
-
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as e:
-        return None, f"Could not parse {path} as Python source: {e}"
-
-    manifest_dict = None
+def _manifest_assignment(tree: ast.AST) -> Optional[ast.Assign]:
+    """The `STEADY_PY_MANIFEST = ...` assignment that defines a manifest, if `tree` has one."""
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and any(
             isinstance(t, ast.Name) and t.id == "STEADY_PY_MANIFEST" for t in node.targets
         ):
-            try:
-                manifest_dict = ast.literal_eval(node.value)
-            except (ValueError, SyntaxError) as e:
-                return None, f"STEADY_PY_MANIFEST found in {path} but is not a valid literal: {e}"
-            break
+            return node
+    return None
+
+
+def extract_manifest_from_file(path: str) -> Tuple[Optional[SteadyPyManifest], Optional[str]]:
+    """Returns (manifest, error). No manifest found -> (None, None), not an error.
+    A real problem (unreadable file, corrupted embedded literal) -> (None, "message").
+    In a notebook the manifest is read from the first code cell that defines it, so IPython syntax
+    or a broken cell elsewhere can't hide it (K1).
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+        nb_data = json.loads(text) if path.endswith(".ipynb") else None
+    except (OSError, json.JSONDecodeError) as e:
+        return None, f"Could not read {path}: {e}"
+
+    assignment: Optional[ast.Assign] = None
+    if nb_data is not None:
+        cells = sorted(scanning.read_notebook_cells(nb_data.get("cells", [])), key=lambda c: c.position or 0)
+        unparsed: Optional[str] = None
+        for cell in cells:
+            parsed = scanning.parse_cell(cell)
+            if parsed.kind != "PYTHON":
+                continue
+            if parsed.tree is None:
+                if unparsed is None and "STEADY_PY_MANIFEST" in cell.source:
+                    unparsed = cell.label
+                continue
+            assignment = _manifest_assignment(parsed.tree)
+            if assignment is not None:
+                break
+        if assignment is None and unparsed is not None:
+            return None, f"Could not parse {unparsed} of {path}, which mentions STEADY_PY_MANIFEST, as Python source."
+    else:
+        try:
+            assignment = _manifest_assignment(ast.parse(text))
+        except SyntaxError as e:
+            return None, f"Could not parse {path} as Python source: {e}"
+
+    manifest_dict = None
+    if assignment is not None:
+        try:
+            manifest_dict = ast.literal_eval(assignment.value)
+        except (ValueError, SyntaxError) as e:
+            return None, f"STEADY_PY_MANIFEST found in {path} but is not a valid literal: {e}"
 
     if manifest_dict is None:
         return None, None  # no manifest present -- not an error
@@ -261,15 +273,8 @@ def is_prior_setup_cell(cell: Dict[str, Any]) -> bool:
     if cell_type == "markdown":
         return source.lstrip().startswith(SETUP_MARKDOWN_HEADING)
     if cell_type == "code":
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            return False
-        return any(
-            isinstance(node, ast.Assign)
-            and any(isinstance(t, ast.Name) and t.id == "STEADY_PY_MANIFEST" for t in node.targets)
-            for node in ast.walk(tree)
-        )
+        tree = scanning.parse_cell(Cell(source=source)).tree
+        return tree is not None and _manifest_assignment(tree) is not None
     return False
 
 

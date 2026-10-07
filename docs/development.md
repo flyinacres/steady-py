@@ -19,7 +19,7 @@ Known bugs are in review_findings.md; their status and the step that fixes each 
 
 ## Architecture
 
-**Names**: PyPI and console-script name `steady-py`, import name `steady_py`, source under `src/steady_py/`, also runnable as `python -m steady_py`. Repository: `github.com/flyinacres/steady-py`. `packaging` and `resolvelib` are base dependencies, with no extras, so `pip install steady-py` always yields a working tool.
+**Names**: PyPI and console-script name `steady-py`, import name `steady_py`, source under `src/steady_py/`, also runnable as `python -m steady_py`. Repository: `github.com/flyinacres/steady-py`. `packaging`, `resolvelib` and `ipython` (a loose lower bound, so installing steady-py never moves a kernel's IPython) are base dependencies, with no extras, so `pip install steady-py` always yields a working tool.
 
 **Layering** (a module imports only from modules above it in this list):
 

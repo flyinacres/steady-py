@@ -14,7 +14,7 @@ WHEELHOUSE = REPO_ROOT / "tests" / ".wheelhouse"
 PROJECTS = REPO_ROOT / "tests" / "fixtures" / "projects"
 # Build backends for the stub projects, steady-py's own build backend and dependencies, and
 # ipykernel for the kernel tier.
-TOOLING = ["setuptools>=64", "wheel", "hatchling", "pdm-backend", "editables", "packaging", "resolvelib", "ipykernel"]
+TOOLING = ["setuptools>=64", "wheel", "hatchling", "pdm-backend", "editables", "packaging", "resolvelib", "ipython", "ipykernel"]
 OFFLINE = ("--no-index", "--find-links", str(WHEELHOUSE))
 
 

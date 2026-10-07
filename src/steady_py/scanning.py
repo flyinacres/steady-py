@@ -3,9 +3,14 @@ AST scan that finds imports, guarded imports and dynamic-import warnings."""
 import ast
 import json
 import os
+import sys
 import warnings
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
-from steady_py.constants import SHELL_CELL_MAGICS, TOOL_IMPORT_NAME, StatusLabel
+from IPython.core.inputtransformer2 import TransformerManager
+from packaging.version import InvalidVersion, Version
+
+from steady_py.constants import PYTHON_CELL_MAGICS, SHELL_CELL_MAGICS, TOOL_IMPORT_NAME, StatusLabel
 from steady_py.models import Cell, DiagnosticEvent, ExtractionResult, ImportOccurrence
 
 CellsLike = Sequence[Union[str, Cell]]
@@ -57,9 +62,12 @@ def read_session_cells() -> List[Cell]:
     return [Cell(source=src, execution_count=i) for i, src in enumerate(raw) if i > 0 and src.strip()]
 
 
-def extract_from_cells(cells: List[Cell], lang_label: str = StatusLabel.PYTHON) -> ExtractionResult:
-    """The one analysis of read cells, shared by file and live mode."""
-    imports, submodules, guarded_imports, dyn_warnings, writefile_imports = extract_imports_from_sources_full(cells)
+def extract_from_cells(cells: List[Cell], lang_label: str = StatusLabel.PYTHON,
+                       notebook_python: Optional[str] = None) -> ExtractionResult:
+    """The one analysis of read cells, shared by file and live mode. `notebook_python` is the Python
+    version the notebook records, if any."""
+    imports, submodules, guarded_imports, dyn_warnings, writefile_imports = extract_imports_from_sources_full(
+        cells, notebook_python)
     return ExtractionResult(
         success=True,
         lang_label=lang_label,
@@ -166,7 +174,10 @@ def extract_from_file(
             error_msg=f"Skipped non-Python notebook (Language: {lang_label})"
         )
 
-    return extract_from_cells(read_notebook_cells(nb_data["cells"]), lang_label)
+    language_info = nb_data.get("metadata", {}).get("language_info", {})
+    recorded = language_info.get("version") if isinstance(language_info, dict) else None
+    return extract_from_cells(read_notebook_cells(nb_data["cells"]), lang_label,
+                              recorded if isinstance(recorded, str) else None)
 
 
 def extract_from_active_session() -> ExtractionResult:
@@ -188,7 +199,7 @@ class NotebookImportVisitor(ast.NodeVisitor):
         self.submodules: Dict[str, Set[str]] = {}
         self.unconditional_imports: Set[str] = set()
         self.raw_guarded_imports: Set[str] = set()
-        self.dynamic_import_warnings: List[DiagnosticEvent] = []
+        self.diagnostics: List[DiagnosticEvent] = []
         self.occurrences: List[ImportOccurrence] = []
         self._guarded_depth: int = 0
         self._in_writefile: bool = False
@@ -281,7 +292,7 @@ class NotebookImportVisitor(ast.NodeVisitor):
                 self._record_import(base_pkg, full_name=imported_pkg, lineno=node.lineno)
             else:
                 expr_repr = ast.unparse(first_arg) if hasattr(ast, "unparse") else "expression"
-                self.dynamic_import_warnings.append(
+                self.diagnostics.append(
                     DiagnosticEvent.at(
                         self.cell, getattr(node, "lineno", 1) - 1, "dynamic_import",
                         f"Dynamic import detected via variable '{expr_repr}'. Check that this package is installed if execution fails.",
@@ -291,67 +302,171 @@ class NotebookImportVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def extract_import_occurrences_from_source(source: str, cell_idx: int = 0, cell: Optional[Cell] = None) -> List[ImportOccurrence]:
-    """
-    Parses an individual cell source using blank-line padding for stripped magics
-    so that AST lineno perfectly matches raw cell line numbers.
-    """
-    cell_type, clean_body = classify_cell_source(source)
-    if cell_type in {"SHELL_SCRIPT", "WRITEFILE"}:
-        return []
+# =====================================================================
+# CELL PARSING: IPython's transform, then one AST per cell
+# =====================================================================
 
-    clean_lines = [
-        "" if (line.strip().startswith('%') or line.strip().startswith('!')) else line
-        for line in clean_body.splitlines()
-    ]
-    clean_source = "\n".join(clean_lines)
+_TRANSFORMER = TransformerManager()  # type: ignore[no-untyped-call]
 
-    visitor = NotebookImportVisitor(cell_idx=cell_idx, cell=cell)
+
+@dataclass
+class ParsedCell:
+    """A cell as Python sees it after IPython's transform.
+
+    `kind` is PYTHON, WRITEFILE, SHELL_SCRIPT or OTHER_MAGIC (a cell magic whose body isn't Python).
+    `tree` has line numbers on the cell's own lines (1-based). It is None when there is nothing to
+    analyze or the cell couldn't be parsed; `diagnostic` then says why, if the user should know.
+    """
+    kind: str
+    tree: Optional[ast.Module] = None
+    diagnostic: Optional[DiagnosticEvent] = None
+
+
+def _leading_blank_lines(text: str) -> int:
+    """Lines IPython's transform strips from the top of a cell (leading_empty_lines)."""
+    count = 0
+    for line in text.splitlines(keepends=True):
+        if line and not line.isspace():
+            break
+        count += 1
+    return count
+
+
+def _run_cell_magic(transformed: str) -> Optional[Tuple[str, str]]:
+    """(magic name, body) when the transform turned the cell into one run_cell_magic call."""
+    if not transformed.startswith("get_ipython().run_cell_magic("):
+        return None
+    try:
+        tree = ast.parse(transformed)
+    except SyntaxError:
+        return None
+    call = tree.body[0].value if len(tree.body) == 1 and isinstance(tree.body[0], ast.Expr) else None
+    if not isinstance(call, ast.Call) or len(call.args) != 3:
+        return None
+    name, _args, body = (a.value if isinstance(a, ast.Constant) else None for a in call.args)
+    return (name, body) if isinstance(name, str) and isinstance(body, str) else None
+
+
+def _split_cell(source: str) -> Tuple[str, str, int]:
+    """(kind, text, line offset). A cell magic gives its raw body and the cell line it starts on; a
+    Python-body magic gives kind PYTHON_MAGIC. Any other cell gives the transformed source, whose
+    line N is cell line N + offset."""
+    transformed = _TRANSFORMER.transform_cell(source)
+    lead = _leading_blank_lines(source)
+    magic = _run_cell_magic(transformed)
+    if magic is None:
+        return "PYTHON", transformed, lead - _leading_blank_lines(transformed)
+    name, body = magic
+    if f"%%{name}" in SHELL_CELL_MAGICS:
+        kind = "SHELL_SCRIPT"
+    elif name == "writefile":
+        kind = "WRITEFILE"
+    elif name in PYTHON_CELL_MAGICS:
+        kind = "PYTHON_MAGIC"
+    else:
+        kind = "OTHER_MAGIC"
+    return kind, body, lead + 1
+
+
+def classify_cell_source(source: str) -> Tuple[str, str, int]:
+    """(kind, raw text, line offset) for line-based readers: a cell magic's body and the cell line it
+    starts on, or the whole cell. A Python-body magic's body is PYTHON."""
+    kind, text, offset = _split_cell(source)
+    if kind == "PYTHON":
+        return kind, source, 0
+    return ("PYTHON" if kind == "PYTHON_MAGIC" else kind), text, offset
+
+
+def _version_note(notebook_python: Optional[str]) -> str:
+    """Names both versions when the notebook records a newer Python than the one running steady-py."""
+    try:
+        recorded = Version(notebook_python).release[:2] if notebook_python else None
+    except InvalidVersion:
+        recorded = None
+    if recorded is None or recorded <= sys.version_info[:2]:
+        return ""
+    running = f"{sys.version_info.major}.{sys.version_info.minor}"
+    return (f" The notebook records Python {notebook_python}, newer than the Python {running} running"
+            f" steady-py; run steady-py with Python {recorded[0]}.{recorded[1]} or later.")
+
+
+def _too_deep(cell: Optional[Cell]) -> DiagnosticEvent:
+    return DiagnosticEvent.at(cell, None, "cell_too_deep",
+                              "This cell nests too deeply for steady-py to analyze, so imports in it may be missing from the report.")
+
+
+def parse_cell(cell: Cell, notebook_python: Optional[str] = None) -> ParsedCell:
+    """The one place that decides how a cell reads as Python (K1, K2, G13)."""
+    return _parse(cell.source, 0, cell, notebook_python)
+
+
+def _parse(source: str, offset: int, cell: Cell, notebook_python: Optional[str]) -> ParsedCell:
+    kind, text, line = _split_cell(source)
+    if kind == "PYTHON_MAGIC":
+        return _parse(text, offset + line, cell, notebook_python)
+    if kind not in {"PYTHON", "WRITEFILE"}:
+        return ParsedCell(kind)
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=SyntaxWarning)
-            tree = ast.parse(clean_source)
-        visitor.visit(tree)
-    except SyntaxError:
-        return []
+            tree = ast.parse(text)
+    except SyntaxError as e:
+        if kind == "WRITEFILE":
+            return ParsedCell(kind)  # a written file needn't be Python
+        where = f"line {(e.lineno or 1) + offset + line}"
+        return ParsedCell(kind, diagnostic=DiagnosticEvent.at(
+            cell, (e.lineno or 1) - 1 + offset + line, "unparseable_cell",
+            f"steady-py couldn't read this cell as Python ({where}: {e.msg}), so imports in it are missing"
+            f" from the report.{_version_note(notebook_python)}"))
+    except RecursionError:
+        return ParsedCell(kind, diagnostic=_too_deep(cell))
+    ast.increment_lineno(tree, offset + line)
+    return ParsedCell(kind, tree)
 
+
+def visit_cell(visitor: "NotebookImportVisitor", parsed: ParsedCell) -> Optional[DiagnosticEvent]:
+    """Runs the import visitor over one parsed cell. A cell nested deeper than the recursion limit is
+    reported and skipped; imports found before the overflow are kept (K13)."""
+    if parsed.tree is None:
+        return parsed.diagnostic
+    visitor._in_writefile = parsed.kind == "WRITEFILE"
+    try:
+        visitor.visit(parsed.tree)
+    except RecursionError:
+        visitor._guarded_depth = 0
+        return _too_deep(visitor.cell)
+    finally:
+        visitor._in_writefile = False
+    return None
+
+
+def extract_import_occurrences_from_source(source: str, cell_idx: int = 0, cell: Optional[Cell] = None) -> List[ImportOccurrence]:
+    """Import occurrences of one cell, at their line in the cell. Diagnostics are reported by
+    extract_imports_from_sources_full."""
+    cell = cell or Cell(source=source, position=cell_idx)
+    visitor = NotebookImportVisitor(cell_idx=cell_idx, cell=cell)
+    visit_cell(visitor, parse_cell(cell))
     return visitor.occurrences
 
 
 def extract_imports_from_sources_full(
-    code_sources: CellsLike
+    code_sources: CellsLike, notebook_python: Optional[str] = None
 ) -> Tuple[List[str], Dict[str, Set[str]], Set[str], List[DiagnosticEvent], List[str]]:
-    """Executes single-pass AST traversal returning primary and writefile imports with typed diagnostics."""
+    """One AST pass per cell: primary and writefile imports, guarded imports and diagnostics."""
     visitor = NotebookImportVisitor()
     for cell_idx, cell in enumerate(as_cells(code_sources)):
         visitor.cell_idx = cell_idx
         visitor.cell = cell
-        cell_type, clean_body = classify_cell_source(cell.source)
-
-        if cell_type == "SHELL_SCRIPT":
-            continue
-
-        visitor._in_writefile = (cell_type == "WRITEFILE")
-
-        clean_lines = [
-            "" if (line.strip().startswith('%') or line.strip().startswith('!')) else line
-            for line in clean_body.splitlines()
-        ]
-        clean_source = "\n".join(clean_lines)
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=SyntaxWarning)
-                tree = ast.parse(clean_source)
-            visitor.visit(tree)
-        except SyntaxError:
-            continue
+        diagnostic = visit_cell(visitor, parse_cell(cell, notebook_python))
+        if diagnostic is not None:
+            visitor.diagnostics.append(diagnostic)
 
     primary_imports = [imp for imp in visitor.imports if imp not in visitor.writefile_imports]
     return (
-        primary_imports, 
-        visitor.submodules, 
-        visitor.guarded_imports, 
-        visitor.dynamic_import_warnings,
+        primary_imports,
+        visitor.submodules,
+        visitor.guarded_imports,
+        visitor.diagnostics,
         visitor.writefile_imports
     )
 
@@ -376,23 +491,3 @@ def extract_writefile_imports_from_sources(code_sources: CellsLike) -> List[str]
     """Extracts writefile script imports."""
     _, _, _, _, writefile_imports = extract_imports_from_sources_full(code_sources)
     return writefile_imports
-
-
-
-def classify_cell_source(source: str) -> Tuple[str, str]:
-    """Classifies cell source into (cell_type, clean_source)."""
-    lines = source.splitlines()
-    if not lines:
-        return "PYTHON", ""
-
-    first_line = lines[0].strip()
-    first_token = first_line.split()[0] if first_line.split() else ""
-
-    if first_token in SHELL_CELL_MAGICS:
-        return "SHELL_SCRIPT", "\n".join(lines[1:])
-
-    if first_token == "%%writefile":
-        return "WRITEFILE", "\n".join(lines[1:])
-
-    return "PYTHON", source
-

@@ -156,3 +156,7 @@ SHELL_CELL_MAGICS: Set[str] = {
     "%%bash", "%%sh", "%%zsh", "%%script", "%%cmd", "%%powershell"
 }
 
+# Cell magics whose body IPython runs as Python; black's list (black.handle_ipynb_magics). Bodies of
+# other cell magics (%%html, %%sql) aren't Python and aren't analyzed.
+PYTHON_CELL_MAGICS: Set[str] = {"capture", "prun", "pypy", "python", "python3", "time", "timeit"}
+

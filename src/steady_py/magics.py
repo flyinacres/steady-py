@@ -60,10 +60,10 @@ def _install_tool(seg: str) -> Optional[str]:
 def _harvest(code_sources: scanning.CellsLike) -> _Harvest:
     found = _Harvest()
     for cell_idx, cell in enumerate(scanning.as_cells(code_sources)):
-        cell_type, clean_body = scanning.classify_cell_source(cell.source)
+        cell_type, clean_body, first_line = scanning.classify_cell_source(cell.source)
         if cell_type == "WRITEFILE":
             continue
-        for line_idx, line in enumerate(clean_body.splitlines()):
+        for line_idx, line in enumerate(clean_body.splitlines(), start=first_line):
             clean_line = line.strip()
             if not clean_line or clean_line.startswith('#') or clean_line in SHELL_CELL_MAGICS:
                 continue

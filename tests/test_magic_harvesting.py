@@ -292,24 +292,24 @@ class TestIndexUrlWrapperCompatibility:
 
 class TestCellClassification:
     def test_plain_python_cell(self) -> None:
-        cell_type, clean = scanning.classify_cell_source("import pandas as pd\n")
+        cell_type, clean, _ = scanning.classify_cell_source("import pandas as pd\n")
         assert cell_type == "PYTHON"
         assert "import pandas" in clean
 
     def test_bash_cell_header_stripped(self) -> None:
-        cell_type, clean = scanning.classify_cell_source("%%bash\napt-get install -y graphviz")
+        cell_type, clean, _ = scanning.classify_cell_source("%%bash\napt-get install -y graphviz")
         assert cell_type == "SHELL_SCRIPT"
         assert "%%bash" not in clean
         assert "apt-get install" in clean
 
     def test_writefile_cell_header_stripped(self) -> None:
-        cell_type, clean = scanning.classify_cell_source("%%writefile helper.py\nimport requests")
+        cell_type, clean, _ = scanning.classify_cell_source("%%writefile helper.py\nimport requests")
         assert cell_type == "WRITEFILE"
         assert "%%writefile" not in clean
         assert "import requests" in clean
 
     def test_empty_source(self) -> None:
-        cell_type, clean = scanning.classify_cell_source("")
+        cell_type, clean, _ = scanning.classify_cell_source("")
         assert cell_type == "PYTHON"
         assert clean == ""
 
@@ -396,6 +396,6 @@ class TestCellConsumingMagics:
 
         # Ensure classify_cell_source handles or AST parser skips them without SyntaxError
         for src in sources:
-            cell_type, clean_body = scanning.classify_cell_source(src)
+            cell_type, clean_body, _ = scanning.classify_cell_source(src)
             imports, submodules, guarded, warnings = scanning.extract_imports_from_sources([src])
             assert imports == []
