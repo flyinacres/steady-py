@@ -1,12 +1,13 @@
 """Rendering results for people and tools: the console and JSON forms of the single-notebook, batch,
 drift and batch-validation reports."""
 import json
+import os
 import sys
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from steady_py import analyze, drift
 from steady_py.constants import BaselineStatus, ReportKind, SCHEMA_VERSION, TOOL_VERSION
-from steady_py.models import BatchAnalysisSummary, DriftFinding, GpuInfo, NotebookAnalysisReport
+from steady_py.models import BatchAnalysisSummary, DiagnosticEvent, DriftFinding, GpuInfo, NotebookAnalysisReport
 
 
 def format_console_drift_report(report: drift.DriftCheckReport) -> str:
@@ -135,6 +136,19 @@ def format_console_batch_validation(validation: drift.BatchValidation, max_names
     return "\n".join(out)
 
 
+def _by_notebook(events: List[DiagnosticEvent], target_dir: str) -> List[str]:
+    """Diagnostics grouped under the notebook they came from, in report order."""
+    groups: Dict[str, List[DiagnosticEvent]] = {}
+    for event in events:
+        groups.setdefault(event.notebook or "", []).append(event)
+    lines: List[str] = []
+    for notebook, group in groups.items():
+        name = os.path.relpath(notebook, target_dir) if notebook else "(unknown notebook)"
+        lines.append(f"  {name}")
+        lines.extend(f"    • {event.format_console()}" for event in group)
+    return lines
+
+
 def format_console_report(summary: BatchAnalysisSummary) -> str:
     """Formats a BatchAnalysisSummary into a human-readable stdout report string."""
     out = []
@@ -195,16 +209,12 @@ def format_console_report(summary: BatchAnalysisSummary) -> str:
 
     if summary.dynamic_warnings or summary.magic_warnings:
         out.append("⚠️ NOTICES & WARNINGS:")
-        for warn in summary.dynamic_warnings:
-            out.append(f"  • {warn.format_console()}")
-        for warn in summary.magic_warnings:
-            out.append(f"  • {warn.format_console()}")
+        out.extend(_by_notebook([*summary.dynamic_warnings, *summary.magic_warnings], summary.target_dir))
         out.append("")
 
     if summary.magic_notices:
         out.append("ℹ️ SYSTEM & CONDA COMMANDS:")
-        for notice in summary.magic_notices:
-            out.append(f"  • {notice.format_console()}")
+        out.extend(_by_notebook(summary.magic_notices, summary.target_dir))
         out.append("")
 
     if summary.promotions:

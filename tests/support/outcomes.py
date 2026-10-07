@@ -52,6 +52,9 @@ class Outcome:
     def notices(self, type: Optional[str] = None, about: Optional[str] = None) -> list:
         return self._diagnostics("notices", type, about)
 
+    def install_lines(self) -> list:
+        return self._single()["install_lines"]
+
     def _diagnostics(self, kind: str, type: Optional[str], about: Optional[str]) -> list:
         return [d for d in self._single().get(kind, [])
                 if type in (None, d["type"]) and (about is None or about in d["detail"])]

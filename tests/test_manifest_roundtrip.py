@@ -193,7 +193,7 @@ def _write_and_generate_real_notebook(tmp_path, cell_source, filename="local_mod
         imports=ext_res.imports,
         submodules=ext_res.submodules,
         guarded_imports=ext_res.guarded_imports,
-        code_sources=ext_res.code_sources,
+        cells=ext_res.cells,
     )
     written_path, drift_report = generate.apply_output_to_notebook(scan_res, {}, {}, None, in_place=True)
     return written_path, drift_report
@@ -243,7 +243,7 @@ class TestLocalModulePersistence:
         scan_res = analyze.NotebookScanResult(
             path=nb_path, is_python=True, lang_label="python",
             imports=ext_res.imports, submodules=ext_res.submodules,
-            guarded_imports=ext_res.guarded_imports, code_sources=ext_res.code_sources,
+            guarded_imports=ext_res.guarded_imports, cells=ext_res.cells,
         )
         _, drift_report = generate.apply_output_to_notebook(scan_res, {}, {}, None, in_place=True, root_dir=str(tmp_path))
 

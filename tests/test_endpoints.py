@@ -209,7 +209,7 @@ class TestScan:
 
     def test_the_live_session_is_a_target_when_none_is_given(self, isolated, monkeypatch):
         monkeypatch.setattr(util, "is_running_in_ipython", lambda: True)
-        monkeypatch.setattr(scanning, "extract_from_active_session", lambda: (["requests"], {}, ["import requests"], set(), []))
+        monkeypatch.setattr(scanning, "extract_from_active_session", lambda: scanning.extract_from_cells(scanning.as_cells(["import requests"])))
         result = scan(None, environment=ENV)
         assert (result.kind, result.notebooks[0].path) == (TargetKind.SESSION, "session.ipynb")
         assert [d.name for d in result.notebooks[0].report.dependencies] == ["requests"]
@@ -490,7 +490,7 @@ class TestScanDelta:
 
     def test_the_live_session_has_no_delta(self, isolated, monkeypatch):
         monkeypatch.setattr(util, "is_running_in_ipython", lambda: True)
-        monkeypatch.setattr(scanning, "extract_from_active_session", lambda: (["requests"], {}, ["import requests"], set(), []))
+        monkeypatch.setattr(scanning, "extract_from_active_session", lambda: scanning.extract_from_cells(scanning.as_cells(["import requests"])))
         assert scan(None, environment=ENV).notebooks[0].delta is None
 
 

@@ -127,13 +127,14 @@ BUILD_AND_PACKAGING_TOOLS: Set[str] = {
     "wheel"
 }
 
+TOOL_IMPORT_NAME = "steady_py"  # never a dependency: Cell 2 installs it
+
 PLATFORM_PSEUDO_MODULES: Set[str] = {
     "dbutils",
     "kaggle_secrets",
     "google.colab",
     "pyspark.dbutils",
     "__main__",
-    "steady_py",
     "databricks"
 }
 

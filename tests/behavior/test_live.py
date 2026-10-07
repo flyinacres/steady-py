@@ -5,7 +5,7 @@ import pytest
 
 from tests.support.envs import installed_version
 from tests.support.kernel import run_live
-from tests.support.markers import known_bug
+from tests.support.markers import finding, known_bug
 from tests.support.notebooks import Notebook, code
 from tests.support.runner import run_in
 
@@ -45,8 +45,15 @@ FORMS = {
 }
 
 
-@pytest.mark.parametrize("form", FORMS)
-@_modes("G15", "a live kernel reads IPython's transformed source, so no install line or magic is harvested")
+def _form_modes():
+    # The live pin also needs K12: today any importable module is a local module in a live kernel.
+    k12 = known_bug("K12", "the harvested install is pinned as a local module in a live kernel")
+    return [pytest.param(form, mode, marks=k12 if (form, mode) == ("shell-pip", "live") else ())
+            for form in FORMS for mode in ("file", "live")]
+
+
+@finding("G15")
+@pytest.mark.parametrize(("form", "mode"), _form_modes())
 def test_install_forms_are_harvested(tmp_path, live_venv, mode, form):
     source, check = FORMS[form]
     version = installed_version(live_venv, "resolvelib")  # installed, so pip in the kernel is a no-op
@@ -54,8 +61,21 @@ def test_install_forms_are_harvested(tmp_path, live_venv, mode, form):
     assert check(outcome, version), outcome.dependencies()
 
 
-@pytest.mark.parametrize("mode", [pytest.param(m, marks=known_bug("D1", "the user's import of steady_py is a dependency"))
-                                  for m in ("file", "live")])
+@finding("D1")
+@pytest.mark.parametrize("mode", ["file", "live"])
 def test_steady_py_itself_is_not_a_dependency(tmp_path, live_venv, mode):
     outcome = _run(mode, live_venv, tmp_path / "nb", [code("import steady_py\nimport packaging")])
     assert outcome.dependency("steady_py") is None
+
+
+@finding("G15")
+@pytest.mark.parametrize("mode", ["file", "live"])
+def test_install_lines_carry_the_location_each_mode_has(tmp_path, live_venv, mode):
+    version = installed_version(live_venv, "resolvelib")
+    outcome = _run(mode, live_venv, tmp_path / "nb", [code(f"%pip install resolvelib=={version}")])
+    line, = outcome.install_lines()
+    assert line["text"] == f"%pip install resolvelib=={version}"
+    if mode == "file":
+        assert line["cell_idx"] == 0
+    else:  # a session has no notebook positions; the user sees In [n]
+        assert line["cell_idx"] is None and line["execution_count"] > 0

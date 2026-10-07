@@ -37,14 +37,10 @@ def extract_manifest_from_file(path: str) -> Tuple[Optional[SteadyPyManifest], O
         if path.endswith(".ipynb"):
             with open(path, "r", encoding="utf-8") as f:
                 nb_data = json.load(f)
-            cell_sources = [
-                "".join(cell.get("source", []))
-                for cell in nb_data.get("cells", [])
-                if cell.get("cell_type") == "code"
-            ]
+            cells = sorted(scanning.read_notebook_cells(nb_data.get("cells", [])), key=lambda c: c.position or 0)
             cleaned_cells = []
-            for cell_source in cell_sources:
-                cell_type, clean_body = scanning.classify_cell_source(cell_source)
+            for cell in cells:
+                cell_type, clean_body = scanning.classify_cell_source(cell.source)
                 if cell_type in {"SHELL_SCRIPT", "WRITEFILE"}:
                     continue
                 cleaned_cells.append("\n".join(

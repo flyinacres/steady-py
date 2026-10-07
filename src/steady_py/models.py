@@ -5,25 +5,58 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 from packaging.version import InvalidVersion, Version
 
 from steady_py.constants import MANIFEST_SCHEMA_VERSION, TOOL_VERSION, DependencyStatus, Signal
 
 
+@dataclass(frozen=True)
+class Cell:
+    """One code cell as the reader found it: raw source and where the user sees it.
+
+    `position` is the 0-based index among all of a notebook's cells (markdown included); a live
+    session has none. `execution_count` is the kernel's count; in a live session it is the history
+    index. `heading` is the nearest markdown heading above the cell.
+    """
+    source: str
+    position: Optional[int] = None
+    execution_count: Optional[int] = None
+    heading: Optional[str] = None
+
+    @property
+    def label(self) -> str:
+        """How the user finds the cell: its 1-based notebook position, or its In [n] in a session."""
+        if self.position is not None:
+            return f"Cell {self.position + 1}"
+        if self.execution_count is not None:
+            return f"In [{self.execution_count}]"
+        return "a cell"
+
+
 @dataclass
 class DiagnosticEvent:
-    """Represents a structured warning or informational notice."""
+    """A structured warning or notice, located by notebook and by cell as the user sees them."""
     type: str
     detail: str
-    cell_idx: Optional[int] = None
+    cell_idx: Optional[int] = None  # the cell's notebook position (Cell.position)
     line_idx: Optional[int] = None
     level: str = "warning"
+    cell_label: Optional[str] = None
+    notebook: Optional[str] = None
+
+    @classmethod
+    def at(cls, cell: Optional[Cell], line_idx: Optional[int], type: str, detail: str, level: str = "warning") -> "DiagnosticEvent":
+        """A diagnostic located at `cell`, or unlocated when there is no cell."""
+        if cell is None:
+            return cls(type=type, detail=detail, line_idx=line_idx, level=level)
+        return cls(type=type, detail=detail, cell_idx=cell.position, line_idx=line_idx, level=level, cell_label=cell.label)
 
     def format_console(self) -> str:
         prefix = "⚠️" if self.level == "warning" else "ℹ️"
-        return f"{prefix} {self.detail}"
+        where = f"{self.cell_label}: " if self.cell_label else ""
+        return f"{prefix} {where}{self.detail}"
 
     def __str__(self) -> str:
         return self.format_console()
@@ -81,6 +114,7 @@ class PipInstallOccurrence:
     name: str
     version_spec: str = ""
     flags: List[str] = field(default_factory=list)
+    cell: Optional[Cell] = None
 
 
 @dataclass
@@ -100,6 +134,32 @@ class ImportOccurrence:
     module: str
     full_name: str = ""
     is_guarded: bool = False
+    cell: Optional[Cell] = None
+
+
+@dataclass
+class InstallLine:
+    """One package-install command as written in a notebook (fix_plan.md, section 3.1).
+
+    `tool` is pip, conda or system. Invocation, guard, targets and options are added as the
+    install-line pipeline takes over parsing.
+    """
+    text: str
+    tool: str
+    cell: Cell
+    line_idx: int
+    notebook: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "text": self.text,
+            "tool": self.tool,
+            "notebook": self.notebook,
+            "cell_idx": self.cell.position,
+            "line_idx": self.line_idx,
+            "execution_count": self.cell.execution_count,
+            "heading": self.cell.heading,
+        }
 
 
 @dataclass
@@ -367,6 +427,7 @@ class NotebookAnalysisReport:
     notices: List[DiagnosticEvent] = field(default_factory=list)
     promotions: List[PromotionDetail] = field(default_factory=list)
     local_tagged: List[Tuple[str, List[str]]] = field(default_factory=list)  # specific package builds; feeds the blueprint, not the JSON
+    install_lines: List[InstallLine] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -382,6 +443,7 @@ class NotebookAnalysisReport:
             "warnings": [w.to_dict() for w in self.warnings],
             "notices": [n.to_dict() for n in self.notices],
             "promotions": [p.to_dict() for p in self.promotions],
+            "install_lines": [line.to_dict() for line in self.install_lines],
         }
 
 
@@ -392,20 +454,20 @@ class ExtractionResult:
     lang_label: str
     imports: List[str] = field(default_factory=list)
     submodules: Dict[str, Set[str]] = field(default_factory=dict)
-    code_sources: List[str] = field(default_factory=list)
+    cells: List[Cell] = field(default_factory=list)
     error_msg: Optional[str] = None
     guarded_imports: Set[str] = field(default_factory=set)
     dynamic_warnings: List[DiagnosticEvent] = field(default_factory=list)
     writefile_imports: List[str] = field(default_factory=list)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Any]:
         """Legacy tuple-unpacking fallback for backward compatibility."""
         dyn_warn_strings = [w.format_console() for w in self.dynamic_warnings]
         return iter((
             self.success,
             self.imports,
             self.submodules,
-            self.code_sources,
+            [c.source for c in self.cells],
             self.error_msg,
             self.lang_label,
             self.guarded_imports,
@@ -423,8 +485,9 @@ class HarvestResult:
     magic_notices: List[DiagnosticEvent] = field(default_factory=list)
     scoped_flags: Dict[str, List[str]] = field(default_factory=dict)
     raw_installs: List[str] = field(default_factory=list)
+    install_lines: List[InstallLine] = field(default_factory=list)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Any]:
         """Legacy tuple-unpacking fallback for backward compatibility."""
         warn_strings = [w.format_console() for w in self.magic_warnings]
         notice_strings = [n.format_console() for n in self.magic_notices]

@@ -94,12 +94,7 @@ def _analyze(target: Optional[str], environment: Optional[Environment]) -> _Anal
     else:
         if not util.is_running_in_ipython():
             raise ValueError("a target file is required outside a live IPython session")
-        imports, submodules, code_sources, guarded_imports, dynamic_warnings = scanning.extract_from_active_session()
-        ext_res = models.ExtractionResult(
-            success=True, lang_label=constants.StatusLabel.PYTHON, imports=imports, submodules=submodules,
-            code_sources=code_sources, guarded_imports=guarded_imports, dynamic_warnings=dynamic_warnings,
-            writefile_imports=scanning.extract_writefile_imports_from_sources(code_sources),
-        )
+        ext_res = scanning.extract_from_active_session()
         path, kind, root_dir = Path("session.ipynb"), TargetKind.SESSION, "."
 
     hardware = accelerator.inspect_gpu_environment(list(dict.fromkeys(ext_res.imports)))

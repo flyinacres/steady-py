@@ -28,14 +28,18 @@ Out of scope (Step `out` in the matrix), with the reasons:
 
 ## 3. Contracts
 
-Standards for everything else are in working_rules.md, section 1. Two structures are defined before the step that builds them, because they are expensive to change later. Their exact fields are set at the start of that step; each must carry at least the following.
+Standards for everything else are in working_rules.md, section 1. Two structures are defined before the step that builds them, because they are expensive to change later. The install-line record's fields are settled; the manifest's are set at the start of step 3 and must carry at least the following.
 
-1. The install-line record (step 1), produced once and consumed by snapshot, check and reconciliation:
-   1. The line's text as written, the notebook, and its position: the cell's position in the notebook and the nearest heading. In live mode, positions come from execution history and may be absent.
-   2. Its form (`%pip`, `!pip`, `subprocess` list, and so on) and whether it installs into the kernel (`-t`, `--target` and remote sandboxes don't).
-   3. Its guard state: none, a Python guard (and which kind), or shell-joined or shell-conditional.
-   4. Its requirements, parsed as pip parses them (name, extras, specifier or direct URL), and its flags with their values and the requirements they apply to.
-   5. Whether it could be read literally, or is computed (`$pkg`) or unreadable, with a diagnostic.
+1. The install-line record (step 1), one per install command, produced once and consumed by snapshot, check and reconciliation:
+   1. Text: the logical line as written, continuations joined; for a Python call form, the call's source.
+   2. Location: the notebook path, the cell's 1-based position in notebook order (markdown cells counted), the line within the cell, the execution count, and the nearest preceding heading. In live mode the position and heading are absent and the execution count is present.
+   3. Tool: pip, uv, conda-family (conda, mamba, micromamba) or system (apt-get, brew, yum). Conda and system lines are recorded; their targets are parsed no further than names.
+   4. Invocation: line magic, shell escape (`!`), shell cell (`%%bash`, `%%sh`), or Python call (`subprocess` list, `os.system`, `get_ipython().system`). `python -m pip`, `{sys.executable} -m pip` and `conda run pip` are an invocation plus a tool, not separate forms.
+   5. Kernel target: whether the line installs into the kernel's environment, and why not when it doesn't (`-t`/`--target`, `--prefix`, `--root`, conda `-n` naming another environment).
+   6. Guard: none; a Python guard with its kind (if, try, except ImportError, function body) and condition text; or a shell guard, joined (`&&`, `||`) or conditional. Guarded lines carry a guard group and branch index, so mutually exclusive branches are identifiable.
+   7. Readability: literal, computed (`$pkg`, `{var}`, non-literal call arguments) or unreadable, each with its diagnostic.
+   8. Targets, each with its kind: a requirement parsed as pip parses it (name as typed and canonical, extras, specifier, marker; `name @ url` stored as written), a bare direct or VCS URL, a local path or wheel, an editable, or a requirements or constraints file (recorded, not read).
+   9. Options: canonical name and value pairs (`-i x` and `--index-url=x` give the same pair), unknown options kept as written. A pip command line's options apply to every requirement on it, so they are stored once per line and each target inherits its line's options.
 2. The manifest (step 3):
    1. Every field reported in the delta (P3).
    2. Provenance for each value: declaration, notebook text, environment, or carried forward from the previous manifest.

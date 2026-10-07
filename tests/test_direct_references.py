@@ -19,7 +19,7 @@ import types
 
 import pytest
 
-from steady_py import analyze, generate, installed, resolution
+from steady_py import analyze, generate, installed, resolution, scanning
 
 REMOTE_URL = "git+https://example.com/org/zzq-remote.git@0123456789abcdef"
 LOCAL_DIR = "/home/ron/src/zzq-local"
@@ -157,7 +157,7 @@ def _generate(tmp_path, code_sources, imports, frozen_env, pkg_dist_map, raw_ins
     }))
     scan_res = analyze.NotebookScanResult(
         path=nb_path, is_python=True, lang_label="python",
-        imports=imports, code_sources=code_sources,
+        imports=imports, cells=scanning.as_cells(code_sources),
         raw_installs=list(raw_installs or []),
     )
     out_path, _ = generate.apply_output_to_notebook(scan_res, frozen_env, pkg_dist_map, None, suffix="_out")

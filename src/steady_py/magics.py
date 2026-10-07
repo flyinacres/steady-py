@@ -1,11 +1,12 @@
 """Cell magics and shell commands: pip, conda and system-package installs, index URLs, scoped pip
 flags, and the auxiliary tools a notebook installs without importing."""
 import re
-from typing import Dict, List, Set, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Set, Tuple
 
 from steady_py import scanning, util
 from steady_py.constants import SHELL_CELL_MAGICS
-from steady_py.models import DiagnosticEvent, HarvestResult, PipInstallOccurrence
+from steady_py.models import Cell, DiagnosticEvent, HarvestResult, InstallLine, PipInstallOccurrence
 
 
 PIP_SINGLE_FLAGS: Set[str] = {
@@ -31,99 +32,125 @@ VCS_OR_PATH_PREFIXES: Tuple[str, ...] = (
 
 
 
-def harvest_pip_install_occurrences(code_sources: List[str]) -> Tuple[List[PipInstallOccurrence], List[str]]:
-    """
-    Walks all cell lines and extracts structured PipInstallOccurrence records.
-    Filters out %%writefile cells completely.
+@dataclass
+class _RawInstall:
+    spec: str
+    cell: Cell
+    line_idx: int
 
-    Also returns raw_installs: the exact original text of any token that's a
-    VCS/URL/local-path install (git+, http(s)://, ./path, etc). These can't be
-    decomposed into a name+version pin without actually running pip -- a bare
-    git URL has no name until cloned -- so they're preserved verbatim instead
-    of being forced into the wrong shape. Previously these were silently
-    dropped entirely, meaning the generated Cell 2 would never attempt to
-    install them at all.
-    """
-    occurrences: List[PipInstallOccurrence] = []
-    raw_installs: List[str] = []
 
-    for cell_idx, source in enumerate(code_sources):
-        cell_type, clean_body = scanning.classify_cell_source(source)
+@dataclass
+class _Harvest:
+    """One walk over every cell line: install lines, pip occurrences and raw (VCS/URL/path) installs."""
+    install_lines: List[InstallLine] = field(default_factory=list)
+    occurrences: List[PipInstallOccurrence] = field(default_factory=list)
+    raw_installs: List[_RawInstall] = field(default_factory=list)
+
+
+def _install_tool(seg: str) -> Optional[str]:
+    if SYSTEM_PKG_PATTERN.match(seg):
+        return "system"
+    if CONDA_INSTALL_PATTERN.match(seg):
+        return "conda"
+    if PIP_INSTALL_PATTERN.match(seg):
+        return "pip"
+    return None
+
+
+def _harvest(code_sources: scanning.CellsLike) -> _Harvest:
+    found = _Harvest()
+    for cell_idx, cell in enumerate(scanning.as_cells(code_sources)):
+        cell_type, clean_body = scanning.classify_cell_source(cell.source)
         if cell_type == "WRITEFILE":
             continue
-
         for line_idx, line in enumerate(clean_body.splitlines()):
             clean_line = line.strip()
             if not clean_line or clean_line.startswith('#') or clean_line in SHELL_CELL_MAGICS:
                 continue
-
-            command_segments = SHELL_SPLIT_PATTERN.split(clean_line)
-            for segment in command_segments:
+            for segment in SHELL_SPLIT_PATTERN.split(clean_line):
                 seg = segment.strip()
-                pip_match = PIP_INSTALL_PATTERN.match(seg)
-                if not pip_match:
+                tool = _install_tool(seg)
+                if tool is None:
                     continue
+                found.install_lines.append(InstallLine(text=seg, tool=tool, cell=cell, line_idx=line_idx))
+                pip_match = PIP_INSTALL_PATTERN.match(seg)
+                if tool == "pip" and pip_match:
+                    _parse_pip_args(pip_match.group(1), cell_idx, cell, line_idx, found)
+    return found
 
-                args_str = pip_match.group(1)
-                tokens = args_str.split()
-                line_flags: List[str] = []
-                token_specs: List[Tuple[str, str, str]] = []
 
-                # Pass 1: Harvest all flags across the command segment first
-                i = 0
-                while i < len(tokens):
-                    token = tokens[i]
-                    if token in {"--extra-index-url", "--index-url", "-i", "-f", "--find-links"}:
-                        if i + 1 < len(tokens):
-                            line_flags.extend([token, tokens[i+1].strip("'\"")])
-                            i += 2
-                            continue
-                    elif token in PIP_VALUE_FLAGS:
-                        i += 2
-                        continue
-                    i += 1
+def _parse_pip_args(args_str: str, cell_idx: int, cell: Cell, line_idx: int, found: _Harvest) -> None:
+    tokens = args_str.split()
+    line_flags: List[str] = []
+    token_specs: List[Tuple[str, str, str]] = []
 
-                # Pass 2: Extract package names and specs
-                i = 0
-                while i < len(tokens):
-                    token = tokens[i]
-                    if token in {"--extra-index-url", "--index-url", "-i", "-f", "--find-links"} or token in PIP_VALUE_FLAGS:
-                        i += 2
-                        continue
-                    elif token.startswith('-') or token.lower() in PIP_SINGLE_FLAGS:
-                        i += 1
-                        continue
-                    elif any(token.lower().startswith(p) for p in VCS_OR_PATH_PREFIXES):
-                        raw_installs.append(token.strip("'\""))
-                        i += 1
-                        continue
+    # Pass 1: Harvest all flags across the command segment first
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token in {"--extra-index-url", "--index-url", "-i", "-f", "--find-links"}:
+            if i + 1 < len(tokens):
+                line_flags.extend([token, tokens[i+1].strip("'\"")])
+                i += 2
+                continue
+        elif token in PIP_VALUE_FLAGS:
+            i += 2
+            continue
+        i += 1
 
-                    match = re.search(r'[<>=!~;\[#]', token)
-                    if match:
-                        split_idx = match.start()
-                        pkg_name = token[:split_idx].strip("'\"")
-                        v_spec = token[split_idx:].strip("'\"")
-                    else:
-                        pkg_name = token.strip("'\"")
-                        v_spec = ""
+    # Pass 2: Extract package names and specs
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token in {"--extra-index-url", "--index-url", "-i", "-f", "--find-links"} or token in PIP_VALUE_FLAGS:
+            i += 2
+            continue
+        elif token.startswith('-') or token.lower() in PIP_SINGLE_FLAGS:
+            i += 1
+            continue
+        elif any(token.lower().startswith(p) for p in VCS_OR_PATH_PREFIXES):
+            found.raw_installs.append(_RawInstall(token.strip("'\""), cell, line_idx))
+            i += 1
+            continue
 
-                    if pkg_name:
-                        token_specs.append((token, pkg_name, v_spec))
-                    i += 1
+        match = re.search(r'[<>=!~;\[#]', token)
+        if match:
+            split_idx = match.start()
+            pkg_name = token[:split_idx].strip("'\"")
+            v_spec = token[split_idx:].strip("'\"")
+        else:
+            pkg_name = token.strip("'\"")
+            v_spec = ""
 
-                for raw_tok, pkg, v_spec in token_specs:
-                    occurrences.append(
-                        PipInstallOccurrence(
-                            cell_idx=cell_idx,
-                            line_idx=line_idx,
-                            raw_token=raw_tok,
-                            name=pkg,
-                            version_spec=v_spec,
-                            flags=list(line_flags)
-                        )
-                    )
+        if pkg_name:
+            token_specs.append((token, pkg_name, v_spec))
+        i += 1
 
-    return occurrences, raw_installs
+    for raw_tok, pkg, v_spec in token_specs:
+        found.occurrences.append(
+            PipInstallOccurrence(
+                cell_idx=cell_idx,
+                line_idx=line_idx,
+                raw_token=raw_tok,
+                name=pkg,
+                version_spec=v_spec,
+                flags=list(line_flags),
+                cell=cell,
+            )
+        )
+
+
+def harvest_pip_install_occurrences(code_sources: scanning.CellsLike) -> Tuple[List[PipInstallOccurrence], List[str]]:
+    """
+    Structured PipInstallOccurrence records for every pip install, skipping %%writefile cells.
+
+    Also returns raw_installs: the exact original text of any token that's a
+    VCS/URL/local-path install (git+, http(s)://, ./path, etc). These can't be
+    decomposed into a name+version pin without actually running pip -- a bare
+    git URL has no name until cloned -- so they're preserved verbatim.
+    """
+    found = _harvest(code_sources)
+    return found.occurrences, [raw.spec for raw in found.raw_installs]
 
 
 def resolve_pip_occurrences(
@@ -154,12 +181,9 @@ def resolve_pip_occurrences(
             versions = [h.version_spec for h in history if h.version_spec]
             if len(set(versions)) > 1:
                 conflict_warnings.append(
-                    DiagnosticEvent(
-                        type="conflicting_pin",
-                        detail=f"Conflicting Explicit Pins for '{winning_occ.name}': Resolving to '{winning_occ.name}{winning_occ.version_spec}' ({time_qualifier}).",
-                        cell_idx=winning_occ.cell_idx,
-                        line_idx=winning_occ.line_idx,
-                        level="warning"
+                    DiagnosticEvent.at(
+                        winning_occ.cell, winning_occ.line_idx, "conflicting_pin",
+                        f"Conflicting Explicit Pins for '{winning_occ.name}': Resolving to '{winning_occ.name}{winning_occ.version_spec}' ({time_qualifier}).",
                     )
                 )
 
@@ -167,36 +191,34 @@ def resolve_pip_occurrences(
             if len(set(flags_history)) > 1:
                 flags_display = " ".join(winning_occ.flags) if winning_occ.flags else "default index (no flags)"
                 conflict_warnings.append(
-                    DiagnosticEvent(
-                        type="conflicting_flags",
-                        detail=f"Conflicting Scoped Flags for '{winning_occ.name}': Overwriting earlier flags with '{flags_display}' ({time_qualifier}).",
-                        cell_idx=winning_occ.cell_idx,
-                        line_idx=winning_occ.line_idx,
-                        level="warning"
+                    DiagnosticEvent.at(
+                        winning_occ.cell, winning_occ.line_idx, "conflicting_flags",
+                        f"Conflicting Scoped Flags for '{winning_occ.name}': Overwriting earlier flags with '{flags_display}' ({time_qualifier}).",
                     )
                 )
 
     return resolved, conflict_warnings
 
 
-def harvest_scoped_cell_flags(code_sources: List[str]) -> Dict[str, List[str]]:
+def harvest_scoped_cell_flags(code_sources: scanning.CellsLike) -> Dict[str, List[str]]:
     """Convenience delegate returning harvested scoped flags map directly."""
     occurrences, _raw_installs = harvest_pip_install_occurrences(code_sources)
     resolved, _ = resolve_pip_occurrences(occurrences)
     return {pkg: occ.flags for pkg, occ in resolved.items()}
 
 
-def harvest_index_urls_from_sources(code_sources: List[str]) -> Set[str]:
+def harvest_index_urls_from_sources(code_sources: scanning.CellsLike) -> Set[str]:
     """Scans code sources for index URLs and returns a combined set of all harvested URLs."""
     h_res = harvest_cell_magics_and_commands(code_sources)
     return h_res.base_index_urls.union(h_res.extra_index_urls)
 
 
 def harvest_cell_magics_and_commands(
-    code_sources: List[str]
+    code_sources: scanning.CellsLike
 ) -> HarvestResult:
     """Scans code sources for cell magics, index URLs, auxiliary tools, and shell commands."""
-    occurrences, raw_installs = harvest_pip_install_occurrences(code_sources)
+    found = _harvest(code_sources)
+    occurrences = found.occurrences
     resolved_occs, magic_warnings = resolve_pip_occurrences(occurrences)
 
     harvested_packages: Set[str] = set()
@@ -205,19 +227,15 @@ def harvest_cell_magics_and_commands(
     magic_notices: List[DiagnosticEvent] = []
     scoped_flags: Dict[str, List[str]] = {}
 
-    for raw_spec in raw_installs:
-        magic_notices.append(
-            DiagnosticEvent(
-                type="raw_install",
-                detail=f"'{raw_spec}' is installed from a non-standard source (git/URL/local file), not PyPI. "
-                       f"It will still be installed exactly as specified, but can't be verified or checked for "
-                       f"drift -- you're responsible for ensuring anyone running this notebook has access to "
-                       f"the same resource.",
-                cell_idx=0,
-                line_idx=0,
-                level="notice"
-            )
-        )
+    for raw in found.raw_installs:
+        magic_notices.append(DiagnosticEvent.at(
+            raw.cell, raw.line_idx, "raw_install",
+            f"'{raw.spec}' is installed from a non-standard source (git/URL/local file), not PyPI. "
+            f"It will still be installed exactly as specified, but can't be verified or checked for "
+            f"drift -- you're responsible for ensuring anyone running this notebook has access to "
+            f"the same resource.",
+            level="notice",
+        ))
 
     for occ in occurrences:
         harvested_packages.add(occ.name)
@@ -234,53 +252,24 @@ def harvest_cell_magics_and_commands(
                 extra_index_urls.add(val)
             i += 2
 
-    for cell_idx, source in enumerate(code_sources, start=1):
-        cell_type, clean_body = scanning.classify_cell_source(source)
-        if cell_type == "WRITEFILE":
-            continue
-
-        for line_idx, line in enumerate(clean_body.splitlines()):
-            clean_line = line.strip()
-            if not clean_line or clean_line.startswith('#') or clean_line in SHELL_CELL_MAGICS:
-                continue
-
-            command_segments = SHELL_SPLIT_PATTERN.split(clean_line)
-            for segment in command_segments:
-                seg = segment.strip()
-                if not seg:
-                    continue
-
-                if SYSTEM_PKG_PATTERN.match(seg):
-                    magic_notices.append(
-                        DiagnosticEvent(
-                            type="system_command",
-                            detail=f"Cell {cell_idx} uses a system install command ('{seg}'). Note: System dependencies must be run manually by readers.",
-                            cell_idx=cell_idx - 1,
-                            line_idx=line_idx,
-                            level="notice"
-                        )
-                    )
-                elif CONDA_INSTALL_PATTERN.match(seg):
-                    magic_notices.append(
-                        DiagnosticEvent(
-                            type="conda_command",
-                            detail=f"Cell {cell_idx} uses 'conda install'. Conda packages are not tracked in pip requirements manifests.",
-                            cell_idx=cell_idx - 1,
-                            line_idx=line_idx,
-                            level="notice"
-                        )
-                    )
-                elif PIP_INSTALL_PATTERN.match(seg):
-                    if "-r " in seg or "--requirement" in seg:
-                        magic_warnings.append(
-                            DiagnosticEvent(
-                                type="external_requirement",
-                                detail=f"Cell {cell_idx} references an external requirements file ('{seg}'). Ensure that file is shared alongside your notebook.",
-                                cell_idx=cell_idx - 1,
-                                line_idx=line_idx,
-                                level="warning"
-                            )
-                        )
+    for line in found.install_lines:
+        if line.tool == "system":
+            magic_notices.append(DiagnosticEvent.at(
+                line.cell, line.line_idx, "system_command",
+                f"Uses a system install command ('{line.text}'). Note: System dependencies must be run manually by readers.",
+                level="notice",
+            ))
+        elif line.tool == "conda":
+            magic_notices.append(DiagnosticEvent.at(
+                line.cell, line.line_idx, "conda_command",
+                "Uses 'conda install'. Conda packages are not tracked in pip requirements manifests.",
+                level="notice",
+            ))
+        elif "-r " in line.text or "--requirement" in line.text:
+            magic_warnings.append(DiagnosticEvent.at(
+                line.cell, line.line_idx, "external_requirement",
+                f"References an external requirements file ('{line.text}'). Ensure that file is shared alongside your notebook.",
+            ))
 
     return HarvestResult(
         harvested_packages=harvested_packages,
@@ -289,6 +278,6 @@ def harvest_cell_magics_and_commands(
         magic_warnings=magic_warnings,
         magic_notices=magic_notices,
         scoped_flags=scoped_flags,
-        raw_installs=raw_installs
+        raw_installs=[raw.spec for raw in found.raw_installs],
+        install_lines=found.install_lines,
     )
-

@@ -54,10 +54,10 @@ Reading test status:
 | K2 | Unparseable cell drops its imports silently | Y |  | 1.2 | U | F1 | Expect imports found or a diagnostic naming the cell, never silence; a cell using syntax newer than the running interpreter (`lazy import`) gets a diagnostic naming both versions |
 | G1 | Guarded install line erases the cell's imports | Y |  | 1.3 | U | F1 |  |
 | G13 | `%%writefile` with leading blank lines scanned as code | Y |  | 1.2 | U | F1 |  |
-| G15 | Live kernel reads transformed source; no install lines harvested | Y |  | 1.1 | L | F7 | One cell per form: `%pip`, `!pip`, `%%writefile`, `%conda`; file mode is each test's control. Existing tests patch the reader and can't catch this |
-| D1 | Live session counts `steady_py` as an import | Y |  | 1.1 | L | F7 | Also in file mode: a scan of a snapshotted notebook reports Cell 2's `import steady_py` as a platform module (tested at U), and a user's own `import steady_py` in either mode |
+| G15 | Live kernel reads transformed source; no install lines harvested | Y |  | fixed | L | F7 | One cell per form: `%pip`, `!pip`, `%%writefile`, `%conda`; file mode is each test's control. Existing tests patch the reader and can't catch this |
+| D1 | Live session counts `steady_py` as an import | Y |  | fixed | L | F7 | Also in file mode: a scan of a snapshotted notebook reports Cell 2's `import steady_py` as a platform module (tested at U), and a user's own `import steady_py` in either mode |
 | K13 | Deeply nested expression exceeds the import visitor's recursion limit | Y |  | 1.2 | U | F1 | A single-file run crashes with a traceback |
-| P7 | Batch notices lose their notebook; cell numbers match nothing visible | Y |  | 1.1 | U | F1 | Markdown cells before code; same notice in two notebooks |
+| P7 | Batch notices lose their notebook; cell numbers match nothing visible | Y |  | fixed | U | F1 | Markdown cells before code; same notice in two notebooks |
 
 ## Install-line harvesting
 

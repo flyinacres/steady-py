@@ -3,11 +3,73 @@ AST scan that finds imports, guarded imports and dynamic-import warnings."""
 import ast
 import json
 import os
-import re
 import warnings
-from typing import Any, Dict, List, Optional, Set, Tuple
-from steady_py.constants import SHELL_CELL_MAGICS, StatusLabel
-from steady_py.models import DiagnosticEvent, ExtractionResult, ImportOccurrence
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
+from steady_py.constants import SHELL_CELL_MAGICS, TOOL_IMPORT_NAME, StatusLabel
+from steady_py.models import Cell, DiagnosticEvent, ExtractionResult, ImportOccurrence
+
+CellsLike = Sequence[Union[str, Cell]]
+
+
+def as_cells(items: CellsLike) -> List[Cell]:
+    """Cells in processing order. Bare strings (older callers and tests) become cells positioned by
+    their index in the list."""
+    return [item if isinstance(item, Cell) else Cell(source=item, position=i) for i, item in enumerate(items)]
+
+
+def _cell_text(value: Any) -> str:
+    return "".join(value) if isinstance(value, list) else (value if isinstance(value, str) else "")
+
+
+def _heading(markdown: str) -> Optional[str]:
+    """The last heading line in a markdown cell, without its #s."""
+    found = [line.lstrip("#").strip() for line in markdown.splitlines() if line.startswith("#")]
+    return found[-1] if found else None
+
+
+def read_notebook_cells(nb_cells: List[Dict[str, Any]]) -> List[Cell]:
+    """A notebook's code cells in processing order, each with its notebook position and heading."""
+    headings: Dict[int, Optional[str]] = {}
+    current: Optional[str] = None
+    for idx, cell in enumerate(nb_cells):
+        headings[idx] = current
+        if cell.get("cell_type") == "markdown":
+            current = _heading(_cell_text(cell.get("source"))) or current
+    ordered, _ = get_ordered_code_cells(nb_cells)
+    return [
+        Cell(source=_cell_text(c.get("source")), position=idx,
+             execution_count=c.get("execution_count") if isinstance(c.get("execution_count"), int) else None,
+             heading=headings[idx])
+        for idx, c in ordered
+    ]
+
+
+def read_session_cells() -> List[Cell]:
+    """The live IPython session's cells as typed (`input_hist_raw`), numbered by history index."""
+    try:
+        from IPython import get_ipython
+    except ImportError:
+        return []
+    shell = get_ipython()
+    if shell is None:
+        return []
+    raw: List[str] = list(shell.history_manager.input_hist_raw)
+    return [Cell(source=src, execution_count=i) for i, src in enumerate(raw) if i > 0 and src.strip()]
+
+
+def extract_from_cells(cells: List[Cell], lang_label: str = StatusLabel.PYTHON) -> ExtractionResult:
+    """The one analysis of read cells, shared by file and live mode."""
+    imports, submodules, guarded_imports, dyn_warnings, writefile_imports = extract_imports_from_sources_full(cells)
+    return ExtractionResult(
+        success=True,
+        lang_label=lang_label,
+        imports=imports,
+        submodules=submodules,
+        cells=cells,
+        guarded_imports=guarded_imports,
+        dynamic_warnings=dyn_warnings,
+        writefile_imports=writefile_imports,
+    )
 
 
 def get_timeline_context_label(is_execution_ordered: bool) -> str:
@@ -104,42 +166,12 @@ def extract_from_file(
             error_msg=f"Skipped non-Python notebook (Language: {lang_label})"
         )
 
-    cells = nb_data.get("cells", [])
-    ordered_cells, _ = get_ordered_code_cells(cells)
-    code_sources = ["".join(c.get("source", [])) for _, c in ordered_cells]
-    imports, submodules, guarded_imports, dyn_warnings, writefile_imports = extract_imports_from_sources_full(code_sources)
-
-    return ExtractionResult(
-        success=True,
-        lang_label=lang_label,
-        imports=imports,
-        submodules=submodules,
-        code_sources=code_sources,
-        guarded_imports=guarded_imports,
-        dynamic_warnings=dyn_warnings,
-        writefile_imports=writefile_imports
-    )
+    return extract_from_cells(read_notebook_cells(nb_data["cells"]), lang_label)
 
 
-def extract_from_active_session() -> Tuple[List[str], Dict[str, Set[str]], List[str], Set[str], List[DiagnosticEvent]]:
-    """
-    Path B (Live Kernel): Reads IPython execution history in chronological order.
-    Filters out self-referential steady_py execution cells and invocation commands.
-    """
-    import __main__
-    raw_sources = [src for src in getattr(__main__, 'In', []) if src and isinstance(src, str)]
-    
-    clean_sources: List[str] = []
-    for src in raw_sources:
-        if "NotebookImportVisitor" in src or "def extract_from_active_session" in src:
-            continue
-        stripped = src.strip()
-        if re.search(r'\b(?:spy|steady_py|steady_py\.cli)\.main\s*\(', stripped) or stripped in ("import steady_py", "import steady_py.cli") or stripped.startswith(("import steady_py as", "import steady_py.cli as")):
-            continue
-        clean_sources.append(src)
-
-    imports, submodules, guarded_imports, dyn_warnings = extract_imports_from_sources_typed(clean_sources)
-    return imports, submodules, clean_sources, guarded_imports, dyn_warnings
+def extract_from_active_session() -> ExtractionResult:
+    """Live kernel: the session's cells as typed, in execution order."""
+    return extract_from_cells(read_session_cells())
 
 
 # =====================================================================
@@ -148,8 +180,9 @@ def extract_from_active_session() -> Tuple[List[str], Dict[str, Set[str]], List[
 
 class NotebookImportVisitor(ast.NodeVisitor):
     """AST visitor traversing Python code to record imports, guarded states, and dynamic calls in order."""
-    def __init__(self, cell_idx: int = 0) -> None:
-        self.cell_idx: int = cell_idx
+    def __init__(self, cell_idx: int = 0, cell: Optional[Cell] = None) -> None:
+        self.cell_idx: int = cell_idx  # processing rank, for ordering
+        self.cell: Optional[Cell] = cell
         self.imports: List[str] = []
         self.writefile_imports: List[str] = []
         self.submodules: Dict[str, Set[str]] = {}
@@ -168,6 +201,8 @@ class NotebookImportVisitor(ast.NodeVisitor):
         return self.raw_guarded_imports - self.unconditional_imports
 
     def _record_import(self, base_pkg: str, full_name: Optional[str] = None, lineno: int = 1) -> None:
+        if base_pkg == TOOL_IMPORT_NAME:
+            return  # steady-py is the tool, never a dependency; Cell 2 installs it (D1)
         line_idx = max(0, lineno - 1)
         if self._in_writefile:
             if base_pkg not in self.writefile_imports:
@@ -192,7 +227,8 @@ class NotebookImportVisitor(ast.NodeVisitor):
                 line_idx=line_idx,
                 module=base_pkg,
                 full_name=full_name or base_pkg,
-                is_guarded=is_guarded
+                is_guarded=is_guarded,
+                cell=self.cell,
             )
         )
 
@@ -246,19 +282,16 @@ class NotebookImportVisitor(ast.NodeVisitor):
             else:
                 expr_repr = ast.unparse(first_arg) if hasattr(ast, "unparse") else "expression"
                 self.dynamic_import_warnings.append(
-                    DiagnosticEvent(
-                        type="dynamic_import",
-                        detail=f"Dynamic import detected via variable '{expr_repr}'. Check that this package is installed if execution fails.",
-                        cell_idx=self.cell_idx,
-                        line_idx=getattr(node, "lineno", 1) - 1,
-                        level="warning"
+                    DiagnosticEvent.at(
+                        self.cell, getattr(node, "lineno", 1) - 1, "dynamic_import",
+                        f"Dynamic import detected via variable '{expr_repr}'. Check that this package is installed if execution fails.",
                     )
                 )
 
         self.generic_visit(node)
 
 
-def extract_import_occurrences_from_source(source: str, cell_idx: int = 0) -> List[ImportOccurrence]:
+def extract_import_occurrences_from_source(source: str, cell_idx: int = 0, cell: Optional[Cell] = None) -> List[ImportOccurrence]:
     """
     Parses an individual cell source using blank-line padding for stripped magics
     so that AST lineno perfectly matches raw cell line numbers.
@@ -273,7 +306,7 @@ def extract_import_occurrences_from_source(source: str, cell_idx: int = 0) -> Li
     ]
     clean_source = "\n".join(clean_lines)
 
-    visitor = NotebookImportVisitor(cell_idx=cell_idx)
+    visitor = NotebookImportVisitor(cell_idx=cell_idx, cell=cell)
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=SyntaxWarning)
@@ -286,13 +319,14 @@ def extract_import_occurrences_from_source(source: str, cell_idx: int = 0) -> Li
 
 
 def extract_imports_from_sources_full(
-    code_sources: List[str]
+    code_sources: CellsLike
 ) -> Tuple[List[str], Dict[str, Set[str]], Set[str], List[DiagnosticEvent], List[str]]:
     """Executes single-pass AST traversal returning primary and writefile imports with typed diagnostics."""
     visitor = NotebookImportVisitor()
-    for cell_idx, source in enumerate(code_sources):
+    for cell_idx, cell in enumerate(as_cells(code_sources)):
         visitor.cell_idx = cell_idx
-        cell_type, clean_body = classify_cell_source(source)
+        visitor.cell = cell
+        cell_type, clean_body = classify_cell_source(cell.source)
 
         if cell_type == "SHELL_SCRIPT":
             continue
@@ -323,7 +357,7 @@ def extract_imports_from_sources_full(
 
 
 def extract_imports_from_sources(
-    code_sources: List[str]
+    code_sources: CellsLike
 ) -> Tuple[List[str], Dict[str, Set[str]], Set[str], List[str]]:
     """Legacy 4-tuple extractor for primary imports with formatted strings."""
     primary_imports, submodules, guarded, dyn_warns, _ = extract_imports_from_sources_full(code_sources)
@@ -331,14 +365,14 @@ def extract_imports_from_sources(
 
 
 def extract_imports_from_sources_typed(
-    code_sources: List[str]
+    code_sources: CellsLike
 ) -> Tuple[List[str], Dict[str, Set[str]], Set[str], List[DiagnosticEvent]]:
     """Typed 4-tuple extractor for primary imports returning DiagnosticEvent objects."""
     primary_imports, submodules, guarded, dyn_warns, _ = extract_imports_from_sources_full(code_sources)
     return primary_imports, submodules, guarded, dyn_warns
 
 
-def extract_writefile_imports_from_sources(code_sources: List[str]) -> List[str]:
+def extract_writefile_imports_from_sources(code_sources: CellsLike) -> List[str]:
     """Extracts writefile script imports."""
     _, _, _, _, writefile_imports = extract_imports_from_sources_full(code_sources)
     return writefile_imports

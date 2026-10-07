@@ -8,7 +8,7 @@ from typing import Dict, Iterator, List, Mapping, Optional, Set, Tuple
 
 from steady_py import accelerator, localmodules, magics, resolution, scanning, util
 from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DEFAULT_IGNORED_DIRS, ENVIRONMENT_DIR_MARKERS, DependencyStatus, PLATFORM_PSEUDO_MODULES, StatusLabel, STD_LIB
-from steady_py.models import BatchAnalysisSummary, DiagnosticEvent, ExtractionResult, GpuInfo, NotebookAnalysisReport
+from steady_py.models import BatchAnalysisSummary, Cell, DiagnosticEvent, ExtractionResult, GpuInfo, InstallLine, NotebookAnalysisReport
 
 logger = logging.getLogger("steady_py.analyze")
 
@@ -24,7 +24,7 @@ class NotebookScanResult:
     submodules: Dict[str, Set[str]] = field(default_factory=dict)
     guarded_imports: Set[str] = field(default_factory=set)
     dynamic_warnings: List[DiagnosticEvent] = field(default_factory=list)
-    code_sources: List[str] = field(default_factory=list)
+    cells: List[Cell] = field(default_factory=list)
     harvested_urls: Optional[Set[str]] = None
     writefile_imports: List[str] = field(default_factory=list)
     harvested_pkgs: Set[str] = field(default_factory=set)
@@ -34,11 +34,12 @@ class NotebookScanResult:
     magic_warnings: List[DiagnosticEvent] = field(default_factory=list)
     magic_notices: List[DiagnosticEvent] = field(default_factory=list)
     raw_installs: List[str] = field(default_factory=list)
+    install_lines: List[InstallLine] = field(default_factory=list)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.harvested_urls is None:
-            if self.code_sources:
-                self.harvested_urls = magics.harvest_index_urls_from_sources(self.code_sources)
+            if self.cells:
+                self.harvested_urls = magics.harvest_index_urls_from_sources(self.cells)
             else:
                 self.harvested_urls = set()
 
@@ -115,7 +116,8 @@ def build_scan_result(
     parse_error: Optional[str] = None,
 ) -> NotebookScanResult:
     """Harvests a notebook's cell magics and commands and assembles its scan result from an extraction."""
-    h_res = magics.harvest_cell_magics_and_commands(ext_res.code_sources)
+    h_res = magics.harvest_cell_magics_and_commands(ext_res.cells)
+
     return NotebookScanResult(
         path=path,
         is_python=is_python,
@@ -125,7 +127,7 @@ def build_scan_result(
         submodules=ext_res.submodules,
         guarded_imports=ext_res.guarded_imports,
         dynamic_warnings=ext_res.dynamic_warnings,
-        code_sources=ext_res.code_sources,
+        cells=ext_res.cells,
         harvested_urls=h_res.base_index_urls.union(h_res.extra_index_urls),
         writefile_imports=ext_res.writefile_imports,
         harvested_pkgs=h_res.harvested_packages,
@@ -135,6 +137,7 @@ def build_scan_result(
         magic_warnings=h_res.magic_warnings,
         magic_notices=h_res.magic_notices,
         raw_installs=h_res.raw_installs,
+        install_lines=h_res.install_lines,
     )
 
 
@@ -188,7 +191,7 @@ def build_single_notebook_report(
     local_ctx = localmodules.LocalModuleContext(str(scan_res.path.parent), root_dir)
 
     timeline_res = resolution.build_unified_timeline(
-        scan_res.code_sources,
+        scan_res.cells,
         frozen_env=frozen_env,
         pkg_dist_map=pkg_dist_map,
         local_ctx=local_ctx
@@ -210,6 +213,10 @@ def build_single_notebook_report(
     all_warnings.extend(scan_res.magic_warnings)
     all_warnings.extend(timeline_res.conflict_warnings)
     all_warnings.extend(hw_warnings)
+    for event in (*all_warnings, *scan_res.magic_notices):
+        event.notebook = str(scan_res.path)
+    for line in scan_res.install_lines:
+        line.notebook = str(scan_res.path)
 
     local_mods_detected = sorted([
         imp for imp in set(scan_res.imports)
@@ -232,6 +239,7 @@ def build_single_notebook_report(
         notices=scan_res.magic_notices,
         promotions=timeline_res.promotion_notices,
         local_tagged=local_tagged,
+        install_lines=scan_res.install_lines,
     )
 
 
@@ -295,17 +303,10 @@ def analyze_batch_repository(
             if promo not in summary.promotions:
                 summary.promotions.append(promo)
 
-        for warn in res.dynamic_warnings:
-            if warn not in summary.dynamic_warnings:
-                summary.dynamic_warnings.append(warn)
-
-        for warn in res.magic_warnings:
-            if warn not in summary.magic_warnings:
-                summary.magic_warnings.append(warn)
-
-        for notice in res.magic_notices:
-            if notice not in summary.magic_notices:
-                summary.magic_notices.append(notice)
+        # Per notebook, never deduplicated across notebooks: each one names where to look (P7).
+        summary.dynamic_warnings.extend(res.dynamic_warnings)
+        summary.magic_warnings.extend(res.magic_warnings)
+        summary.magic_notices.extend(res.magic_notices)
 
     for canon, nbs in canonical_missing_map.items():
         disp_name = canonical_to_display.get(canon, canon)

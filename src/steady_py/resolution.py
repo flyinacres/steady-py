@@ -18,7 +18,7 @@ logger = logging.getLogger("steady_py.resolution")
 # =====================================================================
 
 def build_unified_timeline(
-    code_sources: List[str],
+    code_sources: scanning.CellsLike,
     frozen_env: Dict[str, str],
     pkg_dist_map: Optional[Mapping[str, List[str]]] = None,
     is_execution_ordered: bool = True,
@@ -37,8 +37,8 @@ def build_unified_timeline(
     submodules_map: Dict[str, Set[str]] = {}
     guarded_set: Set[str] = set()
 
-    for cell_idx, src in enumerate(code_sources):
-        cell_imports = scanning.extract_import_occurrences_from_source(src, cell_idx=cell_idx)
+    for cell_idx, cell in enumerate(scanning.as_cells(code_sources)):
+        cell_imports = scanning.extract_import_occurrences_from_source(cell.source, cell_idx=cell_idx, cell=cell)
         for imp in cell_imports:
             all_import_occs.append(imp)
             if imp.full_name and '.' in imp.full_name:

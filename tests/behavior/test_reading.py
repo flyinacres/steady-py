@@ -74,7 +74,7 @@ def test_writefile_imports_are_not_notebook_dependencies(tmp_path, source):
     assert outcome.dependency("torch")["status"] == "writefile_script"
 
 
-@known_bug("P7", "cell numbers count code cells only, so they match no position the user sees")
+@finding("P7")
 def test_diagnostics_number_cells_by_notebook_position(tmp_path):
     cell = code("%pip install -r req.txt\n!conda install numpy")
     plain = run("scan", Notebook(cell).write(tmp_path / "plain"))
@@ -84,7 +84,7 @@ def test_diagnostics_number_cells_by_notebook_position(tmp_path):
     assert positions[1] == {positions[0].pop() + 3}
 
 
-@known_bug("P7", "a directory report collapses identical notices and names no notebook")
+@finding("P7")
 def test_directory_report_names_each_notebook_with_a_notice(tmp_path):
     for name in ("alpha", "beta"):
         Notebook(code("!conda install numpy")).write(tmp_path, f"{name}.ipynb")
@@ -94,7 +94,15 @@ def test_directory_report_names_each_notebook_with_a_notice(tmp_path):
     assert "alpha.ipynb" in outcome.stdout and "beta.ipynb" in outcome.stdout
 
 
-@known_bug("D1", "Cell 2's own import of steady_py is reported as a platform-provided dependency")
+@finding("P7")
+def test_install_lines_are_located_where_the_user_sees_them(tmp_path):
+    notebook = Notebook(md("# Setup"), md("Installs follow."), code("x = 1\n%pip install packaging"))
+    line, = run("scan", notebook.write(tmp_path)).install_lines()
+    assert (line["text"], line["tool"], line["cell_idx"], line["line_idx"], line["heading"]) == (
+        "%pip install packaging", "pip", 2, 1, "Setup")
+
+
+@finding("D1")
 def test_scan_of_a_snapshotted_notebook_ignores_the_setup_cells_import(tmp_path, pypi):
     outcome = run("scan", _snapshot(tmp_path, pypi))
     assert outcome.exit_code == 0, outcome.log

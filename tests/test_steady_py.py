@@ -371,25 +371,6 @@ class TestDualPathIngestion:
         assert success is False
         assert lang_label == StatusLabel.CORRUPTED
 
-    def test_path_b_reads_live_session_history(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        fake_main = types.ModuleType("__main__")
-        fake_main.In = ["", "import requests", "import pandas as pd"]
-        monkeypatch.setitem(sys.modules, "__main__", fake_main)
-
-        imports, submodules, code_sources, guarded, dyn_warns = scanning.extract_from_active_session()
-        assert "requests" in imports
-        assert "pandas" in imports
-
-    def test_path_b_empty_history_returns_empty_manifest(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        fake_main = types.ModuleType("__main__")
-        fake_main.In = []
-        monkeypatch.setitem(sys.modules, "__main__", fake_main)
-
-        imports, submodules, code_sources, guarded, dyn_warns = scanning.extract_from_active_session()
-        assert imports == []
-        assert code_sources == []
-
-
 # =====================================================================
 # 5. HARDWARE ACCELERATION INSPECTION
 # =====================================================================
@@ -1011,41 +992,6 @@ class TestExecutionChronology:
         ordered_cells, is_exec_ordered = scanning.get_ordered_code_cells(cells)
         assert is_exec_ordered is False
         assert [idx for idx, _ in ordered_cells] == [0, 1, 2]
-
-class TestInteractiveKernelRuntime:
-    """Regression tests covering live interactive kernel lifecycle and CLI dispatch."""
-
-    def test_live_kernel_history_self_introspection_filter(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """
-        Regression: Path B extracting from __main__.In must strip steady-py's own
-        definition cells and invocation commands so internal probes don't pollute the scan.
-        """
-        import __main__
-
-        simulated_in_history = [
-            "",
-            "import pandas as pd\nimport numpy as np\n",
-            "class NotebookImportVisitor(ast.NodeVisitor):\n    pass\ndef extract_from_active_session():\n    pass\nimport cupy\n",  # Simulated steady-py source cell
-            "import steady_py.cli as spy\nspy.main()\n",  # Invocation cell
-        ]
-
-        monkeypatch.setattr(__main__, "In", simulated_in_history, raising=False)
-
-        imports, submodules, clean_sources, guarded_imports, dyn_warnings = (
-            scanning.extract_from_active_session()
-        )
-
-        # User imports must be captured
-        assert "pandas" in imports
-        assert "numpy" in imports
-
-        # Tool internal probes and invocations must be stripped
-        assert "cupy" not in imports
-        assert "steady_py" not in imports
-        assert len(clean_sources) == 1
-
 
 class TestResolveOpencvVariant:
 

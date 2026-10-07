@@ -77,7 +77,7 @@ def test_apply_output_companion_file(sample_notebook_file, mock_frozen_env):
         is_python=True,
         lang_label="python",
         imports={"pandas", "numpy"},
-        code_sources=["import pandas as pd\nimport numpy as np"]
+        cells=scanning.as_cells(["import pandas as pd\nimport numpy as np"])
     )
 
     out_path, _ = generate.apply_output_to_notebook(scan_res, mock_frozen_env, {}, None, suffix="_merged", in_place=False)
@@ -107,7 +107,7 @@ def test_apply_output_companion_overwrite_existing(sample_notebook_file, mock_fr
         is_python=True,
         lang_label="python",
         imports={"pandas"},
-        code_sources=["import pandas as pd"]
+        cells=scanning.as_cells(["import pandas as pd"])
     )
 
     # First run
@@ -128,7 +128,7 @@ def test_apply_output_gpu_misattribution_prevented(sample_notebook_file, mock_fr
         is_python=True,
         lang_label="python",
         imports={"tensorflow"},
-        code_sources=["import tensorflow as tf"]
+        cells=scanning.as_cells(["import tensorflow as tf"])
     )
 
     # Batch HW cache populated by a PyTorch notebook on CUDA
@@ -163,7 +163,7 @@ def test_apply_output_inplace(sample_notebook_file, mock_frozen_env):
         is_python=True,
         lang_label="python",
         imports={"pandas"},
-        code_sources=["import pandas as pd"]
+        cells=scanning.as_cells(["import pandas as pd"])
     )
 
     out_path, _ = generate.apply_output_to_notebook(scan_res, mock_frozen_env, {}, None, in_place=True)
@@ -189,7 +189,7 @@ def test_inplace_idempotency_rerun(sample_notebook_file, mock_frozen_env):
         submodules=submodules1,
         guarded_imports=guarded1,
         dynamic_warnings=dyn1,
-        code_sources=sources1
+        cells=scanning.as_cells(sources1)
     )
     generate.apply_output_to_notebook(scan_res1, mock_frozen_env, {}, None, in_place=True)
 
@@ -208,7 +208,7 @@ def test_inplace_idempotency_rerun(sample_notebook_file, mock_frozen_env):
         submodules=submodules2,
         guarded_imports=guarded2,
         dynamic_warnings=dyn2,
-        code_sources=sources2
+        cells=scanning.as_cells(sources2)
     )
     generate.apply_output_to_notebook(scan_res2, mock_frozen_env, {}, None, in_place=True)
 
@@ -234,7 +234,7 @@ def _scan(path):
         submodules=submodules,
         guarded_imports=guarded,
         dynamic_warnings=dyn,
-        code_sources=sources,
+        cells=scanning.as_cells(sources),
     )
 
 
@@ -408,7 +408,7 @@ def test_apply_output_multi_framework_gpu_resolution(sample_notebook_file, mock_
         is_python=True,
         lang_label="python",
         imports={"tensorflow"},
-        code_sources=["import tensorflow as tf"]
+        cells=scanning.as_cells(["import tensorflow as tf"])
     )
 
     # Cache where both PyTorch and TensorFlow were independently probed

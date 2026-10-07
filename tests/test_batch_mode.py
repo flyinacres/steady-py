@@ -135,7 +135,7 @@ class TestBatchOrchestration:
             is_python=True,
             lang_label="python",
             imports=["pandas"],
-            code_sources=["import pandas as pd"]
+            cells=scanning.as_cells(["import pandas as pd"])
         )
         written_path, _ = generate.apply_output_to_notebook(res, frozen_env, pkg_dist_map, None, suffix="_merged")
 
@@ -168,7 +168,7 @@ class TestBatchOrchestration:
             is_python=True,
             lang_label="python",
             imports=["pandas"],
-            code_sources=["import pandas as pd"]
+            cells=scanning.as_cells(["import pandas as pd"])
         )
         written_path, _ = generate.apply_output_to_notebook(res, frozen_env, pkg_dist_map, None, in_place=True)
 
@@ -292,9 +292,9 @@ class TestBatchOrchestration:
         assert constants.IMPORT_TO_PYPI_MAP.get("skimage") == "scikit-image"
 
     def test_platform_pseudo_modules_contains_bootstrap_tools(self):
-        """'databricks' and 'steady_py' are platform pseudo-modules; 'pip'/'setuptools'/'wheel' are build/packaging tools -- both buckets excluded from missing packages."""
-        for mod in ("databricks", "steady_py"):
-            assert mod in constants.PLATFORM_PSEUDO_MODULES
+        """'databricks' is a platform pseudo-module; 'pip'/'setuptools'/'wheel' are build/packaging tools -- both buckets excluded from missing packages. steady_py is neither: it is never a dependency (D1)."""
+        assert "databricks" in constants.PLATFORM_PSEUDO_MODULES
+        assert "steady_py" not in constants.PLATFORM_PSEUDO_MODULES
         for tool in ("pip", "setuptools", "wheel"):
             assert tool in constants.BUILD_AND_PACKAGING_TOOLS
 
@@ -346,7 +346,7 @@ def test_batch_report_surfaces_hardware_tag_warnings(tmp_path):
         is_python=True,
         lang_label="python",
         imports=["torch"],
-        code_sources=["import torch"]
+        cells=scanning.as_cells(["import torch"])
     )
     
     repo_map = analyze.RepoEnvironmentMap(str(tmp_path))
@@ -379,7 +379,7 @@ def test_batch_mode_scopes_local_modules_to_notebook_subdirectory(tmp_path):
         is_python=True,
         lang_label="python",
         imports=["cookbook"],
-        code_sources=["import cookbook"]
+        cells=scanning.as_cells(["import cookbook"])
     )
 
     repo_map = analyze.RepoEnvironmentMap(str(tmp_path))
