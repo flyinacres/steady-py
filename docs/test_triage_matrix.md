@@ -54,6 +54,7 @@ Reading test status:
 | K2 | Unparseable cell drops its imports silently | Y |  | fixed | U | F1 | Expect imports found or a diagnostic naming the cell, never silence; a cell using syntax newer than the running interpreter (`lazy import`) gets a diagnostic naming both versions |
 | G1 | Guarded install line erases the cell's imports | Y |  | fixed | U | F1 |  |
 | G13 | `%%writefile` with leading blank lines scanned as code | Y |  | fixed | U | F1 |  |
+| G20 | Guarded import outweighs an unconditional one in the timeline | Y |  | fixed | U | F1 | Found by the 1.2 corpus diff: `try: import x / except: !pip install x` then `import x` was reported guarded once the guard cell parsed. Timeline and scan now share `scanning.guarded_modules` |
 | G15 | Live kernel reads transformed source; no install lines harvested | Y |  | fixed | L | F7 | One cell per form: `%pip`, `!pip`, `%%writefile`, `%conda`; file mode is each test's control. Existing tests patch the reader and can't catch this |
 | D1 | Live session counts `steady_py` as an import | Y |  | fixed | L | F7 | Also in file mode: a scan of a snapshotted notebook reports Cell 2's `import steady_py` as a platform module (tested at U), and a user's own `import steady_py` in either mode |
 | K13 | Deeply nested expression exceeds the import visitor's recursion limit | Y |  | fixed | U | F1 | A single-file run crashes with a traceback |

@@ -35,7 +35,6 @@ def build_unified_timeline(
 
     all_import_occs: List[ImportOccurrence] = []
     submodules_map: Dict[str, Set[str]] = {}
-    guarded_set: Set[str] = set()
 
     for cell_idx, cell in enumerate(scanning.as_cells(code_sources)):
         cell_imports = scanning.extract_import_occurrences_from_source(cell.source, cell_idx=cell_idx, cell=cell)
@@ -43,8 +42,7 @@ def build_unified_timeline(
             all_import_occs.append(imp)
             if imp.full_name and '.' in imp.full_name:
                 submodules_map.setdefault(imp.module, set()).add(imp.full_name)
-            if imp.is_guarded:
-                guarded_set.add(imp.module)
+    guarded_set = scanning.guarded_modules(all_import_occs)
 
     timeline_events: List[Tuple[Tuple[int, int], str, str]] = []
     seen_packages: Set[str] = set()

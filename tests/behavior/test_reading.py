@@ -63,6 +63,14 @@ def test_guarded_install_line_keeps_the_cells_imports(tmp_path):
     assert "packaging" in outcome.pins()
 
 
+@finding("G20")
+def test_an_unconditional_import_outweighs_an_earlier_guarded_one(tmp_path):
+    guarded = code("try:\n    import packaging\nexcept ImportError:\n    %pip install packaging")
+    outcome = run("scan", Notebook(guarded, code("import packaging")).write(tmp_path))
+    assert outcome.exit_code in (0, 1), outcome.log
+    assert outcome.dependency("packaging")["status"] != "guarded"
+
+
 @pytest.mark.parametrize("source", [
     pytest.param("%%writefile train.py\nimport torch", id="first-line"),
     pytest.param("\n\n%%writefile train.py\nimport torch", id="after-blank-lines",

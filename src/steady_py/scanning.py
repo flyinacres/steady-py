@@ -189,6 +189,13 @@ def extract_from_active_session() -> ExtractionResult:
 # AST VISITOR & DYNAMIC IMPORT PARSER
 # =====================================================================
 
+def guarded_modules(occurrences: Sequence[ImportOccurrence]) -> Set[str]:
+    """Modules imported only under a guard. One unconditional import anywhere makes a module
+    unconditional: `try: import x / except: !pip install x` followed by `import x` needs x (G20)."""
+    unconditional = {o.module for o in occurrences if not o.is_guarded}
+    return {o.module for o in occurrences if o.is_guarded} - unconditional
+
+
 class NotebookImportVisitor(ast.NodeVisitor):
     """AST visitor traversing Python code to record imports, guarded states, and dynamic calls in order."""
     def __init__(self, cell_idx: int = 0, cell: Optional[Cell] = None) -> None:
@@ -197,8 +204,6 @@ class NotebookImportVisitor(ast.NodeVisitor):
         self.imports: List[str] = []
         self.writefile_imports: List[str] = []
         self.submodules: Dict[str, Set[str]] = {}
-        self.unconditional_imports: Set[str] = set()
-        self.raw_guarded_imports: Set[str] = set()
         self.diagnostics: List[DiagnosticEvent] = []
         self.occurrences: List[ImportOccurrence] = []
         self._guarded_depth: int = 0
@@ -209,7 +214,7 @@ class NotebookImportVisitor(ast.NodeVisitor):
 
     @property
     def guarded_imports(self) -> Set[str]:
-        return self.raw_guarded_imports - self.unconditional_imports
+        return guarded_modules(self.occurrences)
 
     def _record_import(self, base_pkg: str, full_name: Optional[str] = None, lineno: int = 1) -> None:
         if base_pkg == TOOL_IMPORT_NAME:
@@ -224,10 +229,6 @@ class NotebookImportVisitor(ast.NodeVisitor):
             self.imports.append(base_pkg)
 
         is_guarded = self._guarded_depth > 0
-        if is_guarded:
-            self.raw_guarded_imports.add(base_pkg)
-        else:
-            self.unconditional_imports.add(base_pkg)
 
         if full_name and '.' in full_name:
             self.submodules.setdefault(base_pkg, set()).add(full_name)
