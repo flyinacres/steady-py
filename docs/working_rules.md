@@ -18,7 +18,7 @@ How work on steady-py is done. Product rules (what the tool does for users) live
 
 1. Verify claims against the code and by running it. Don't describe a mechanism that hasn't been checked.
 2. Probe current behavior before planning a change or a test.
-3. Changes to install-line harvesting are checked with a before/after run of `corpus_install_scan.py` over the corpus, since unit tests cover only the cases someone thought of. Ron runs corpus scans; ask for a run directly.
+3. Changes to what steady-py reports (parsing, harvesting, guards, resolution) are checked with a before/after `steady-py scan corpus_sample --format json`, compared with `tools/scan_diff.py`; every difference is explained before the step closes, since unit tests cover only the cases someone thought of. `tools/corpus_install_scan.py` is an independent counter over the full corpus, run only when a decision needs a frequency, not as the before/after check. Ron runs corpus scans; ask for a run directly.
 4. A change to a source of truth (for example, installed-state capture) runs the old and new methods side by side and reports every disagreement before the new one replaces the old.
 5. When an approach stops paying off, say so and propose another path instead of grinding. Flag effort-to-impact problems and let Ron decide.
 
