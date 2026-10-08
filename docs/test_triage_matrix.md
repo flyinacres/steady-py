@@ -177,7 +177,7 @@ Reading test status:
 
 ## Design gaps (no tests yet)
 
-All N, blocked on feature design. DG5 is under Environment capture.
+All N, blocked on feature design, except DG8. DG5 is under Environment capture.
 
 | ID | Finding | Settled | Status | Step | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -187,7 +187,7 @@ All N, blocked on feature design. DG5 is under Environment capture.
 | DG4 | Guard status in the manifest | N | not planned | 3 | |
 | DG6 | Build-tag runtime policy | N | not planned | pf1 | Decision 4 |
 | DG7 | Creator install lines undoing Cell 2 | N | not planned | 4 | |
-| DG8 | Offline `/kaggle/input` wheel installs | N | not planned | 4 | Decision 11, needed before step 1.4 |
+| DG8 | Offline `/kaggle/input` wheel installs | Y |  | 1.4 | Decision 11; the notice needs 1.4's parsed path targets |
 | D7 | Live-session recipe is clunky | N | not planned | 4 | The round trip runs there |
 
 ## Deferred
@@ -218,4 +218,4 @@ Foundations and infrastructure:
 8. The exit code for a heuristic finding classified `not_checked_at_generation`. Today it exits 1 (only `known` heuristics are exempt), and the characterization tests pin that; the comment in LV1's test says a newly visible finding on an old notebook must not start exiting 1. If the comment is the rule, this is a finding and the characterization test flips with the fix.
 9. Manifest schema compatibility (CH1): whether a reader tolerates unknown fields, and what a missing field means.
 10. Classify CH2. CH3 is decided: `name @ url` is stored as written.
-11. Offline `/kaggle/input/...whl` installs (DG8): pin the installed version, keep the path as a raw install, or report the notebook as needing the attached dataset.
+11. Offline `/kaggle/input/...whl` installs (DG8). Decided: handled as any local path install, with no version recorded from the wheel. For a `/kaggle/input/<dataset>/...` path, the notice names the dataset and says the notebook needs it attached as an input and fails outside Kaggle.
