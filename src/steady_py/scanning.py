@@ -10,8 +10,8 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 from IPython.core.inputtransformer2 import TransformerManager
 from packaging.version import InvalidVersion, Version
 
-from steady_py.constants import PYTHON_CELL_MAGICS, SHELL_CELL_MAGICS, TOOL_IMPORT_NAME, StatusLabel
-from steady_py.models import Cell, DiagnosticEvent, ExtractionResult, ImportOccurrence
+from steady_py.constants import PYTHON_CELL_MAGICS, SHELL_CELL_MAGICS, TOOL_IMPORT_NAME, GuardKind, StatusLabel
+from steady_py.models import Cell, DiagnosticEvent, ExtractionResult, Guard, ImportOccurrence
 
 CellsLike = Sequence[Union[str, Cell]]
 
@@ -196,17 +196,80 @@ def guarded_modules(occurrences: Sequence[ImportOccurrence]) -> Set[str]:
     return {o.module for o in occurrences if o.is_guarded} - unconditional
 
 
-class NotebookImportVisitor(ast.NodeVisitor):
+def guard_group(cell: Optional[Cell], line: int) -> str:
+    """A guard's identity: its cell (notebook position, or In [n] in a live session) and 1-based line."""
+    where = cell.position if cell and cell.position is not None else f"In{cell.execution_count if cell else ''}"
+    return f"{where}:{line}"
+
+
+class GuardTracker(ast.NodeVisitor):
+    """The one rule for what a statement runs under: `guards` holds the enclosing if/elif/else,
+    try/except and function-body clauses, outermost first, while the walk is inside them.
+
+    Install lines count every enclosing guard, function bodies included (G9: a call site isn't
+    traced). Imports don't count function bodies, since a helper's import is needed whenever it's
+    called."""
+    def __init__(self, cell: Optional[Cell] = None) -> None:
+        self.cell: Optional[Cell] = cell
+        self.guards: List[Guard] = []
+
+    def _group(self, node: ast.stmt) -> str:
+        return guard_group(self.cell, node.lineno)
+
+    def _under(self, guard: Guard, body: Sequence[ast.AST]) -> None:
+        self.guards.append(guard)
+        try:
+            for child in body:
+                self.visit(child)
+        finally:
+            self.guards.pop()
+
+    def visit_If(self, node: ast.If) -> None:
+        self._visit_if(node, self._group(node), 0)
+
+    def _visit_if(self, node: ast.If, group: str, branch: int) -> None:
+        self.visit(node.test)
+        self._under(Guard(GuardKind.IF, ast.unparse(node.test), group, branch), node.body)
+        if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):
+            self._visit_if(node.orelse[0], group, branch + 1)  # elif
+        elif node.orelse:
+            self._under(Guard(GuardKind.IF, "", group, branch + 1), node.orelse)
+
+    def visit_Try(self, node: ast.Try) -> None:
+        self._visit_try(node)
+
+    def visit_TryStar(self, node: ast.AST) -> None:  # Python 3.11+
+        self._visit_try(node)
+
+    def _visit_try(self, node: Any) -> None:
+        group = self._group(node)
+        self._under(Guard(GuardKind.TRY, "", group, 0), [*node.body, *node.orelse, *node.finalbody])
+        for i, handler in enumerate(node.handlers, start=1):
+            condition = ast.unparse(handler.type) if handler.type else ""
+            self._under(Guard(GuardKind.EXCEPT, condition, group, i), handler.body)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_function(node)
+
+    def _visit_function(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> None:
+        for child in (*node.decorator_list, node.args):
+            self.visit(child)
+        self._under(Guard(GuardKind.FUNCTION, node.name, self._group(node), 0), node.body)
+
+
+class NotebookImportVisitor(GuardTracker):
     """AST visitor traversing Python code to record imports, guarded states, and dynamic calls in order."""
     def __init__(self, cell_idx: int = 0, cell: Optional[Cell] = None) -> None:
+        super().__init__(cell)
         self.cell_idx: int = cell_idx  # processing rank, for ordering
-        self.cell: Optional[Cell] = cell
         self.imports: List[str] = []
         self.writefile_imports: List[str] = []
         self.submodules: Dict[str, Set[str]] = {}
         self.diagnostics: List[DiagnosticEvent] = []
         self.occurrences: List[ImportOccurrence] = []
-        self._guarded_depth: int = 0
         self._in_writefile: bool = False
 
         self._importlib_aliases: Set[str] = {"importlib"}
@@ -228,7 +291,7 @@ class NotebookImportVisitor(ast.NodeVisitor):
         if base_pkg not in self.imports:
             self.imports.append(base_pkg)
 
-        is_guarded = self._guarded_depth > 0
+        is_guarded = any(g.kind != GuardKind.FUNCTION for g in self.guards)
 
         if full_name and '.' in full_name:
             self.submodules.setdefault(base_pkg, set()).add(full_name)
@@ -243,16 +306,6 @@ class NotebookImportVisitor(ast.NodeVisitor):
                 cell=self.cell,
             )
         )
-
-    def visit_Try(self, node: ast.Try) -> None:
-        self._guarded_depth += 1
-        self.generic_visit(node)
-        self._guarded_depth -= 1
-
-    def visit_If(self, node: ast.If) -> None:
-        self._guarded_depth += 1
-        self.generic_visit(node)
-        self._guarded_depth -= 1
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -317,10 +370,14 @@ class ParsedCell:
     `kind` is PYTHON, WRITEFILE, SHELL_SCRIPT or OTHER_MAGIC (a cell magic whose body isn't Python).
     `tree` has line numbers on the cell's own lines (1-based). It is None when there is nothing to
     analyze or the cell couldn't be parsed; `diagnostic` then says why, if the user should know.
+    For a cell magic whose body isn't Python, `text` is the raw body and `first_line` the 0-based
+    cell line it starts on.
     """
     kind: str
     tree: Optional[ast.Module] = None
     diagnostic: Optional[DiagnosticEvent] = None
+    text: str = ""
+    first_line: int = 0
 
 
 def _leading_blank_lines(text: str) -> int:
@@ -406,7 +463,7 @@ def _parse(source: str, offset: int, cell: Cell, notebook_python: Optional[str])
     if kind == "PYTHON_MAGIC":
         return _parse(text, offset + line, cell, notebook_python)
     if kind not in {"PYTHON", "WRITEFILE"}:
-        return ParsedCell(kind)
+        return ParsedCell(kind, text=text, first_line=offset + line)
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=SyntaxWarning)
@@ -434,7 +491,7 @@ def visit_cell(visitor: "NotebookImportVisitor", parsed: ParsedCell) -> Optional
     try:
         visitor.visit(parsed.tree)
     except RecursionError:
-        visitor._guarded_depth = 0
+        visitor.guards.clear()
         return _too_deep(visitor.cell)
     finally:
         visitor._in_writefile = False

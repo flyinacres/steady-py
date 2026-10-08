@@ -40,6 +40,8 @@ FORMS = {
                   lambda o, v: (o.dependency("resolvelib") or {}).get("flags") == ["--index-url", "https://idx.test/simple"]),
     "shell-pip": ("!pip install resolvelib=={v}", lambda o, v: o.pins().get("resolvelib") == v),
     "conda-magic": ("%conda install numpy", lambda o, v: o.notices(type="conda_command")),
+    "guarded": ("if False:\n    %pip install resolvelib=={v}",
+                lambda o, v: "resolvelib" not in o.pins() and o.warnings(type="guarded_install")),
     "writefile": ("%%writefile train.py\nimport resolvelib",
                   lambda o, v: (o.dependency("resolvelib") or {}).get("status") == "writefile_script"),
 }

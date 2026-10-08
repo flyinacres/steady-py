@@ -1,12 +1,13 @@
 """Cell magics and shell commands: pip, conda and system-package installs, index URLs, scoped pip
 flags, and the auxiliary tools a notebook installs without importing."""
+import ast
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
 from steady_py import scanning, util
-from steady_py.constants import SHELL_CELL_MAGICS
-from steady_py.models import Cell, DiagnosticEvent, HarvestResult, InstallLine, PipInstallOccurrence
+from steady_py.constants import SHELL_CELL_MAGICS, GuardKind, Invocation
+from steady_py.models import Cell, DiagnosticEvent, Guard, HarvestResult, InstallLine, PipInstallOccurrence
 
 
 PIP_SINGLE_FLAGS: Set[str] = {
@@ -57,25 +58,98 @@ def _install_tool(seg: str) -> Optional[str]:
     return None
 
 
+SHELL_JOIN = re.compile(r"&&|\|\|")
+SHELL_BLOCK_OPEN = re.compile(r"^\s*(if|case|for|while|until)\b")
+SHELL_BLOCK_CLOSE = re.compile(r"^\s*(fi|esac|done)\b")
+INSTALL_MAGICS = {"pip", "conda"}
+
+
+def _record(command: str, prefix: str, invocation: str, cell: Cell, cell_idx: int, line_idx: int,
+            guard: Optional[Guard], found: _Harvest) -> None:
+    """Records each install segment of one command. Shell-joined (`&&`, `||`) segments count as
+    guarded (fix_plan.md, section 4, item 3); a guarded pip line contributes no pins (G3)."""
+    if guard is None and invocation != Invocation.LINE_MAGIC and SHELL_JOIN.search(command):
+        guard = Guard(GuardKind.SHELL_JOINED, command.strip(), scanning.guard_group(cell, line_idx + 1))
+    for i, segment in enumerate(SHELL_SPLIT_PATTERN.split(command.strip())):
+        seg = (prefix if i == 0 else "") + segment.strip()
+        tool = _install_tool(seg)
+        if tool is None:
+            continue
+        found.install_lines.append(InstallLine(text=seg, tool=tool, cell=cell, line_idx=line_idx,
+                                               invocation=invocation, guard=guard))
+        pip_match = PIP_INSTALL_PATTERN.match(seg)
+        if tool == "pip" and pip_match and guard is None:
+            _parse_pip_args(pip_match.group(1), cell_idx, cell, line_idx, found)
+
+
+class _InstallCallVisitor(scanning.GuardTracker):
+    """Install commands as IPython's transform writes them (`%pip` becomes
+    `get_ipython().run_line_magic('pip', ...)`, `!cmd` becomes `get_ipython().system(...)`), each
+    under the innermost enclosing guard."""
+    def __init__(self, cell: Cell, cell_idx: int, found: _Harvest) -> None:
+        super().__init__(cell)
+        self.source_cell, self.cell_idx, self.found = cell, cell_idx, found
+        self.raw_lines = cell.source.splitlines()
+
+    def visit_Call(self, node: ast.Call) -> None:
+        func = node.func
+        if (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Call)
+                and isinstance(func.value.func, ast.Name) and func.value.func.id == "get_ipython"):
+            args = [a.value if isinstance(a, ast.Constant) and isinstance(a.value, str) else None for a in node.args]
+            line_idx = node.lineno - 1
+            guard = self.guards[-1] if self.guards else None
+            if func.attr == "run_line_magic" and len(args) == 2 and args[0] in INSTALL_MAGICS and args[1] is not None:
+                _record(f"{args[0]} {args[1]}", "%", Invocation.LINE_MAGIC, self.source_cell, self.cell_idx, line_idx, guard, self.found)
+            elif func.attr in {"system", "getoutput"} and len(args) == 1 and args[0] is not None:
+                raw = self.raw_lines[line_idx] if line_idx < len(self.raw_lines) else ""
+                written = Invocation.PYTHON_CALL if "get_ipython()" in raw else Invocation.SHELL_ESCAPE
+                _record(args[0], "" if written == Invocation.PYTHON_CALL else "!", written,
+                        self.source_cell, self.cell_idx, line_idx, guard, self.found)
+        self.generic_visit(node)
+
+
+def _harvest_shell_body(text: str, first_line: int, cell: Cell, cell_idx: int, found: _Harvest) -> None:
+    """A `%%bash`/`%%sh` body: lines inside a shell `if` or `case` block are guarded."""
+    blocks: List[Tuple[str, int, str]] = []  # (keyword, line_idx, opening line)
+    for line_idx, line in enumerate(text.splitlines(), start=first_line):
+        clean_line = line.strip()
+        if SHELL_BLOCK_CLOSE.match(clean_line) and blocks:
+            blocks.pop()
+        opening = SHELL_BLOCK_OPEN.match(clean_line)
+        if opening:
+            blocks.append((opening.group(1), line_idx, clean_line))
+        if not clean_line or clean_line.startswith('#') or opening:
+            continue
+        conditional = [b for b in blocks if b[0] in {"if", "case"}]
+        guard = (Guard(GuardKind.SHELL_CONDITIONAL, conditional[-1][2], scanning.guard_group(cell, conditional[-1][1] + 1))
+                 if conditional else None)
+        _record(clean_line, "", Invocation.SHELL_CELL, cell, cell_idx, line_idx, guard, found)
+
+
+def _harvest_raw_lines(source: str, cell: Cell, cell_idx: int, found: _Harvest) -> None:
+    """A cell that couldn't be parsed (already reported as unparseable_cell): line by line, with no
+    Python guard information."""
+    for line_idx, line in enumerate(source.splitlines()):
+        clean_line = line.strip()
+        if not clean_line or clean_line.startswith('#') or clean_line in SHELL_CELL_MAGICS:
+            continue
+        _record(clean_line, "", Invocation.SHELL_ESCAPE if clean_line.startswith("!") else Invocation.LINE_MAGIC,
+                cell, cell_idx, line_idx, None, found)
+
+
 def _harvest(code_sources: scanning.CellsLike) -> _Harvest:
     found = _Harvest()
     for cell_idx, cell in enumerate(scanning.as_cells(code_sources)):
-        cell_type, clean_body, first_line = scanning.classify_cell_source(cell.source)
-        if cell_type == "WRITEFILE":
-            continue
-        for line_idx, line in enumerate(clean_body.splitlines(), start=first_line):
-            clean_line = line.strip()
-            if not clean_line or clean_line.startswith('#') or clean_line in SHELL_CELL_MAGICS:
-                continue
-            for segment in SHELL_SPLIT_PATTERN.split(clean_line):
-                seg = segment.strip()
-                tool = _install_tool(seg)
-                if tool is None:
-                    continue
-                found.install_lines.append(InstallLine(text=seg, tool=tool, cell=cell, line_idx=line_idx))
-                pip_match = PIP_INSTALL_PATTERN.match(seg)
-                if tool == "pip" and pip_match:
-                    _parse_pip_args(pip_match.group(1), cell_idx, cell, line_idx, found)
+        parsed = scanning.parse_cell(cell)
+        if parsed.kind == "SHELL_SCRIPT":
+            _harvest_shell_body(parsed.text, parsed.first_line, cell, cell_idx, found)
+        elif parsed.kind == "PYTHON" and parsed.tree is not None:
+            try:
+                _InstallCallVisitor(cell, cell_idx, found).visit(parsed.tree)
+            except RecursionError:
+                pass  # reported by the import scan as cell_too_deep (K13); installs found so far are kept
+        elif parsed.kind == "PYTHON":
+            _harvest_raw_lines(cell.source, cell, cell_idx, found)
     return found
 
 
@@ -142,7 +216,8 @@ def _parse_pip_args(args_str: str, cell_idx: int, cell: Cell, line_idx: int, fou
 
 def harvest_pip_install_occurrences(code_sources: scanning.CellsLike) -> Tuple[List[PipInstallOccurrence], List[str]]:
     """
-    Structured PipInstallOccurrence records for every pip install, skipping %%writefile cells.
+    Structured PipInstallOccurrence records for every unguarded pip install (G3), skipping %%writefile
+    cells and cell magics whose body is neither Python nor shell.
 
     Also returns raw_installs: the exact original text of any token that's a
     VCS/URL/local-path install (git+, http(s)://, ./path, etc). These can't be
@@ -213,6 +288,22 @@ def harvest_index_urls_from_sources(code_sources: scanning.CellsLike) -> Set[str
     return h_res.base_index_urls.union(h_res.extra_index_urls)
 
 
+def _guard_where(guard: Guard) -> str:
+    if guard.kind == GuardKind.IF:
+        if not guard.condition:
+            return "in an `else` branch"
+        return f"inside `{'if' if guard.branch == 0 else 'elif'} {guard.condition}`"
+    if guard.kind == GuardKind.EXCEPT:
+        return f"inside `except {guard.condition}`" if guard.condition else "inside an `except` block"
+    if guard.kind == GuardKind.TRY:
+        return "inside a `try` block"
+    if guard.kind == GuardKind.FUNCTION:
+        return f"inside function `{guard.condition}`, so only when it's called"
+    if guard.kind == GuardKind.SHELL_JOINED:
+        return "as part of a shell `&&`/`||` chain"
+    return f"inside the shell block `{guard.condition}`"
+
+
 def harvest_cell_magics_and_commands(
     code_sources: scanning.CellsLike
 ) -> HarvestResult:
@@ -253,6 +344,12 @@ def harvest_cell_magics_and_commands(
             i += 2
 
     for line in found.install_lines:
+        if line.tool == "pip" and line.guard is not None:
+            magic_warnings.append(DiagnosticEvent.at(
+                line.cell, line.line_idx, "guarded_install",
+                f"'{line.text}' runs only {_guard_where(line.guard)}, so the setup cell doesn't install "
+                f"its packages. The line stays in your notebook and runs there as before.",
+            ))
         if line.tool == "system":
             magic_notices.append(DiagnosticEvent.at(
                 line.cell, line.line_idx, "system_command",

@@ -244,6 +244,13 @@ def scan_notebook(nb, cells, rows, meta=None):
         body = "\n".join(lines)
         raw_src = "".join(src) if isinstance(src, list) else src
         first = raw_src.lstrip().split("\n", 1)[0].strip()
+        raw_lines = raw_src.splitlines()  # K14: a continued magic line shifts every later line in the cell
+        continued = [i for i, l in enumerate(raw_lines) if re.match(r"\s*[%!]", l) and l.rstrip().endswith("\\")]
+        if continued:
+            stats["k14:continued_magic_lines"] += len(continued)
+            stats["k14:continued_install_lines"] += sum("install" in raw_lines[i] for i in continued)
+            if any(l.strip() for l in raw_lines[continued[-1] + 2:]):
+                stats["k14:cells_shifted"] += 1; example("k14:cells_shifted", nb, ci)
         if first.startswith("%%"):
             stats[f"cell_magic:{first[2:].split()[0] if first[2:].split() else ''}"] += 1
         else:

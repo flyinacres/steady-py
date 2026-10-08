@@ -65,10 +65,10 @@ Reading test status:
 
 | ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| G3 | Guarded install treated as top-level | Y |  | 1.3 | U | F1 | Per the guarded-installs decision: not pinned unconditionally, reported |
-| G6 | Exclusive branches collapse to the last pin | Y |  | 1.3 | U | F1 | Follows G3; one test file |
+| G3 | Guarded install treated as top-level | Y |  | fixed | U | F1 | Not pinned, a `guarded_install` warning per line; Python and shell guards per fix_plan.md §3.1 item 6 |
+| G6 | Exclusive branches collapse to the last pin | Y |  | fixed | U | F1 | Guarded branches never reach last-wins; their install lines share a guard group with distinct branch indexes |
 | G4 | `%pip install $pkg` becomes package `$pkg` | Y |  | 1.4 | U | F1 | Warning, no package |
-| G5 | Missed install forms | Y |  | 1.4 | U | F1 | Parametrize: `python -m pip`, `{sys.executable} -m pip`, `os.system`, `subprocess` list, `get_ipython().system`, `%uv pip`, `conda run pip` |
+| G5 | Missed install forms | Y |  | 1.4 | U | F1 | Parametrize: `python -m pip`, `{sys.executable} -m pip`, `os.system`, `subprocess` list, `%uv pip`, `conda run pip`. `get_ipython().system` was fixed in 1.3 with its own test |
 | G11 | `--opt=value` flags dropped | Y |  | 1.4 | U | F1 |  |
 | G12 | PEP 508 direct reference split into three entries | Y |  | 1.4 | U | F1 | Unquoted form flagged |
 | G14 | `--no-deps` and raw-install index flags dropped | Y |  | 1.4 | U | F1 | Assert on manifest fields |
@@ -79,7 +79,7 @@ Reading test status:
 | G2 | Pip/import name mismatch drops guard; paddle double entry | P |  | 2.2 | V | F4 | Single entry settled; unconditional install vs guarded import precedence, python-dotenv does not double; only paddle doeopen |
 | G7 | Non-literal dynamic imports: generic warning | N | not planned | out |  |  | Behavior undefined |
 | G8 | Guard tagging coarse | N | not planned | out |  |  | No agreed guard classes |
-| G9 | Wrapper helper loses guard | N | not planned | 1.3 |  |  | Follows the AST change |
+| G9 | Wrapper helper loses guard | Y |  | fixed | U | F1 | An install line in a function body is guarded; call sites aren't traced |
 | G17 | Non-canonical install name listed twice, plus a nameless header entry | Y |  | 1.4 | U | F1 | D5 is its directory-scan symptom; also the nameless `%%writefile` header entry |
 | G18 | Trailing comment on an install line harvested as packages | Y | deferred | 1.4 | U | F1 |  |
 | G19 | Combined short flags (`-qr file`) hide `-r` | Y | deferred | 1.4 | U | F1 |  |

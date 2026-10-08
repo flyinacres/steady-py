@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 from packaging.version import InvalidVersion, Version
 
-from steady_py.constants import MANIFEST_SCHEMA_VERSION, TOOL_VERSION, DependencyStatus, Signal
+from steady_py.constants import MANIFEST_SCHEMA_VERSION, TOOL_VERSION, DependencyStatus, Invocation, Signal
 
 
 @dataclass(frozen=True)
@@ -137,23 +137,45 @@ class ImportOccurrence:
     cell: Optional[Cell] = None
 
 
+@dataclass(frozen=True)
+class Guard:
+    """The innermost condition an install line or import runs under (fix_plan.md, section 3.1, item 6).
+
+    `kind` is if, try, except or function (Python), or shell_joined or shell_conditional. `condition`
+    is the if or elif test, the except clause's exception type, the function name, or the shell text.
+    `group` identifies one if/elif/else chain or try statement; `branch` is the clause's index in it,
+    so lines in one group with different branches are mutually exclusive.
+    """
+    kind: str
+    condition: str
+    group: str
+    branch: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"kind": self.kind, "condition": self.condition, "group": self.group, "branch": self.branch}
+
+
 @dataclass
 class InstallLine:
     """One package-install command as written in a notebook (fix_plan.md, section 3.1).
 
-    `tool` is pip, conda or system. Invocation, guard, targets and options are added as the
-    install-line pipeline takes over parsing.
+    `tool` is pip, conda or system. `invocation` is line_magic, shell_escape, shell_cell or
+    python_call. Targets and options are added as the install-line pipeline takes over parsing.
     """
     text: str
     tool: str
     cell: Cell
     line_idx: int
     notebook: Optional[str] = None
+    invocation: str = Invocation.SHELL_ESCAPE
+    guard: Optional[Guard] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "text": self.text,
             "tool": self.tool,
+            "invocation": self.invocation,
+            "guard": self.guard.to_dict() if self.guard else None,
             "notebook": self.notebook,
             "cell_idx": self.cell.position,
             "line_idx": self.line_idx,

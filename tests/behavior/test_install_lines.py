@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from packaging.utils import canonicalize_name
 
-from tests.support.markers import known_bug
+from tests.support.markers import finding, known_bug
 from tests.support.notebooks import Notebook, code
 from tests.support.outcomes import manifest
 from tests.support.runner import run, run_in
@@ -31,16 +31,48 @@ def test_variable_install_line_is_a_warning_not_a_package(tmp_path, line):
 
 
 # Guarded installs stay in the creator's code: Cell 2 can't know which branch applies.
-@pytest.mark.parametrize("cell", [
-    pytest.param("if IN_COLAB:\n    %pip install packaging",
-                 marks=known_bug("G3", "a guarded install line is pinned as if unconditional"), id="one-branch"),
-    pytest.param(f"if IN_COLAB:\n    %pip install packaging=={version('packaging')}\nelse:\n    %pip install packaging==1.0",
-                 marks=known_bug("G6", "exclusive branches collapse to the last pin"), id="two-branches"),
-])
-def test_guarded_install_is_reported_not_pinned(tmp_path, cell):
+GUARDED = {
+    "if": ("if IN_COLAB:\n    %pip install packaging", 1),
+    "if-else": (f"if IN_COLAB:\n    %pip install packaging=={version('packaging')}\nelse:\n    %pip install packaging==1.0", 2),
+    "except-importerror": ("try:\n    import packaging\nexcept ImportError:\n    !pip install packaging", 1),
+    "function-body": ("def setup():\n    !pip install packaging\nsetup()", 1),  # G9: call sites aren't traced
+    "shell-joined": ("!test -d /content && pip install packaging", 1),
+    "shell-if-block": ("%%bash\nif [ -d /content ]; then\n  pip install packaging\nfi", 1),
+}
+
+
+@finding("G3")
+@pytest.mark.parametrize("form", GUARDED)
+def test_guarded_install_is_reported_not_pinned(tmp_path, form):
+    cell, lines = GUARDED[form]
     outcome = _scan(tmp_path, "IN_COLAB = False", cell)
     assert "packaging" not in outcome.pins()
-    assert outcome.warnings()
+    assert len(outcome.warnings(type="guarded_install")) == lines
+
+
+@finding("G3")
+def test_unconditional_install_beside_a_guarded_one_is_pinned(tmp_path):
+    outcome = _scan(tmp_path, "if IN_COLAB:\n    %pip install packaging==1.0", f"%pip install packaging=={version('packaging')}")
+    assert outcome.pins().get("packaging") == version("packaging")
+    assert len(outcome.warnings(type="guarded_install")) == 1
+
+
+@finding("G3")
+def test_guarded_install_of_an_imported_package_pins_the_installed_version(tmp_path):
+    outcome = _scan(tmp_path, "if IN_COLAB:\n    %pip install packaging==1.0", "import packaging")
+    assert outcome.pins().get("packaging") == version("packaging")
+
+
+@finding("G6")
+def test_exclusive_branches_share_a_guard_group(tmp_path):
+    guards = [line["guard"] for line in _scan(tmp_path, GUARDED["if-else"][0]).install_lines()]
+    assert [g["kind"] for g in guards] == ["if", "if"]
+    assert guards[0]["group"] == guards[1]["group"] and [g["branch"] for g in guards] == [0, 1]
+
+
+@finding("G5")
+def test_literal_get_ipython_system_call_is_harvested(tmp_path):
+    assert "packaging" in _scan(tmp_path, "get_ipython().system('pip install packaging')").pins()
 
 
 @known_bug("G5", "install forms other than %pip, !pip and bare pip are not harvested")
@@ -49,7 +81,6 @@ def test_guarded_install_is_reported_not_pinned(tmp_path, cell):
     pytest.param("import sys\n!{sys.executable} -m pip install packaging", id="sys-executable"),
     pytest.param("import os\nos.system('pip install packaging')", id="os-system"),
     pytest.param("import subprocess\nsubprocess.run(['pip', 'install', 'packaging'])", id="subprocess-list"),
-    pytest.param("get_ipython().system('pip install packaging')", id="get-ipython-system"),
     pytest.param("%uv pip install packaging", id="uv-pip"),
     pytest.param("!conda run -n base pip install packaging", id="conda-run-pip"),
 ])

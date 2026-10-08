@@ -107,6 +107,24 @@ class ReportKind:
     VALIDATION = "validation"
 
 
+class GuardKind:
+    """Guard.kind values."""
+    IF = "if"
+    TRY = "try"
+    EXCEPT = "except"
+    FUNCTION = "function"
+    SHELL_JOINED = "shell_joined"
+    SHELL_CONDITIONAL = "shell_conditional"
+
+
+class Invocation:
+    """InstallLine.invocation values."""
+    LINE_MAGIC = "line_magic"
+    SHELL_ESCAPE = "shell_escape"
+    SHELL_CELL = "shell_cell"
+    PYTHON_CALL = "python_call"
+
+
 IMPORT_TO_PYPI_MAP: Dict[str, str] = {
     "cv2": "opencv-python",
     "sklearn": "scikit-learn",
