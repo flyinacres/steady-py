@@ -305,7 +305,7 @@ def _pip_install(words: List[str], tool: str) -> Optional[ParsedCommand]:
         else:
             raw.append(("", word))
     for canonical, value in raw:
-        if canonical == "--requirement":
+        if canonical in {"--requirement", "--requirements-from-script"}:
             parsed.targets.append(InstallTarget(TargetKind.REQUIREMENTS_FILE, value))
         elif canonical == "--constraint":
             parsed.targets.append(InstallTarget(TargetKind.CONSTRAINTS_FILE, value))

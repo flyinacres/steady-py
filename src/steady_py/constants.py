@@ -163,7 +163,8 @@ CARRIED_PIP_OPTIONS: Set[str] = {
 OTHER_ENVIRONMENT_PIP_OPTIONS: Set[str] = {"--target", "--prefix", "--root"}
 
 # pip install's own options, as optparse reads them: each spelling maps to (canonical long name,
-# takes a value). Taken from pip's install parser; a unit test keeps it in step with pip.
+# takes a value). Taken from pip 26.2's install parser; a unit test keeps it in step with the
+# installed pip, so a pip upgrade that adds options fails that test until they're added here.
 _PIP_OPTION_GROUPS: List[Tuple[Tuple[str, ...], bool]] = [
     (("--requirement", "-r"), True), (("--constraint", "-c"), True), (("--editable", "-e"), True),
     (("--target", "-t"), True), (("--platform",), True), (("--python-version",), True),
@@ -176,7 +177,10 @@ _PIP_OPTION_GROUPS: List[Tuple[Tuple[str, ...], bool]] = [
     (("--keyring-provider",), True), (("--proxy",), True), (("--retries",), True),
     (("--timeout", "--default-timeout"), True), (("--exists-action",), True), (("--trusted-host",), True),
     (("--cert",), True), (("--client-cert",), True), (("--cache-dir",), True), (("--use-feature",), True),
-    (("--use-deprecated",), True), (("--group",), True),
+    (("--use-deprecated",), True), (("--group",), True), (("--build-constraint",), True),
+    (("--requirements-from-script",), True), (("--all-releases",), True), (("--only-final",), True),
+    (("--refresh-package",), True), (("--uploaded-prior-to",), True), (("--resume-retries",), True),
+    (("--only-deps", "--only-dependencies"), False), (("--no-require-hashes",), False), (("--no-proxy-env",), False),
     (("--no-deps", "--no-dependencies"), False), (("--pre",), False), (("--dry-run",), False),
     (("--user",), False), (("--no-user",), False), (("--upgrade", "-U"), False), (("--force-reinstall",), False),
     (("--ignore-installed", "-I"), False), (("--ignore-requires-python",), False),
