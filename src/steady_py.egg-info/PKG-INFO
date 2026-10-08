@@ -7,6 +7,7 @@ Requires-Python: >=3.11
 Description-Content-Type: text/markdown
 Requires-Dist: packaging>=23
 Requires-Dist: resolvelib>=1.0
+Requires-Dist: ipython>=7.8
 
 # steady-py
 

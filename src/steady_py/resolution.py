@@ -95,6 +95,9 @@ def build_unified_timeline(
                         logger.debug(
                             f"[Timeline] Explicit notebook pin '{pkg_name}=={v_clean}' preferred over active host version '{host_ver}'."
                         )
+            if occ.extras and not dep_entry.is_comment:
+                base, _extra = installed.split_pin_name(dep_entry.name)
+                dep_entry.name = f"{base}[{','.join(occ.extras)}]"  # G16: the install line's extras, as written
             dep_entry.flags = list(occ.flags)
             dependencies.append(dep_entry)
             if promo and promo not in promotion_notices:
@@ -135,12 +138,6 @@ def build_auxiliary_tool_entries(
     if not unimported_tools:
         return aux_entries
 
-    aux_entries.append(DependencyEntry(
-        is_comment=True,
-        source="pip_command",
-        status=DependencyStatus.AUXILIARY_TOOL,
-        comment_text="\n# --- AUXILIARY TOOL INSTALLS (harvested from cell magics) ---"
-    ))
     for tool in unimported_tools:
         canon_tool = util.canonicalize_pkg_name(tool)
         matched_pin = frozen_env.get(canon_tool)
@@ -192,12 +189,6 @@ def build_writefile_tool_entries(
     if not script_only:
         return entries
 
-    entries.append(DependencyEntry(
-        is_comment=True,
-        source="writefile_script",
-        status=DependencyStatus.WRITEFILE_SCRIPT,
-        comment_text="\n# --- WRITEFILE SCRIPT DEPENDENCIES ---"
-    ))
     for pkg in script_only:
         pypi_name = IMPORT_TO_PYPI_MAP.get(pkg, pkg)
         canon_pypi = util.canonicalize_pkg_name(pypi_name)

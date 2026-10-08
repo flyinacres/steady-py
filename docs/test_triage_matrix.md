@@ -67,23 +67,23 @@ Reading test status:
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | G3 | Guarded install treated as top-level | Y |  | fixed | U | F1 | Not pinned, a `guarded_install` warning per line; Python and shell guards per fix_plan.md §3.1 item 6 |
 | G6 | Exclusive branches collapse to the last pin | Y |  | fixed | U | F1 | Guarded branches never reach last-wins; their install lines share a guard group with distinct branch indexes |
-| G4 | `%pip install $pkg` becomes package `$pkg` | Y |  | 1.4 | U | F1 | Warning, no package |
-| G5 | Missed install forms | Y |  | 1.4 | U | F1 | Parametrize: `python -m pip`, `{sys.executable} -m pip`, `os.system`, `subprocess` list, `%uv pip`, `conda run pip`. `get_ipython().system` was fixed in 1.3 with its own test |
-| G11 | `--opt=value` flags dropped | Y |  | 1.4 | U | F1 |  |
-| G12 | PEP 508 direct reference split into three entries | Y |  | 1.4 | U | F1 | Unquoted form flagged |
-| G14 | `--no-deps` and raw-install index flags dropped | Y |  | 1.4 | U | F1 | Assert on manifest fields |
-| G16 | Install line with extras produces an invalid pin | Y |  | 1.4 | V | F4, F3 | Pair with R1 |
-| P4 | `-e path` vanishes with no warning | Y |  | 1.4 | U | F1 |  |
-| C2 | mamba, micromamba, `conda env update` give no notice | Y |  | 1.4 | U | F1 | `--file` handled like `-r` |
-| D5 | Folder scan reports a package named `---` | Y |  | 1.4 | U | magic_sink |  |
+| G4 | `%pip install $pkg` becomes package `$pkg` | Y |  | fixed | U | F1 | Warning, no package |
+| G5 | Missed install forms | Y |  | fixed | U | F1 | Parametrize: `python -m pip`, `{sys.executable} -m pip`, `os.system`, `subprocess` list, `%uv pip`, `conda run pip`. `get_ipython().system` was fixed in 1.3 with its own test |
+| G11 | `--opt=value` flags dropped | Y |  | fixed | U | F1 |  |
+| G12 | PEP 508 direct reference split into three entries | Y |  | fixed | U | F1 | Unquoted form flagged |
+| G14 | `--no-deps` and raw-install index flags dropped | Y |  | fixed | U | F1 | Assert on manifest fields |
+| G16 | Install line with extras produces an invalid pin | Y |  | fixed | V | F4, F3 | Pair with R1 |
+| P4 | `-e path` vanishes with no warning | Y |  | fixed | U | F1 |  |
+| C2 | mamba, micromamba, `conda env update` give no notice | Y |  | fixed | U | F1 | `--file` handled like `-r` |
+| D5 | Folder scan reports a package named `---` | Y |  | fixed | U | magic_sink |  |
 | G2 | Pip/import name mismatch drops guard; paddle double entry | P |  | 2.2 | V | F4 | Single entry settled; unconditional install vs guarded import precedence, python-dotenv does not double; only paddle doeopen |
 | G7 | Non-literal dynamic imports: generic warning | N | not planned | out |  |  | Behavior undefined |
 | G8 | Guard tagging coarse | N | not planned | out |  |  | No agreed guard classes |
 | G9 | Wrapper helper loses guard | Y |  | fixed | U | F1 | An install line in a function body is guarded; call sites aren't traced |
-| G17 | Non-canonical install name listed twice, plus a nameless header entry | Y |  | 1.4 | U | F1 | D5 is its directory-scan symptom; also the nameless `%%writefile` header entry |
-| G18 | Trailing comment on an install line harvested as packages | Y | deferred | 1.4 | U | F1 |  |
-| G19 | Combined short flags (`-qr file`) hide `-r` | Y | deferred | 1.4 | U | F1 |  |
-| CH3 | PEP 508 `name @ url` stored as the bare URL | Y | deferred | 1.4 | U | F1 | Decided (decision 10): stored as written, `name @ url`; test alongside G12 |
+| G17 | Non-canonical install name listed twice, plus a nameless header entry | Y |  | fixed | U | F1 | D5 is its directory-scan symptom; also the nameless `%%writefile` header entry |
+| G18 | Trailing comment on an install line harvested as packages | Y |  | fixed | U | F1 |  |
+| G19 | Combined short flags (`-qr file`) hide `-r` | Y |  | fixed | U | F1 |  |
+| CH3 | PEP 508 `name @ url` stored as the bare URL | Y |  | fixed | U | F1 | Decided (decision 10): stored as written, `name @ url`; test alongside G12 |
 
 ## Environment capture
 
@@ -145,7 +145,7 @@ Reading test status:
 
 | ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| R1 | Extras pins never pass the installed check | Y |  | 1.4 | V | F5 | Written wheels |
+| R1 | Extras pins never pass the installed check | Y |  | fixed | V | F5 | Written wheels |
 | R2 | Pin that drifts after verification still counts | Y |  | pf1 | V | F5 | Installing B moves A |
 | R3 | String equality instead of PEP 440 | Y |  | pf1 | V | F5 | `demo-loc 1.0+cu126` installed, pin `==1.0` |
 | D6 | Troubleshooting advice drops the version | Y |  | pf1 | V | F5 | Failing wheel |
@@ -177,7 +177,7 @@ Reading test status:
 
 ## Design gaps (no tests yet)
 
-All N, blocked on feature design, except DG8. DG5 is under Environment capture.
+All N, blocked on feature design, except DG8, which is fixed. DG5 is under Environment capture.
 
 | ID | Finding | Settled | Status | Step | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -187,17 +187,15 @@ All N, blocked on feature design, except DG8. DG5 is under Environment capture.
 | DG4 | Guard status in the manifest | N | not planned | 3 | |
 | DG6 | Build-tag runtime policy | N | not planned | pf1 | Decision 4 |
 | DG7 | Creator install lines undoing Cell 2 | N | not planned | 4 | |
-| DG8 | Offline `/kaggle/input` wheel installs | Y |  | 1.4 | Decision 11; the notice needs 1.4's parsed path targets |
+| DG8 | Offline `/kaggle/input` wheel installs | Y |  | fixed | Decision 11 |
 | D7 | Live-session recipe is clunky | N | not planned | 4 | The round trip runs there |
 
 ## Deferred
 
 Rows:
 
-1. G18, G19 (U): install-line tokenizing. Written with step 1.4, so the tests and the parser change arrive together.
-2. ED1, ED2, ED4, ED6 (V): the editable and local-module join is rewritten in step 2.2. They need stub projects not yet in `tests/fixtures/projects/` (hatchling, pdm-backend, a legacy `setup.py develop`), and ED4 needs design §13.1 confirmed.
-3. ED5 (V): also needs F6.
-4. CH3 (U): written with step 1.4's argument parsing, alongside G12.
+1. ED1, ED2, ED4, ED6 (V): the editable and local-module join is rewritten in step 2.2. They need stub projects not yet in `tests/fixtures/projects/` (hatchling, pdm-backend, a legacy `setup.py develop`), and ED4 needs design §13.1 confirmed.
+2. ED5 (V): also needs F6.
 
 Foundations and infrastructure:
 

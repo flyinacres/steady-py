@@ -20,6 +20,7 @@ import types
 import pytest
 
 from steady_py import analyze, generate, installed, resolution, scanning
+from steady_py.models import RawInstall
 
 REMOTE_URL = "git+https://example.com/org/zzq-remote.git@0123456789abcdef"
 LOCAL_DIR = "/home/ron/src/zzq-local"
@@ -172,7 +173,7 @@ class TestGeneratedManifest:
             tmp_path, ["import zzqremote\n"], {"zzqremote"},
             {"zzq-remote": REMOTE_PIN}, {"zzqremote": ["zzq-remote"]},
         )
-        assert manifest.raw_installs == [REMOTE_URL]
+        assert [r.spec for r in manifest.raw_installs] == [REMOTE_URL]
         assert all("zzq-remote" not in d.name for d in manifest.dependencies)
 
     def test_notebooks_own_install_line_is_not_duplicated(self, tmp_path):
@@ -180,9 +181,9 @@ class TestGeneratedManifest:
         manifest, _ = _generate(
             tmp_path, [f"%pip install {author_spec}\n", "import zzqremote\n"], {"zzqremote"},
             {"zzq-remote": REMOTE_PIN}, {"zzqremote": ["zzq-remote"]},
-            raw_installs=[author_spec],
+            raw_installs=[RawInstall(author_spec)],
         )
-        assert manifest.raw_installs == [author_spec]
+        assert [r.spec for r in manifest.raw_installs] == [author_spec]
 
     def test_local_path_is_not_stored_and_never_appears_in_output(self, tmp_path):
         manifest, text = _generate(

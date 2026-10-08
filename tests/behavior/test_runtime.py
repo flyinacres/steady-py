@@ -28,8 +28,9 @@ def wheels(tmp_path):
 
 
 @pytest.mark.venv
+@finding("R1")
 @pytest.mark.parametrize("preinstalled", [
-    pytest.param("demo-extras[fast]==1.0", marks=known_bug("R1", "an extras pin never passes the installed check")),
+    "demo-extras[fast]==1.0",
     pytest.param("demo-extras==1.0", id="base-only"),  # the extra's dependency is missing: install it
 ])
 def test_extras_pin_is_satisfied_only_with_the_extras_dependencies(fresh_venv, wheels, preinstalled):

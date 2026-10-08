@@ -1,7 +1,7 @@
 """Version numbers, fixed names and label constants, and the static lookup tables shared by every layer."""
 import importlib.metadata
 import sys
-from typing import Dict, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 
 TOOL_VERSION: str
@@ -123,6 +123,87 @@ class Invocation:
     SHELL_ESCAPE = "shell_escape"
     SHELL_CELL = "shell_cell"
     PYTHON_CALL = "python_call"
+
+
+class Tool:
+    """InstallLine.tool values."""
+    PIP = "pip"
+    UV = "uv"
+    CONDA = "conda"
+    SYSTEM = "system"
+
+
+class Readability:
+    """InstallLine.readability values: whether a static scan can know what the line installs."""
+    LITERAL = "literal"
+    COMPUTED = "computed"  # `$pkg`, `{var}` or a non-literal call argument, known only when it runs
+    UNREADABLE = "unreadable"  # the shell couldn't split it either (an unclosed quote)
+
+
+class TargetKind:
+    """InstallTarget.kind values (fix_plan.md, section 3.1, item 8)."""
+    REQUIREMENT = "requirement"
+    DIRECT_REFERENCE = "direct_reference"  # `name @ url`, stored as written (CH3)
+    URL = "url"
+    PATH = "path"
+    EDITABLE = "editable"
+    REQUIREMENTS_FILE = "requirements_file"
+    CONSTRAINTS_FILE = "constraints_file"
+    NAME = "name"  # a conda or system package, parsed no further than its name
+    COMPUTED = "computed"
+    INVALID = "invalid"  # pip rejects the whole command
+
+
+# Options that change what a pip line installs; each pin and raw install carries its line's (G14).
+CARRIED_PIP_OPTIONS: Set[str] = {
+    "--index-url", "--extra-index-url", "--find-links", "--trusted-host", "--no-index", "--no-deps", "--pre",
+}
+
+# Options naming somewhere other than the kernel's environment (fix_plan.md, section 3.1, item 5).
+OTHER_ENVIRONMENT_PIP_OPTIONS: Set[str] = {"--target", "--prefix", "--root"}
+
+# pip install's own options, as optparse reads them: each spelling maps to (canonical long name,
+# takes a value). Taken from pip's install parser; a unit test keeps it in step with pip.
+_PIP_OPTION_GROUPS: List[Tuple[Tuple[str, ...], bool]] = [
+    (("--requirement", "-r"), True), (("--constraint", "-c"), True), (("--editable", "-e"), True),
+    (("--target", "-t"), True), (("--platform",), True), (("--python-version",), True),
+    (("--implementation",), True), (("--abi",), True), (("--root",), True), (("--prefix",), True),
+    (("--src", "--source", "--source-dir", "--source-directory"), True), (("--upgrade-strategy",), True),
+    (("--config-settings", "-C"), True), (("--global-option",), True), (("--no-binary",), True),
+    (("--only-binary",), True), (("--progress-bar",), True), (("--root-user-action",), True),
+    (("--report",), True), (("--index-url", "-i", "--pypi-url"), True), (("--extra-index-url",), True),
+    (("--find-links", "-f"), True), (("--python",), True), (("--log", "--log-file", "--local-log"), True),
+    (("--keyring-provider",), True), (("--proxy",), True), (("--retries",), True),
+    (("--timeout", "--default-timeout"), True), (("--exists-action",), True), (("--trusted-host",), True),
+    (("--cert",), True), (("--client-cert",), True), (("--cache-dir",), True), (("--use-feature",), True),
+    (("--use-deprecated",), True), (("--group",), True),
+    (("--no-deps", "--no-dependencies"), False), (("--pre",), False), (("--dry-run",), False),
+    (("--user",), False), (("--no-user",), False), (("--upgrade", "-U"), False), (("--force-reinstall",), False),
+    (("--ignore-installed", "-I"), False), (("--ignore-requires-python",), False),
+    (("--no-build-isolation",), False), (("--use-pep517",), False), (("--no-use-pep517",), False),
+    (("--check-build-dependencies",), False), (("--break-system-packages",), False), (("--compile",), False),
+    (("--no-compile",), False), (("--no-warn-script-location",), False), (("--no-warn-conflicts",), False),
+    (("--prefer-binary",), False), (("--require-hashes",), False), (("--no-clean",), False),
+    (("--no-index",), False), (("--help", "-h"), False), (("--debug",), False), (("--isolated",), False),
+    (("--require-virtualenv", "--require-venv"), False), (("--verbose", "-v"), False),
+    (("--version", "-V"), False), (("--quiet", "-q"), False), (("--no-input",), False),
+    (("--no-cache-dir",), False), (("--disable-pip-version-check",), False), (("--no-color",), False),
+    (("--no-python-version-warning",), False),
+]
+PIP_OPTIONS: Dict[str, Tuple[str, bool]] = {
+    spelling: (names[0], takes_value) for names, takes_value in _PIP_OPTION_GROUPS for spelling in names
+}
+
+# `uv pip install` options pip doesn't have that take a value, so their value isn't read as a package.
+UV_PIP_VALUE_OPTIONS: Dict[str, str] = {
+    spelling: names[0] for names in (
+        ("--python", "-p"), ("--upgrade-package", "-P"), ("--reinstall-package",), ("--index-strategy",),
+        ("--index",), ("--default-index",), ("--torch-backend",), ("--prerelease",), ("--resolution",),
+        ("--exclude-newer",), ("--link-mode",), ("--extra",), ("--overrides",), ("--build-constraints", "-b"),
+        ("--python-platform",), ("--color",), ("--directory",), ("--project",), ("--config-file",),
+        ("--no-build-isolation-package",), ("--config-setting",),
+    ) for spelling in names
+}
 
 
 IMPORT_TO_PYPI_MAP: Dict[str, str] = {

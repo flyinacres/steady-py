@@ -8,9 +8,10 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable, Optional, Tuple
+from typing import Dict, Iterable, Optional, Tuple
 
 from steady_py import cli
+from steady_py.constants import PIP_OPTIONS
 from tests.support.envs import Venv
 from tests.support.outcomes import Outcome, cell2_text
 
@@ -81,11 +82,11 @@ INSTALL_SCRIPT = ("import dataclasses, json, sys, steady_py\n"
 def write_install_inputs(directory: Path, pins: Iterable[str], python: Tuple[int, int] = sys.version_info[:2],
                          raw_installs: Iterable[str] = ()) -> Path:
     """Writes install.py and manifest.json for `pins` ("name==version", extras allowed) and
-    `raw_installs` (verbatim) into `directory`; returns the script. The manifest holds only the
+    `raw_installs` (specs, no flags) into `directory`; returns the script. The manifest holds only the
     fields install() reads."""
     deps = [dict(zip(("name", "version"), pin.split("==", 1)), flags=[]) for pin in pins]
     manifest = {"python_version": {"major": python[0], "minor": python[1]}, "dependencies": deps,
-                "raw_installs": list(raw_installs)}
+                "raw_installs": [{"spec": spec, "flags": []} for spec in raw_installs]}
     (Path(directory) / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     script = Path(directory) / "install.py"
     script.write_text(INSTALL_SCRIPT, encoding="utf-8")
@@ -123,3 +124,8 @@ def install_outcome(returncode: int, stdout: str, stderr: str) -> Outcome:
     report = json.loads(marked[-1][len(_RESULT_MARK):]) if marked else None
     printed = "\n".join(line for line in stdout.splitlines() if not line.startswith(_RESULT_MARK))
     return Outcome(returncode, printed, stderr, report)
+
+
+def pip_option_table() -> Dict[str, Tuple[str, bool]]:
+    """Each pip install option spelling steady-py knows: (canonical name, takes a value)."""
+    return dict(PIP_OPTIONS)

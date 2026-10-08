@@ -7,7 +7,52 @@ import tempfile
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
+from packaging.requirements import InvalidRequirement, Requirement
+
 from steady_py.constants import HELP_URL
+
+
+def _extras_installed(req: Requirement) -> bool:
+    """True when every dependency the pin's extras add is installed at a version it allows (R1).
+    The base package being present says nothing about its extras."""
+    requires = importlib.metadata.distribution(req.name).requires or []
+    for line in requires:
+        try:
+            dep = Requirement(line)
+        except InvalidRequirement:
+            continue
+        if dep.marker is None or dep.marker.evaluate({"extra": ""}):
+            continue  # a base dependency, not one an extra adds
+        if not any(dep.marker.evaluate({"extra": extra}) for extra in req.extras):
+            continue
+        try:
+            if not dep.specifier.contains(importlib.metadata.version(dep.name), prereleases=True):
+                return False
+        except importlib.metadata.PackageNotFoundError:
+            return False
+    return True
+
+
+def _installed_version(name: str) -> str:
+    """The installed version of a pin's distribution, or "" when it isn't installed; for an extras pin
+    (`pkg[extra]`), "" also when an extra's dependencies are missing."""
+    try:
+        req = Requirement(name)
+    except InvalidRequirement:
+        return ""
+    try:
+        current = importlib.metadata.version(req.name)
+        return current if not req.extras or _extras_installed(req) else ""
+    except importlib.metadata.PackageNotFoundError:
+        return ""
+
+
+def _distribution(name: str) -> str:
+    """The distribution a pin installs: its name without extras."""
+    try:
+        return Requirement(name).name
+    except InvalidRequirement:
+        return name
 
 
 @dataclass
@@ -82,18 +127,11 @@ def install(manifest: Dict[str, Any], timeout: int = 120) -> InstallResult:
         flags = item.get("flags", [])
         specifier = f"{name}=={ver}" if ver else name
 
-        already_satisfied = False
-        try:
-            current_ver = importlib.metadata.version(name)
-            if not ver or current_ver == ver:
-                already_satisfied = True
-                passed_count += 1
-                installed_baseline[name] = current_ver
-                print(f"[{idx}/{total_deps}] ⚡ {name} ({current_ver}) already satisfied in environment")
-        except Exception:
-            pass
-
-        if already_satisfied:
+        current_ver = _installed_version(name)
+        if current_ver and (not ver or current_ver == ver):
+            passed_count += 1
+            installed_baseline[_distribution(name)] = current_ver
+            print(f"[{idx}/{total_deps}] ⚡ {name} ({current_ver}) already satisfied in environment")
             continue
 
         cmd = [
@@ -112,19 +150,18 @@ def install(manifest: Dict[str, Any], timeout: int = 120) -> InstallResult:
             any_install_performed = True
             print(f"    ✅ {specifier} installed successfully")
             try:
-                current_ver = importlib.metadata.version(name)
-                installed_baseline[name] = current_ver
-            except Exception:
+                installed_baseline[_distribution(name)] = importlib.metadata.version(_distribution(name))
+            except importlib.metadata.PackageNotFoundError:
                 pass
             for prev_pkg, prev_ver in list(installed_baseline.items()):
-                if prev_pkg == name:
+                if prev_pkg == _distribution(name):
                     continue
                 try:
                     active_now = importlib.metadata.version(prev_pkg)
                     if active_now != prev_ver:
                         print(f"   ⚠️ Dependency Drift: Installing '{specifier}' caused '{prev_pkg}' to drift from {prev_ver} ➔ {active_now}")
                         installed_baseline[prev_pkg] = active_now
-                except Exception:
+                except importlib.metadata.PackageNotFoundError:
                     pass
         else:
             err_snippet = captured_output[-1] if captured_output else "Unknown pip error"
@@ -142,18 +179,22 @@ def install(manifest: Dict[str, Any], timeout: int = 120) -> InstallResult:
         print("\n📎 Installing non-standard sources (git/URL/local file)...")
         print("   These are installed exactly as specified but can't be verified against PyPI.")
         print("   You are responsible for ensuring anyone running this notebook has access to the same resource.\n")
-        for raw_idx, raw_spec in enumerate(raw_installs, start=idx + 1):
+        for raw_idx, raw in enumerate(raw_installs, start=idx + 1):
+            raw_spec, raw_flags = raw["spec"], list(raw.get("flags") or [])
             print(f"[{raw_idx}/{total_deps}] 📦 Installing (raw): {raw_spec}")
             sys.stdout.flush()
-            raw_cmd = [sys.executable, "-m", "pip", "install", "--no-input", "--disable-pip-version-check", "--no-warn-script-location", raw_spec]
+            raw_cmd = [sys.executable, "-m", "pip", "install", "--no-input", "--disable-pip-version-check",
+                       "--no-warn-script-location", raw_spec] + raw_flags
             raw_returncode, raw_captured = _run_pip_subprocess(raw_cmd, timeout)
             if raw_returncode == 0:
                 passed_count += 1
                 any_install_performed = True
                 print(f"    ✅ {raw_spec} installed successfully")
             else:
-                failed_packages.append((raw_spec, "", [], "\n".join(raw_captured)))
+                failed_packages.append((raw_spec, "", raw_flags, "\n".join(raw_captured)))
                 print(f"    ❌ {raw_spec} failed to install (exit code {raw_returncode})")
+                if raw_flags:
+                    print(f"       ├─ Scoped Flags: {' '.join(raw_flags)}")
                 print("       ⚠️ This is a custom-specified source (git/URL/local file), not a standard PyPI package.")
                 print("          If it's unreachable, contact the notebook's author for its current location.")
 

@@ -16,7 +16,7 @@ def _manifest(deps=(), raw=(), custom=(), python=None):
     """deps: (name, version, flags) triples."""
     return {
         "dependencies": [{"name": n, "version": v, "flags": list(f)} for n, v, f in deps],
-        "raw_installs": list(raw), "custom_sourced": list(custom),
+        "raw_installs": [{"spec": r, "flags": []} for r in raw], "custom_sourced": list(custom),
         "python_version": python or {}, "generated_at": "",
     }
 

@@ -26,7 +26,7 @@ def test_a_vcs_install_line_is_carried_verbatim(tmp_path, pypi, line, spec):
     outcome = run("snapshot", Notebook(code(line), code("import packaging")).write(tmp_path), "--output")
     assert outcome.exit_code == 0, outcome.log
     written = manifest(outcome.written[0])
-    assert written["raw_installs"] == [spec]
+    assert written["raw_installs"] == [{"spec": spec, "flags": []}]
     assert [d["name"] for d in written["dependencies"]] == ["packaging"]
 
 

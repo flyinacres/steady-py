@@ -9,7 +9,7 @@ from packaging.utils import canonicalize_name
 from tests.support.markers import finding, known_bug
 from tests.support.notebooks import Notebook, code
 from tests.support.outcomes import manifest
-from tests.support.runner import run, run_in
+from tests.support.runner import pip_option_table, run, run_in
 from tests.support.sites import SiteDir, pythonpath
 
 SAVED = Path(__file__).resolve().parents[1] / "fixtures" / "unit"
@@ -21,7 +21,7 @@ def _scan(tmp_path, *sources):
     return outcome
 
 
-@known_bug("G4", "a variable install line is harvested as a package named after the variable")
+@finding("G4")
 @pytest.mark.parametrize("line", ["%pip install $pkg", "!pip install {pkg}", "%pip install packaging $extra"])
 def test_variable_install_line_is_a_warning_not_a_package(tmp_path, line):
     # IPython expands $name and {expr} at run time; a static scan can't know the value.
@@ -75,7 +75,7 @@ def test_literal_get_ipython_system_call_is_harvested(tmp_path):
     assert "packaging" in _scan(tmp_path, "get_ipython().system('pip install packaging')").pins()
 
 
-@known_bug("G5", "install forms other than %pip, !pip and bare pip are not harvested")
+@finding("G5")
 @pytest.mark.parametrize("cell", [
     pytest.param("!python -m pip install packaging", id="python-m-pip"),
     pytest.param("import sys\n!{sys.executable} -m pip install packaging", id="sys-executable"),
@@ -88,7 +88,7 @@ def test_every_literal_install_form_is_harvested(tmp_path, cell):
     assert "packaging" in _scan(tmp_path, cell).pins()
 
 
-@known_bug("G11", "--opt=value pip flags are dropped")
+@finding("G11")
 def test_equals_form_flags_match_space_form(tmp_path):
     flags = [_scan(tmp_path / form, f"%pip install --index-url{sep}https://x.test/simple packaging")
              .dependency("packaging")["flags"] for form, sep in (("space", " "), ("equals", "="))]
@@ -99,14 +99,14 @@ def test_equals_form_flags_match_space_form(tmp_path):
     pytest.param('%pip install "demo @ git+https://example.com/demo.git"', False, id="quoted"),
     pytest.param("%pip install demo @ git+https://example.com/demo.git", True, id="unquoted-is-a-pip-error"),
 ])
-@known_bug("G12", "a PEP 508 direct reference is split into separate packages")
+@finding("G12")
 def test_direct_reference_is_one_requirement(tmp_path, line, warns):
     outcome = _scan(tmp_path, line)
     assert [d["name"] for d in outcome.dependencies() if d["name"] in ("@", "git+https://example.com/demo.git")] == []
     assert bool(outcome.warnings()) or not warns
 
 
-@known_bug("G14", "--no-deps and a raw install's index flags are dropped")
+@finding("G14")
 def test_flags_that_change_what_gets_installed_reach_the_manifest(tmp_path, pypi):
     pypi.add("packaging", {version("packaging"): {}})
     source = ("%pip install --no-deps packaging\n"
@@ -118,29 +118,73 @@ def test_flags_that_change_what_gets_installed_reach_the_manifest(tmp_path, pypi
     assert any("https://x.test/simple" in str(raw) for raw in written["raw_installs"])
 
 
-@known_bug("P4", "an editable install line vanishes without a diagnostic")
+def _snapshot_manifest(tmp_path, pypi, *sources):
+    pypi.add("packaging", {version("packaging"): {}})
+    outcome = run("snapshot", Notebook(*map(code, sources)).write(tmp_path), "--output")
+    assert outcome.exit_code in (0, 1), outcome.log
+    return outcome, manifest(outcome.written[0])
+
+
+@finding("G18")
+def test_trailing_comment_is_not_harvested(tmp_path, pypi):
+    outcome, written = _snapshot_manifest(tmp_path, pypi, "!pip install packaging # kaggle doesnt have it",
+                                          "!pip install git+https://example.com/demo.git#egg=demo")
+    assert [d["name"] for d in written["dependencies"]] == ["packaging"]
+    assert [r["spec"] for r in written["raw_installs"]] == ["git+https://example.com/demo.git#egg=demo"]  # control
+
+
+@finding("G19")
+def test_clustered_short_flags_are_read_as_pip_reads_them(tmp_path):
+    outcome = _scan(tmp_path, "%pip install -qr req.txt")
+    assert outcome.warnings(type="external_requirement")
+    assert [d["name"] for d in outcome.dependencies() if "req" in d["name"]] == []
+
+
+@finding("CH3")
+def test_named_direct_reference_is_stored_as_written(tmp_path, pypi):
+    spec = "demo @ git+https://example.com/demo.git"
+    _outcome, written = _snapshot_manifest(tmp_path, pypi, f'%pip install "{spec}"')
+    assert [r["spec"] for r in written["raw_installs"]] == [spec]
+
+
+@finding("DG8")
+def test_kaggle_input_wheel_names_its_dataset(tmp_path, pypi):
+    wheel = "/kaggle/input/offline-wheels/demo-1.0-py3-none-any.whl"
+    outcome, written = _snapshot_manifest(tmp_path, pypi, f"!pip install --no-deps {wheel}")
+    assert outcome.notices(type="kaggle_input_install", about="offline-wheels")
+    assert [r["spec"] for r in written["raw_installs"]] == [wheel]
+    assert [d for d in written["dependencies"] if canonicalize_name(d["name"]) == "demo"] == []
+
+
+def test_option_table_matches_pips_own_parser():
+    from pip._internal.commands import create_command  # pip's parser is the source of truth
+    table = pip_option_table()
+    for option in create_command("install").parser._get_all_options():
+        for spelling in option._short_opts + option._long_opts:
+            assert table.get(spelling, (None, None))[1] is option.takes_value(), spelling
+
+
+@finding("P4")
 def test_editable_install_line_is_reported(tmp_path):
     assert _scan(tmp_path, "%pip install -e ./mypkg").warnings()
 
 
-@pytest.mark.parametrize("line", [
-    pytest.param("!conda install numpy", id="conda-control"),
-    *(pytest.param(line, marks=known_bug("C2", "conda-family commands other than conda install give no notice"))
-      for line in ("!mamba install numpy", "%mamba install numpy", "%micromamba install numpy",
-                   "!micromamba install numpy", "!conda env update -f environment.yml")),
-])
+@finding("C2")
+@pytest.mark.parametrize("line", ["!conda install numpy", "!mamba install numpy", "%mamba install numpy",
+                                  "%micromamba install numpy", "!micromamba install numpy",
+                                  "!conda env update -f environment.yml"])
 def test_conda_family_commands_get_a_notice(tmp_path, line):
     assert _scan(tmp_path, line).notices()
 
 
-@known_bug("C2", "conda --file is not treated like pip -r")
+@finding("C2")
 def test_conda_requirements_file_is_reported_like_pip_r(tmp_path):
     pip_types = {w["type"] for w in _scan(tmp_path / "pip", "%pip install -r req.txt").warnings()}
     conda_types = {w["type"] for w in _scan(tmp_path / "conda", "!conda install --file req.txt").warnings()}
     assert pip_types and pip_types <= conda_types
 
 
-@known_bug("G17", "a non-canonical install name is listed twice, plus a nameless header entry")
+@finding("G17")
 @pytest.mark.parametrize("name", ["Packaging", "absent_pkg_zz"])
 def test_each_install_line_package_is_listed_once(tmp_path, name):
     names = [canonicalize_name(d["name"]) for d in _scan(tmp_path, f"%pip install {name}").dependencies()]
@@ -148,7 +192,7 @@ def test_each_install_line_package_is_listed_once(tmp_path, name):
     assert len(names) == len(set(names))
 
 
-@known_bug("D5", "the auxiliary-tools header comment is parsed back as a package named ---")
+@finding("D5")
 def test_directory_scan_reports_no_package_named_from_display_text(tmp_path):
     shutil.copy(SAVED / "magic_sink.ipynb", tmp_path)
     outcome = run("scan", tmp_path)
@@ -174,7 +218,7 @@ def test_install_line_and_import_of_one_distribution_give_one_entry(tmp_path, ba
 
 
 @pytest.mark.venv
-@known_bug("G16", "an install line with extras turns the extra into the version")
+@finding("G16")
 def test_extras_install_line_pins_the_installed_version(tmp_path, base_venv):
     site = SiteDir(tmp_path / "site")
     site.add("tabulate", "0.9.0", extras=["widechars"], requires=["wcwidth; extra == 'widechars'"])

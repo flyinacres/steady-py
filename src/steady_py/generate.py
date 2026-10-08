@@ -12,9 +12,15 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Typ
 
 from steady_py import accelerator, analyze, drift, installed, localmodules, pypi, resolution, scanning
 from steady_py.constants import DependencyStatus, FetchStatus, ReportKind, SETUP_MARKDOWN_HEADING, TOOL_VERSION
-from steady_py.models import Cell, DependencyEntry, GpuInfo, NotebookAnalysisReport, PinnedDependency, SteadyPyManifest
+from steady_py.models import Cell, DependencyEntry, GpuInfo, NotebookAnalysisReport, PinnedDependency, RawInstall, SteadyPyManifest
 
 logger = logging.getLogger("steady_py.generate")
+
+# Cell 2 groups these commented entries under a heading, written before the first of each (G17).
+SECTION_HEADERS: Dict[str, str] = {
+    DependencyStatus.AUXILIARY_TOOL: "\n# --- AUXILIARY TOOL INSTALLS (harvested from cell magics) ---",
+    DependencyStatus.WRITEFILE_SCRIPT: "\n# --- WRITEFILE SCRIPT DEPENDENCIES ---",
+}
 
 
 class BlueprintResult(TypedDict):
@@ -97,7 +103,7 @@ def generate_production_blueprint(
     local_tagged_info: Optional[List[Tuple[str, List[str]]]] = None, 
     gpu_info: Optional[GpuInfo] = None,
     install_timeout: int = 120,
-    raw_installs: Optional[List[str]] = None
+    raw_installs: Optional[List[RawInstall]] = None
 ) -> BlueprintResult:
     """Assembles Cell 1 Markdown and Cell 2 Python code using structured DependencyEntry objects."""
     py_major, py_minor = sys.version_info.major, sys.version_info.minor
@@ -108,9 +114,13 @@ def generate_production_blueprint(
     local_modules_captured: List[Dict[str, str]] = []
     direct_reference_specs: List[str] = []
 
+    headed: Set[str] = set()
     for item in manifest_items:
         if isinstance(item, DependencyEntry):
             if item.is_comment:
+                if item.status in SECTION_HEADERS and item.status not in headed:
+                    headed.add(item.status)
+                    comment_lines.append(SECTION_HEADERS[item.status])
                 comment_lines.append(item.comment_text)
                 if item.status == DependencyStatus.DIRECT_REFERENCE and item.direct_url:
                     direct_reference_specs.append(item.direct_url)
@@ -185,10 +195,10 @@ def generate_production_blueprint(
 
     # Installed from a remote direct reference with no matching install line in the
     # notebook itself: carry the recorded source, unless the notebook already names it.
-    merged_raw_installs: List[str] = list(raw_installs) if raw_installs else []
+    merged_raw_installs: List[RawInstall] = list(raw_installs) if raw_installs else []
     for spec in direct_reference_specs:
-        if not any(installed.same_direct_source(spec, existing) for existing in merged_raw_installs):
-            merged_raw_installs.append(spec)
+        if not any(installed.same_direct_source(spec, existing.spec) for existing in merged_raw_installs):
+            merged_raw_installs.append(RawInstall(spec))
 
     # Check pins against live PyPI at generation time, not only via a later,
     # separate --check-drift run -- catching a bad pin now is strictly better
@@ -355,8 +365,7 @@ def generate_universal_manifest(
 
         aux_entries = resolution.build_auxiliary_tool_entries(res.harvested_pkgs, res.imports, frozen_env)
         for aux in aux_entries:
-            if not aux.comment_text.startswith("\n# ---"):
-                pinned_entries_set.add(aux.comment_text)
+            pinned_entries_set.add(aux.comment_text)
 
     for entry in sorted(pinned_entries_set):
         lines.append(entry)

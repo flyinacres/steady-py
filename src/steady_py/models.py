@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 from packaging.version import InvalidVersion, Version
 
-from steady_py.constants import MANIFEST_SCHEMA_VERSION, TOOL_VERSION, DependencyStatus, Invocation, Signal
+from steady_py.constants import MANIFEST_SCHEMA_VERSION, TOOL_VERSION, DependencyStatus, Invocation, Readability, Signal
 
 
 @dataclass(frozen=True)
@@ -115,6 +115,7 @@ class PipInstallOccurrence:
     version_spec: str = ""
     flags: List[str] = field(default_factory=list)
     cell: Optional[Cell] = None
+    extras: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -156,11 +157,46 @@ class Guard:
 
 
 @dataclass
+class InstallTarget:
+    """One thing an install line installs (fix_plan.md, section 3.1, item 8). `text` is the token as
+    written. For a requirement, `name` is as typed and `canonical` normalized, with its extras,
+    specifier and marker; a `name @ url` keeps its name too."""
+    kind: str
+    text: str
+    name: str = ""
+    canonical: str = ""
+    extras: List[str] = field(default_factory=list)
+    specifier: str = ""
+    marker: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"kind": self.kind, "text": self.text, "name": self.name, "canonical": self.canonical,
+                "extras": list(self.extras), "specifier": self.specifier, "marker": self.marker}
+
+
+@dataclass
+class InstallOption:
+    """One option on an install line: the canonical long name (`-i x` and `--index-url=x` give the
+    same pair), or the option as written when the tool's table doesn't know it. `value` is None for a
+    switch."""
+    name: str
+    value: Optional[str] = None
+    known: bool = True
+
+    def as_args(self) -> List[str]:
+        return [self.name] if self.value is None else [self.name, self.value]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"name": self.name, "value": self.value, "known": self.known}
+
+
+@dataclass
 class InstallLine:
     """One package-install command as written in a notebook (fix_plan.md, section 3.1).
 
-    `tool` is pip, conda or system. `invocation` is line_magic, shell_escape, shell_cell or
-    python_call. Targets and options are added as the install-line pipeline takes over parsing.
+    `tool` is pip, uv, conda or system. `invocation` is line_magic, shell_escape, shell_cell or
+    python_call. `kernel_target` is False when the line installs somewhere other than the kernel's
+    environment, with the option that says so in `elsewhere`. Options apply to every target on the line.
     """
     text: str
     tool: str
@@ -169,6 +205,11 @@ class InstallLine:
     notebook: Optional[str] = None
     invocation: str = Invocation.SHELL_ESCAPE
     guard: Optional[Guard] = None
+    readability: str = Readability.LITERAL
+    kernel_target: bool = True
+    elsewhere: str = ""
+    targets: List[InstallTarget] = field(default_factory=list)
+    options: List[InstallOption] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -176,12 +217,34 @@ class InstallLine:
             "tool": self.tool,
             "invocation": self.invocation,
             "guard": self.guard.to_dict() if self.guard else None,
+            "readability": self.readability,
+            "kernel_target": self.kernel_target,
+            "elsewhere": self.elsewhere,
+            "targets": [t.to_dict() for t in self.targets],
+            "options": [o.to_dict() for o in self.options],
             "notebook": self.notebook,
             "cell_idx": self.cell.position,
             "line_idx": self.line_idx,
             "execution_count": self.cell.execution_count,
             "heading": self.cell.heading,
         }
+
+
+@dataclass(frozen=True)
+class RawInstall:
+    """A manifest install that isn't a PyPI pin (a URL, `name @ url` or local path), with the options
+    from its line that change what gets installed (G14)."""
+    spec: str
+    flags: Tuple[str, ...] = ()
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"spec": self.spec, "flags": list(self.flags)}
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "RawInstall":
+        if not isinstance(data, dict) or not isinstance(data.get("spec"), str):
+            raise TypeError(f"a raw install needs a string 'spec', got {data!r}")
+        return cls(spec=data["spec"], flags=tuple(data.get("flags") or ()))
 
 
 @dataclass
@@ -262,7 +325,7 @@ class TimelineResult:
     promotion_notices: List[PromotionDetail] = field(default_factory=list)
     conflict_warnings: List[DiagnosticEvent] = field(default_factory=list)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Any]:
         """Unpacking fallback allowing `deps, notices = timeline_result` in legacy callers."""
         notice_strings = [p.detail for p in self.promotion_notices]
         return iter((self.dependencies, notice_strings))
@@ -379,7 +442,7 @@ class SteadyPyManifest:
     tool_version: str = TOOL_VERSION
     schema_version: str = MANIFEST_SCHEMA_VERSION
     dependency_hash: str = ""
-    raw_installs: List[str] = field(default_factory=list)
+    raw_installs: List[RawInstall] = field(default_factory=list)
     custom_sourced: List[str] = field(default_factory=list)
     local_modules: List[Dict[str, str]] = field(default_factory=list)
     baseline: Optional[Baseline] = None
@@ -403,6 +466,7 @@ class SteadyPyManifest:
         manifest = cls(**{
             **data,
             "dependencies": [PinnedDependency.from_dict(d) for d in deps],
+            "raw_installs": [RawInstall.from_dict(r) for r in data.get("raw_installs") or []],
             "baseline": Baseline.from_dict(data.get("baseline")),
         })
         manifest.verified_hash = _manifest_payload_hash(data)
@@ -417,7 +481,7 @@ class SteadyPyManifest:
             "tool_version": self.tool_version,
             "schema_version": self.schema_version,
             "dependency_hash": self.dependency_hash,
-            "raw_installs": self.raw_installs,
+            "raw_installs": [r.to_dict() for r in self.raw_installs],
             "custom_sourced": self.custom_sourced,
             "local_modules": self.local_modules,
             "baseline": self.baseline.to_dict() if self.baseline is not None else None,
@@ -506,7 +570,7 @@ class HarvestResult:
     magic_warnings: List[DiagnosticEvent] = field(default_factory=list)
     magic_notices: List[DiagnosticEvent] = field(default_factory=list)
     scoped_flags: Dict[str, List[str]] = field(default_factory=dict)
-    raw_installs: List[str] = field(default_factory=list)
+    raw_installs: List[RawInstall] = field(default_factory=list)
     install_lines: List[InstallLine] = field(default_factory=list)
 
     def __iter__(self) -> Iterator[Any]:

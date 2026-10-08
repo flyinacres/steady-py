@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterator, List, Mapping, Optional, Set, Tuple
 
-from steady_py import accelerator, localmodules, magics, resolution, scanning, util
+from steady_py import accelerator, installed, localmodules, magics, resolution, scanning, util
 from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DEFAULT_IGNORED_DIRS, ENVIRONMENT_DIR_MARKERS, DependencyStatus, PLATFORM_PSEUDO_MODULES, StatusLabel, STD_LIB
-from steady_py.models import BatchAnalysisSummary, Cell, DiagnosticEvent, ExtractionResult, GpuInfo, InstallLine, NotebookAnalysisReport
+from steady_py.models import BatchAnalysisSummary, Cell, DiagnosticEvent, ExtractionResult, GpuInfo, InstallLine, NotebookAnalysisReport, RawInstall
 
 logger = logging.getLogger("steady_py.analyze")
 
@@ -33,7 +33,7 @@ class NotebookScanResult:
     scoped_flags: Dict[str, List[str]] = field(default_factory=dict)
     magic_warnings: List[DiagnosticEvent] = field(default_factory=list)
     magic_notices: List[DiagnosticEvent] = field(default_factory=list)
-    raw_installs: List[str] = field(default_factory=list)
+    raw_installs: List[RawInstall] = field(default_factory=list)
     install_lines: List[InstallLine] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -197,8 +197,9 @@ def build_single_notebook_report(
         local_ctx=local_ctx
     )
 
-    timeline_pkgs = {util.canonicalize_pkg_name(d.name) for d in timeline_res.dependencies if d.name}
-    aux_entries = resolution.build_auxiliary_tool_entries(scan_res.harvested_pkgs - timeline_pkgs, scan_res.imports, frozen_env)    
+    timeline_pkgs = {util.canonicalize_pkg_name(installed.split_pin_name(d.name)[0]) for d in timeline_res.dependencies if d.name}
+    untimed = {pkg for pkg in scan_res.harvested_pkgs if util.canonicalize_pkg_name(pkg) not in timeline_pkgs}  # G17
+    aux_entries = resolution.build_auxiliary_tool_entries(untimed, scan_res.imports, frozen_env)
     writefile_entries = resolution.build_writefile_tool_entries(scan_res.writefile_imports, scan_res.imports, frozen_env)
 
     all_dep_entries, local_tagged, hw_warnings = resolution.build_dependency_entries(
@@ -289,7 +290,7 @@ def analyze_batch_repository(
             if dep.is_comment:
                 if dep.status in {"platform_pseudo_module", "build_tool", "local_module"}:
                     continue
-                pypi_name = dep.name or (dep.comment_text.split()[1] if len(dep.comment_text.split()) > 1 else "")
+                pypi_name = dep.name
                 if pypi_name:
                     canon = util.canonicalize_pkg_name(pypi_name)
                     target_map = canonical_guarded_map if dep.status == DependencyStatus.GUARDED else canonical_missing_map

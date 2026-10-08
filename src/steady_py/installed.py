@@ -3,6 +3,7 @@ packages installed from a URL, a local path or an editable checkout (direct refe
 import importlib.metadata
 import json
 import logging
+import re
 import subprocess
 import sys
 import urllib.parse
@@ -87,9 +88,15 @@ def is_local_direct_url(url: str) -> bool:
     return _strip_vcs_prefix(url).lower().startswith("file:")
 
 
+_NAMED_REFERENCE = re.compile(r"^[A-Za-z0-9._-]+(?:\[[^\]]*\])?\s*@\s*(\S+)")
+
+
 def _direct_source_key(spec: str) -> Tuple[str, str]:
-    """Host and path of a direct-reference spec, ignoring VCS prefix, @ref, #fragment and .git."""
-    parts = urllib.parse.urlsplit(_strip_vcs_prefix(spec.strip().strip("'\"")))
+    """Host and path of a direct-reference spec, ignoring a `name @` lead (CH3), VCS prefix, @ref,
+    #fragment and .git."""
+    spec = spec.strip().strip("'\"")
+    named = _NAMED_REFERENCE.match(spec)
+    parts = urllib.parse.urlsplit(_strip_vcs_prefix(named.group(1) if named else spec))
     path = parts.path
     head, sep, tail = path.rpartition("@")
     if sep and "/" not in tail:  # a trailing @ref; user@host lives in netloc, not here

@@ -77,7 +77,7 @@ def test_monorepo_packages_keep_their_subdirectories(tmp_path, base_venv, pypi):
         site.add(name, "1.0", **vcs_ref("https://example.com/mono.git", COMMIT, subdirectory=name))
     outcome = _run(base_venv, tmp_path, "import alpha, beta", site, verb="snapshot", options=["--output"])
     raw = manifest(outcome.written[0])["raw_installs"]
-    assert sorted(r.split("#subdirectory=")[-1] for r in raw) == ["alpha", "beta"]
+    assert sorted(r["spec"].split("#subdirectory=")[-1] for r in raw) == ["alpha", "beta"]
 
 
 @pytest.mark.venv
@@ -101,7 +101,7 @@ def test_cell2_claims_an_install_only_for_what_it_installs(tmp_path, base_venv, 
     nb = Notebook(code(source), code("%%writefile train.py\nimport gitscripted")).write(tmp_path / "nb")
     outcome = run_in(base_venv, "snapshot", nb, "--output", env=pythonpath(site))
     assert outcome.exit_code in (0, 1), outcome.log
-    assert [r for r in manifest(outcome.written[0])["raw_installs"] if "installed.git" in r]  # control
+    assert [r for r in manifest(outcome.written[0])["raw_installs"] if "installed.git" in r["spec"]]  # control
     lines = {name: [line for line in cell2_text(outcome.written[0]).splitlines() if f"# git{name} " in line]
              for name in ("guarded", "scripted")}
     assert all(found and not any("is installed from" in line for line in found) for found in lines.values()), lines

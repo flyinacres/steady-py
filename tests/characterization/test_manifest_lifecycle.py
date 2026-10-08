@@ -79,7 +79,7 @@ HAND_EDITS = {
     "generated_at": lambda m: m.update(generated_at="2020-01-01 00:00:00"),
     "tool_version": lambda m: m.update(tool_version="0.0.1"),
     "schema_version": lambda m: m.update(schema_version="0.9"),
-    "raw_installs": lambda m: m["raw_installs"].append("pip install extra"),
+    "raw_installs": lambda m: m["raw_installs"].append({"spec": "extra", "flags": []}),
     "custom_sourced": lambda m: m["custom_sourced"].append("packaging"),
     "local_modules": lambda m: m["local_modules"].append({"name": "helper", "anchor": "notebook_dir"}),
     "baseline": lambda m: m.update(baseline=None),

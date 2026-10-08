@@ -10,6 +10,7 @@ src/steady_py/delta.py
 src/steady_py/drift.py
 src/steady_py/endpoints.py
 src/steady_py/generate.py
+src/steady_py/installargs.py
 src/steady_py/installed.py
 src/steady_py/localmodules.py
 src/steady_py/magics.py

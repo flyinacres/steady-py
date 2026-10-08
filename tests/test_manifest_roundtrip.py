@@ -22,6 +22,7 @@ import pytest
 
 import steady_py.cli as cli
 from steady_py import analyze, generate, models, scanning
+from steady_py.models import RawInstall
 
 
 FIXTURE_DIR = Path("tests/fixtures")
@@ -65,7 +66,7 @@ class TestManifestRoundTrip:
 
     def test_raw_installs_round_trip(self, tmp_path):
         """raw_installs (git/URL/local-path) must survive generate -> write -> extract intact."""
-        result = generate.generate_production_blueprint([], raw_installs=["git+https://github.com/foo/bar.git@v1.2.0"])
+        result = generate.generate_production_blueprint([], raw_installs=[RawInstall("git+https://github.com/foo/bar.git@v1.2.0", ("--no-deps",))])
         nb = {
             "cells": [{"cell_type": "code", "source": [result["step2_code"]],
                        "metadata": {}, "outputs": [], "execution_count": None}],
@@ -77,7 +78,7 @@ class TestManifestRoundTrip:
 
         extracted, error = generate.extract_manifest_from_file(str(path))
         assert error is None
-        assert extracted.raw_installs == ["git+https://github.com/foo/bar.git@v1.2.0"]
+        assert extracted.raw_installs == [RawInstall("git+https://github.com/foo/bar.git@v1.2.0", ("--no-deps",))]
         assert extracted.dependency_hash == result["drift_report"].manifest.dependency_hash
 
     def test_no_manifest_present_on_real_pre_feature_fixture(self):

@@ -718,10 +718,9 @@ class TestIntegrationAndFormatting:
 
         aux_entries = resolution.build_auxiliary_tool_entries(harvested_pkgs, imports, frozen_env)
 
-        assert len(aux_entries) == 2
-        assert aux_entries[0].comment_text == "\n# --- AUXILIARY TOOL INSTALLS (harvested from cell magics) ---"
-        assert "gdown==5.1.0" in aux_entries[1].comment_text
-        assert "installed via cell command" in aux_entries[1].comment_text
+        assert len(aux_entries) == 1  # the section heading is rendering, not an entry (G17)
+        assert "gdown==5.1.0" in aux_entries[0].comment_text
+        assert "installed via cell command" in aux_entries[0].comment_text
 
     def test_uninstalled_auxiliary_tools_rendered_as_unpinned_comment(self) -> None:
         """Auxiliary tools not found in the active environment render as unpinned commented entries."""
@@ -731,8 +730,8 @@ class TestIntegrationAndFormatting:
 
         aux_entries = resolution.build_auxiliary_tool_entries(harvested_pkgs, imports, frozen_env)
 
-        assert len(aux_entries) == 2
-        assert "# awscli  (installed via cell command; not found in active env)" in aux_entries[1].comment_text
+        assert len(aux_entries) == 1
+        assert "# awscli  (installed via cell command; not found in active env)" in aux_entries[0].comment_text
 
     def test_writefile_script_dependencies_rendered_in_separate_section(self) -> None:
         """Dependencies imported exclusively inside %%writefile cells render in a dedicated block."""
@@ -742,10 +741,9 @@ class TestIntegrationAndFormatting:
 
         entries = resolution.build_writefile_tool_entries(writefile_imports, primary_imports, frozen_env)
 
-        assert len(entries) == 2
-        assert entries[0].comment_text == "\n# --- WRITEFILE SCRIPT DEPENDENCIES ---"
-        assert "requests==2.31.0" in entries[1].comment_text
-        assert "imported inside script generated via %%writefile" in entries[1].comment_text
+        assert len(entries) == 1  # the section heading is rendering, not an entry (G17)
+        assert "requests==2.31.0" in entries[0].comment_text
+        assert "imported inside script generated via %%writefile" in entries[0].comment_text
 
 def test_resolve_local_module_top_level(tmp_path):
     """Verify resolve_local_module recognizes top-level modules and package directories,

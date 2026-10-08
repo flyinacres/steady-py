@@ -196,7 +196,7 @@ def main() -> None:
         show("pinned", [d.name for d in manifest.dependencies])
         show("Cell 2 says", line_with(cell2, DIST_NAME))
         check(step, "the notebook's own path is carried verbatim in raw_installs",
-              manifest.raw_installs == [str(wheel)], raw_installs=manifest.raw_installs)
+              [r.spec for r in manifest.raw_installs] == [str(wheel)], raw_installs=manifest.raw_installs)
         check(step, "the package is not pinned as if it were on PyPI",
               not [d for d in manifest.dependencies if DIST_NAME in d.name], dependencies=manifest.dependencies)
         check(step, "the installed package is not reported as 'not found'",
@@ -220,7 +220,7 @@ def main() -> None:
         show("pinned", [d.name for d in manifest.dependencies])
         show("Cell 2 says", line_with(cell2, DIST_NAME))
         check(step, "the recorded source URL is inferred into raw_installs",
-              manifest.raw_installs == [url], raw_installs=manifest.raw_installs)
+              [r.spec for r in manifest.raw_installs] == [url], raw_installs=manifest.raw_installs)
         check(step, "the package is not pinned as if it were on PyPI",
               not [d for d in manifest.dependencies if DIST_NAME in d.name], dependencies=manifest.dependencies)
         check(step, "Cell 2 describes it as installed from a direct URL, not 'not found'",
