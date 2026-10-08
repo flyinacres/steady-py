@@ -83,6 +83,7 @@ Reading test status:
 | G17 | Non-canonical install name listed twice, plus a nameless header entry | Y |  | fixed | U | F1 | D5 is its directory-scan symptom; also the nameless `%%writefile` header entry |
 | G18 | Trailing comment on an install line harvested as packages | Y |  | fixed | U | F1 |  |
 | G19 | Combined short flags (`-qr file`) hide `-r` | Y |  | fixed | U | F1 |  |
+| G20 | Rare install-line forms read differently from pip | Y | not planned | out |  |  | Rare; revisit on corpus evidence |
 | CH3 | PEP 508 `name @ url` stored as the bare URL | Y |  | fixed | U | F1 | Decided (decision 10): stored as written, `name @ url`; test alongside G12 |
 
 ## Environment capture
