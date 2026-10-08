@@ -176,6 +176,13 @@ def test_wildcard_wheel_path_is_computed_not_a_raw_install(tmp_path, pypi):
     assert written["raw_installs"] == []
 
 
+def test_non_pep440_pin_is_kept_for_cell2_to_attempt(tmp_path):
+    # pip still reads `==0.0.0.nonexistent` and fails on it at install time; steady-py mustn't drop the line.
+    outcome = _scan(tmp_path, "%pip install packaging==0.0.0.nonexistent")
+    assert outcome.warnings(type="invalid_install") == []
+    assert (outcome.dependency("packaging") or {}).get("version") == "0.0.0.nonexistent"
+
+
 def test_option_table_matches_pips_own_parser():
     from pip._internal.commands import create_command  # pip's parser is the source of truth
     table = pip_option_table()

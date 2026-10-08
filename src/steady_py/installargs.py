@@ -33,6 +33,7 @@ _CONDA_RUN_VALUE_OPTIONS = {"-n", "--name", "-p", "--prefix", "--cwd"}
 _ARCHIVE_SUFFIXES = (".whl", ".tar.gz", ".tgz", ".tar.bz2", ".zip")
 _VCS_PREFIXES = ("git+", "hg+", "svn+", "bzr+")
 _WINDOWS_PATH = re.compile(r"^[A-Za-z]:[\\/]")
+_LEGACY_REQUIREMENT = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(\[[^\]]*\])?((?:===?|!=|~=|<=?|>=?)[^;\s@]+)$")
 COMPUTED_MARK = "{?}"  # stands in for a non-literal Python call argument
 
 
@@ -351,6 +352,12 @@ def classify_target(token: str) -> InstallTarget:
         return InstallTarget(TargetKind.COMPUTED if "*" in token or "?" in token else TargetKind.PATH, token)
     if req is not None:
         return _requirement(TargetKind.REQUIREMENT, token, req)
+    legacy = _LEGACY_REQUIREMENT.match(token)
+    if legacy:  # pip's own packaging still reads a non-PEP 440 version (`x==0.0.0.nonexistent`); so does Cell 2
+        name, extras, specifier = legacy.groups()
+        return InstallTarget(TargetKind.REQUIREMENT, token, name=name, canonical=canonicalize_name(name),
+                             extras=sorted(e.strip() for e in (extras or "").strip("[]").split(",") if e.strip()),
+                             specifier=specifier)
     return InstallTarget(TargetKind.INVALID, token)
 
 
