@@ -12,10 +12,12 @@ from typing import Optional
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WHEELHOUSE = REPO_ROOT / "tests" / ".wheelhouse"
 PROJECTS = REPO_ROOT / "tests" / "fixtures" / "projects"
-# Build backends for the stub projects, steady-py's own build backend and dependencies, and
-# ipykernel for the kernel tier.
-TOOLING = ["setuptools>=64", "wheel", "hatchling", "pdm-backend", "editables", "packaging", "resolvelib", "ipython", "ipykernel"]
-OFFLINE = ("--no-index", "--find-links", str(WHEELHOUSE))
+# The dev lock: every wheelhouse download and install takes its versions from it.
+CONSTRAINTS = REPO_ROOT / "constraints-dev.txt"
+# pip for the venvs, build backends for the stub projects, steady-py's own build backend and
+# dependencies, and ipykernel for the kernel tier.
+TOOLING = ["pip", "setuptools>=64", "wheel", "hatchling", "pdm-backend", "editables", "packaging", "resolvelib", "ipython", "ipykernel"]
+OFFLINE = ("--no-index", "--find-links", str(WHEELHOUSE), "-c", str(CONSTRAINTS))
 
 
 @dataclass(frozen=True)
@@ -27,13 +29,13 @@ class Venv:
         return self.path / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
-def _check(*cmd) -> None:
+def _check(*cmd: object) -> None:
     result = subprocess.run([str(c) for c in cmd], capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"{' '.join(map(str, cmd))} failed:\n{result.stdout}{result.stderr}")
 
 
-def _pip(python, *args) -> None:
+def _pip(python: object, *args: object) -> None:
     _check(python, "-m", "pip", "--disable-pip-version-check", "-q", *args)
 
 
@@ -46,7 +48,7 @@ def ensure_wheelhouse() -> Optional[str]:
     except RuntimeError:
         pass
     try:
-        _pip(sys.executable, "download", "-d", WHEELHOUSE, *TOOLING)
+        _pip(sys.executable, "download", "-c", CONSTRAINTS, "-d", WHEELHOUSE, *TOOLING)
         return None
     except RuntimeError as error:
         return f"wheelhouse {WHEELHOUSE} is incomplete and could not be downloaded: {error}"
@@ -67,8 +69,12 @@ def build_steady_py(dist: Path) -> Path:
 
 
 def create_venv(path: Path, with_pip: bool = True) -> Venv:
+    """A new venv; with pip, that pip is moved to the locked version, not the one ensurepip bundles."""
     _check(sys.executable, "-m", "venv", *([] if with_pip else ["--without-pip"]), path)
-    return Venv(Path(path))
+    venv = Venv(Path(path))
+    if with_pip:
+        _pip(venv.python, "install", *OFFLINE, "pip")
+    return venv
 
 
 def steady_venv(path: Path, dist: Path) -> Venv:

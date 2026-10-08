@@ -54,5 +54,5 @@ How work on steady-py is done. Product rules (what the tool does for users) live
 ## 6. Environment
 
 1. Ron develops on Windows 11 with Python 3.13; the sandbox is Linux. Windows items still to verify are in test_foundations_design.md, §13.
-2. Setup after cloning: `pip install -e . pytest nbformat ipykernel jupyter_client`, adding `--break-system-packages` where the Python is externally managed (PEP 668), as in the sandbox. The venv tier downloads its wheelhouse on first use.
+2. Setup after cloning, in a venv: `python -m pip install -c constraints-dev.txt pip`, then `python -m pip install -c constraints-dev.txt -e . mypy pytest nbformat ipykernel jupyter_client`. `constraints-dev.txt` is the dev lock: the unit, venv and kernel tiers run against it, and the venv tier's wheelhouse downloads and installs use it. The Docker tiers stay unpinned, since they stand in for users' environments. To move the lock, freeze a clean Windows Python 3.13 venv set up the same way plus `setuptools wheel hatchling pdm-backend editables`, with `pip freeze --all --exclude-editable`, then add the Linux-only pins (pexpect, ptyprocess).
 3. The sandbox can't run Docker.

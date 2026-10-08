@@ -119,6 +119,8 @@ def docker_work(steady_dist, tmp_path):
         pytest.skip(reason)
     wheels = tmp_path / "work" / "wheels"
     wheels.mkdir(parents=True)
+    # Not the wheelhouse's pip: the Docker tiers keep the image's own pip, as users would.
     for wheel in [*Path(steady_dist).glob("*.whl"), *WHEELHOUSE.glob("*.whl")]:
-        shutil.copy2(wheel, wheels)
+        if not wheel.name.startswith("pip-"):
+            shutil.copy2(wheel, wheels)
     return tmp_path / "work"
