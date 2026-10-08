@@ -182,7 +182,10 @@ def _harvest_raw_lines(source: str, cell: Cell, cell_idx: int, found: _Harvest) 
             if magic in INSTALL_MAGICS:
                 _record(f"{magic} {rest}", clean_line, Invocation.LINE_MAGIC, cell, cell_idx, line_idx, None, found)
             continue
-        _record(clean_line.lstrip("!"), clean_line, Invocation.SHELL_ESCAPE, cell, cell_idx, line_idx, None, found)
+        if clean_line.startswith("!"):
+            _record(clean_line[1:], clean_line, Invocation.SHELL_ESCAPE, cell, cell_idx, line_idx, None, found)
+        else:  # `pip install x` with no prefix runs as an automagic
+            _record(clean_line, clean_line, Invocation.LINE_MAGIC, cell, cell_idx, line_idx, None, found)
 
 
 def _harvest(code_sources: scanning.CellsLike) -> _Harvest:
@@ -362,7 +365,7 @@ def _raw_install_notice(line: InstallLine, spec: str) -> DiagnosticEvent:
         f"the same resource.", level="notice")
 
 
-def _pip_line_diagnostics(line: InstallLine) -> List[DiagnosticEvent]:
+def _pip_line_diagnostics(line: InstallLine, datasets: Set[str]) -> List[DiagnosticEvent]:
     """What a creator should know about one pip or uv line. A line the setup cell doesn't reproduce
     gets one warning saying why; its shared files and editables are reported either way."""
     out: List[DiagnosticEvent] = []
@@ -400,11 +403,12 @@ def _pip_line_diagnostics(line: InstallLine) -> List[DiagnosticEvent]:
     elif line.readability == Readability.COMPUTED:
         out.append(DiagnosticEvent.at(
             line.cell, line.line_idx, "computed_install",
-            f"'{line.text}' names packages or options with a variable, which steady-py can't know before it "
+            f"'{line.text}' names packages or options with a variable or wildcard, which steady-py can't know before it "
             f"runs, so the setup cell doesn't install those. The line stays in your notebook and runs there as before."))
     for option in line.options:
         dataset = installargs.kaggle_dataset(option.value or "")
-        if dataset:
+        if dataset and dataset not in datasets:
+            datasets.add(dataset)
             out.append(_kaggle_input_notice(line, option.value or "", dataset))
     return out
 
@@ -418,10 +422,14 @@ def harvest_cell_magics_and_commands(
     resolved_occs, magic_warnings = resolve_pip_occurrences(occurrences)
     magic_notices: List[DiagnosticEvent] = []
 
+    datasets: Set[str] = set()  # one notice per Kaggle dataset: attaching it is the creator's one action
     for raw, line in raw_installs:
         dataset = installargs.kaggle_dataset(raw.spec)
-        magic_notices.append(_kaggle_input_notice(line, raw.spec, dataset) if dataset
-                             else _raw_install_notice(line, raw.spec))
+        if dataset is None:
+            magic_notices.append(_raw_install_notice(line, raw.spec))
+        elif dataset not in datasets:
+            datasets.add(dataset)
+            magic_notices.append(_kaggle_input_notice(line, raw.spec, dataset))
 
     base_index_urls: Set[str] = set()
     extra_index_urls: Set[str] = set()
@@ -434,7 +442,7 @@ def harvest_cell_magics_and_commands(
 
     for _cell_idx, line in found.lines:
         if line.tool in _PIP_TOOLS:
-            for event in _pip_line_diagnostics(line):
+            for event in _pip_line_diagnostics(line, datasets):
                 (magic_notices if event.level == "notice" else magic_warnings).append(event)
         elif line.tool == Tool.SYSTEM:
             magic_notices.append(DiagnosticEvent.at(

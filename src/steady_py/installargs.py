@@ -316,8 +316,8 @@ def _pip_install(words: List[str], tool: str) -> Optional[ParsedCommand]:
                 parsed.elsewhere = f"{canonical} {value}"
         else:
             parsed.targets.append(classify_target(value))
-    texts = [t.text for t in parsed.targets] + [o.value or "" for o in parsed.options]
-    if any(_is_computed(text) for text in texts):
+    if any(t.kind == TargetKind.COMPUTED or _is_computed(t.text) for t in parsed.targets) \
+            or any(_is_computed(o.value or "") for o in parsed.options):
         parsed.readability = Readability.COMPUTED
     return parsed
 
@@ -347,7 +347,8 @@ def classify_target(token: str) -> InstallTarget:
     if "://" in token or token.lower().startswith(_VCS_PREFIXES):
         return InstallTarget(TargetKind.URL, token)
     if _looks_like_path(token):
-        return InstallTarget(TargetKind.PATH, token)
+        # the shell expands an unquoted `*` or `?` when the notebook runs; Cell 2 runs no shell
+        return InstallTarget(TargetKind.COMPUTED if "*" in token or "?" in token else TargetKind.PATH, token)
     if req is not None:
         return _requirement(TargetKind.REQUIREMENT, token, req)
     return InstallTarget(TargetKind.INVALID, token)
@@ -360,7 +361,8 @@ def _requirement(kind: str, token: str, req: Requirement) -> InstallTarget:
 
 
 def kaggle_dataset(path: str) -> Optional[str]:
-    """The dataset a `/kaggle/input/<dataset>/...` path comes from (decision 11)."""
-    match = re.match(r"^/kaggle/input/([^/]+)", path)
+    """The dataset a Kaggle input path comes from (decision 11): `/kaggle/input/<dataset>/...`, as a
+    `file://` URL, or the older relative `../input/<dataset>/...`."""
+    match = re.match(r"^(?:file://)?(?:/kaggle/input|\.\./input)/([^/]+)", path)
     return match.group(1) if match else None
 

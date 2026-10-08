@@ -156,6 +156,26 @@ def test_kaggle_input_wheel_names_its_dataset(tmp_path, pypi):
     assert [d for d in written["dependencies"] if canonicalize_name(d["name"]) == "demo"] == []
 
 
+@finding("DG8")
+@pytest.mark.parametrize("lines", [
+    ("!pip install --no-index --find-links=file:///kaggle/input/offline-wheels/pkgs packaging",),
+    ("!pip install ../input/offline-wheels/demo-1.0-py3-none-any.whl",),  # Kaggle's older relative form
+    ("!pip install /kaggle/input/offline-wheels/demo-1.0-py3-none-any.whl",
+     "!pip install --no-index -f /kaggle/input/offline-wheels packaging"),  # one notice per dataset
+], ids=["file-url", "relative", "same-dataset"])
+def test_kaggle_input_forms_give_one_notice_per_dataset(tmp_path, lines):
+    outcome = _scan(tmp_path, *lines)
+    assert len(outcome.notices(type="kaggle_input_install", about="offline-wheels")) == 1
+
+
+@finding("G4")
+def test_wildcard_wheel_path_is_computed_not_a_raw_install(tmp_path, pypi):
+    # The shell expands `*` when the notebook runs; Cell 2 runs pip without a shell.
+    outcome, written = _snapshot_manifest(tmp_path, pypi, "!pip install /tmp/wheels/demo*.whl")
+    assert outcome.warnings(type="computed_install")
+    assert written["raw_installs"] == []
+
+
 def test_option_table_matches_pips_own_parser():
     from pip._internal.commands import create_command  # pip's parser is the source of truth
     table = pip_option_table()
