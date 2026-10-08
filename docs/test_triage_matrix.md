@@ -58,7 +58,7 @@ Reading test status:
 | G15 | Live kernel reads transformed source; no install lines harvested | Y |  | fixed | L | F7 | One cell per form: `%pip`, `!pip`, `%%writefile`, `%conda`; file mode is each test's control. Existing tests patch the reader and can't catch this |
 | D1 | Live session counts `steady_py` as an import | Y |  | fixed | L | F7 | Also in file mode: a scan of a snapshotted notebook reports Cell 2's `import steady_py` as a platform module (tested at U), and a user's own `import steady_py` in either mode |
 | K13 | Deeply nested expression exceeds the import visitor's recursion limit | Y |  | fixed | U | F1 | A single-file run crashes with a traceback |
-| K14 | Lines after a backslash-continued magic get shifted line numbers | Y | deferred | 1.3 | U | F1 | Line numbers within the cell match the raw cell after a continued `!pip install` |
+| K14 | Lines after a backslash-continued magic get shifted line numbers | Y |  | fixed | U | F1 | Line numbers within the cell match the raw cell after a continued `!pip install` |
 | P7 | Batch notices lose their notebook; cell numbers match nothing visible | Y |  | fixed | U | F1 | Markdown cells before code; same notice in two notebooks |
 
 ## Install-line harvesting
@@ -198,7 +198,6 @@ Rows:
 2. ED1, ED2, ED4, ED6 (V): the editable and local-module join is rewritten in step 2.2. They need stub projects not yet in `tests/fixtures/projects/` (hatchling, pdm-backend, a legacy `setup.py develop`), and ED4 needs design §13.1 confirmed.
 3. ED5 (V): also needs F6.
 4. CH3 (U): written with step 1.4's argument parsing, alongside G12.
-5. K14 (U): waits for the corpus count in its review_findings.md entry, which decides between fixing and accepting the shift.
 
 Foundations and infrastructure:
 

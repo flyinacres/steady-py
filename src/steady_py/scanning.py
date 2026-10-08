@@ -3,6 +3,7 @@ AST scan that finds imports, guarded imports and dynamic-import warnings."""
 import ast
 import json
 import os
+import re
 import sys
 import warnings
 from dataclasses import dataclass
@@ -453,6 +454,34 @@ def _too_deep(cell: Optional[Cell]) -> DiagnosticEvent:
                               "This cell nests too deeply for steady-py to analyze, so imports in it may be missing from the report.")
 
 
+_CONTINUED_ESCAPE = re.compile(r"^\s*(?:[\w.,\s]+=\s*)?[%!].*\\$")
+
+
+def _line_starts(source: str, transformed: str, offset: int) -> Optional[List[int]]:
+    """0-based raw line of each transformed line (K14). IPython joins a `%` or `!` line ending in a
+    backslash with the lines it continues, and nothing else, so each joined run counts once. None if
+    the count doesn't match the transform, so the plain offset applies."""
+    raw = source.splitlines()
+    starts: List[int] = []
+    i = 0
+    while i < len(raw):
+        starts.append(i)
+        if _CONTINUED_ESCAPE.match(raw[i]):
+            while i + 1 < len(raw) and raw[i].rstrip().endswith("\\"):
+                i += 1
+        i += 1
+    if starts == list(range(len(raw))) or len(starts) - offset != len(transformed.splitlines()):
+        return None
+    return starts
+
+
+def _raw_line(starts: Optional[List[int]], lineno: int, offset: int) -> int:
+    """1-based raw line for a 1-based line of the transformed text."""
+    if starts is None or not 0 <= lineno - 1 + offset < len(starts):
+        return lineno + offset
+    return starts[lineno - 1 + offset] + 1
+
+
 def parse_cell(cell: Cell, notebook_python: Optional[str] = None) -> ParsedCell:
     """The one place that decides how a cell reads as Python (K1, K2, G13)."""
     return _parse(cell.source, 0, cell, notebook_python)
@@ -471,14 +500,23 @@ def _parse(source: str, offset: int, cell: Cell, notebook_python: Optional[str])
     except SyntaxError as e:
         if kind == "WRITEFILE":
             return ParsedCell(kind)  # a written file needn't be Python
-        where = f"line {(e.lineno or 1) + offset + line}"
+        error_line = offset + (_raw_line(_line_starts(source, text, line), e.lineno or 1, line) if kind == "PYTHON"
+                               else (e.lineno or 1) + line)
+        where = f"line {error_line}"
         return ParsedCell(kind, diagnostic=DiagnosticEvent.at(
-            cell, (e.lineno or 1) - 1 + offset + line, "unparseable_cell",
+            cell, error_line - 1, "unparseable_cell",
             f"steady-py couldn't read this cell as Python ({where}: {e.msg}), so imports in it are missing"
             f" from the report.{_version_note(notebook_python)}"))
     except RecursionError:
         return ParsedCell(kind, diagnostic=_too_deep(cell))
-    ast.increment_lineno(tree, offset + line)
+    starts = _line_starts(source, text, line) if kind == "PYTHON" else None
+    if starts is None:
+        ast.increment_lineno(tree, offset + line)
+    else:
+        for node in ast.walk(tree):
+            for attr in ("lineno", "end_lineno"):
+                if getattr(node, attr, None) is not None:
+                    setattr(node, attr, offset + _raw_line(starts, getattr(node, attr), line))
     return ParsedCell(kind, tree)
 
 

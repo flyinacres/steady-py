@@ -111,6 +111,15 @@ def test_install_lines_are_located_where_the_user_sees_them(tmp_path):
         "%pip install packaging", "pip", 2, 1, "Setup")
 
 
+@finding("K14")
+def test_lines_after_a_continued_magic_keep_their_cell_line(tmp_path):
+    source = "!pip install \\\n    packaging\nif IN_COLAB:\n    %pip install resolvelib"
+    outcome = run("scan", Notebook(code(source)).write(tmp_path))
+    assert [line["line_idx"] for line in outcome.install_lines()] == [0, 3]
+    warning, = outcome.warnings(type="guarded_install")
+    assert warning["line_idx"] == 3
+
+
 @finding("D1")
 def test_scan_of_a_snapshotted_notebook_ignores_the_setup_cells_import(tmp_path, pypi):
     outcome = run("scan", _snapshot(tmp_path, pypi))
