@@ -21,7 +21,7 @@ Scope: the shared support code that the tests in `test_triage_matrix.md` are bui
 6. `tests/selftest/`: tests of the support code itself (markers, hygiene, notebook builder, runner, fake PyPI, site dirs, venvs).
 7. `tests/fixtures/`: saved artifacts. `notebooks/` (real-world patterns worth reading), `projects/` (stub package sources wheels are built from), `pypi/` (trimmed real PyPI responses shared by several tests).
 8. `tests/.wheelhouse/` (gitignored): downloaded build backends and built wheels.
-9. Existing test files stay in place until the pruning step; §14 maps each to its replacement.
+9. Existing test files stay in place until they break; §14 maps each to its replacement.
 
 ## 3. Markers and tiers
 
@@ -148,7 +148,6 @@ Top-level `tests/test_*.py`:
 | `test_drift_check.py` | Breaks: patches `_fetch_pypi_json` and drift internals | characterization/test_check_signals.py; behavior/test_validation.py | Extras in the resolution graph walk (which extras are walked, conflicts an extra creates) |
 | `test_drift_check_live.py` | Breaks: calls `drift` and `pypi` against real PyPI | behavior/test_validation.py against the fake | The fake's response shapes are trimmed real responses; a slim real-PyPI contract check is still worth keeping |
 | `test_endpoints.py` | Breaks: 40 patches | characterization (all files); behavior/test_live.py for the live-session target | 1, 8 |
-| `test_installed.py` | Breaks: pin-string parsing internals | behavior/test_runtime.py (R1, R3) | none |
 | `test_json_format.py` | Breaks: patches `sys.argv` and the environment | none | 6 |
 | `test_magic_harvesting.py` | Breaks: calls `magics` and `scanning` directly, no patches | behavior/test_install_lines.py, test_reading.py (G13) | 5 |
 | `test_manifest_roundtrip.py` | Breaks | characterization/test_manifest_lifecycle.py, test_local_modules.py; behavior/test_reading.py (K1) | none known; the malformed-entry cases border CH1 |
@@ -156,8 +155,8 @@ Top-level `tests/test_*.py`:
 | `test_results.py` | Mostly survives: the result types are public API, but its helpers build them from `models` and `drift` | | |
 | `test_runtime.py` | Breaks: patches `subprocess.run` | characterization/test_setup_runtime.py; behavior/test_runtime.py | 8 |
 | `test_steady_py.py` | Breaks: 57 patches across most modules | behavior/test_reading.py, test_install_lines.py, test_pins.py; characterization/test_distribution_names.py | 1, 4 |
-| `test_steady_py_fixtures.py` | Breaks: patches the environment and OpenCV probe | characterization/test_distribution_names.py; behavior/test_pins.py (K9) | none known |
-| `test_structural_fixtures.py` | Breaks: same coupling | characterization (all files) | none known |
+| `test_steady_py_fixtures.py` | Breaks: patches the environment and OpenCV probe | characterization/test_distribution_names.py; behavior/test_pins.py (K9) | 1; extras in the resolution graph walk |
+| `test_structural_fixtures.py` | Breaks: same coupling | characterization (all files) | Cell order by execution count; the directory report's unresolved-packages section |
 
 `tests/runners/` (docker tier, driven by `run_suite.py`): all survive the rearchitecture unchanged in form, since they run the CLI and kernels as subprocesses, but their assertions on Cell 2 and report text will need updating as that output changes.
 

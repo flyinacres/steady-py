@@ -2,6 +2,7 @@
 /steady_py/
 /steady_py/*.egg.info/
 /steady_py.egg-info/
+src/steady_py.egg-info/
 .venv/
 venv/
 
