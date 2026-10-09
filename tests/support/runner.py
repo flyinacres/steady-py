@@ -93,9 +93,10 @@ def write_install_inputs(directory: Path, pins: Iterable[str], python: Tuple[int
     return script
 
 
-def _from_wheels_only(wheels: Path) -> dict:
-    """The environment for pip to install from `wheels` alone, as Cell 2's runner would configure it."""
-    return {**os.environ, "PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(wheels)}
+def _from_wheels_only(wheels: Path) -> Dict[str, str]:
+    """The environment for pip to install from `wheels` alone, as Cell 2's runner would configure it.
+    Output is UTF-8, as in a Jupyter kernel and as these runs decode it, whatever the console's code page."""
+    return {**os.environ, "PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(wheels), "PYTHONIOENCODING": "utf-8"}
 
 
 def install_in(venv: Venv, pins: Iterable[str], wheels: Path, *, raw_installs: Iterable[str] = (),

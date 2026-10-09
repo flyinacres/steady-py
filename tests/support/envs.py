@@ -14,9 +14,9 @@ WHEELHOUSE = REPO_ROOT / "tests" / ".wheelhouse"
 PROJECTS = REPO_ROOT / "tests" / "fixtures" / "projects"
 # The dev lock: every wheelhouse download and install takes its versions from it.
 CONSTRAINTS = REPO_ROOT / "constraints-dev.txt"
-# pip for the venvs, build backends for the stub projects, steady-py's own build backend and
-# dependencies, and ipykernel for the kernel tier.
-TOOLING = ["pip", "setuptools>=64", "wheel", "hatchling", "pdm-backend", "editables", "packaging", "resolvelib", "ipython", "ipykernel"]
+# Build backends for the stub projects, steady-py's own build backend and dependencies, and
+# ipykernel for the kernel tier.
+TOOLING = ["setuptools>=64", "wheel", "hatchling", "pdm-backend", "editables", "packaging", "resolvelib", "ipython", "ipykernel"]
 OFFLINE = ("--no-index", "--find-links", str(WHEELHOUSE), "-c", str(CONSTRAINTS))
 
 
@@ -69,12 +69,8 @@ def build_steady_py(dist: Path) -> Path:
 
 
 def create_venv(path: Path, with_pip: bool = True) -> Venv:
-    """A new venv; with pip, that pip is moved to the locked version, not the one ensurepip bundles."""
     _check(sys.executable, "-m", "venv", *([] if with_pip else ["--without-pip"]), path)
-    venv = Venv(Path(path))
-    if with_pip:
-        _pip(venv.python, "install", *OFFLINE, "pip")
-    return venv
+    return Venv(Path(path))
 
 
 def steady_venv(path: Path, dist: Path) -> Venv:
