@@ -188,6 +188,10 @@ def _distribution(
     local file or a URL, or from an index (pinned, with extras promotion)."""
     label = imported_as or dist
     canon = util.canonicalize_pkg_name(dist)
+    if canon in BUILD_AND_PACKAGING_TOOLS:  # `%pip install -U pip` too: the runner's tools are its own
+        return Resolved([DependencyEntry(
+            name=dist, status=DependencyStatus.BUILD_TOOL, is_comment=True,
+            comment_text=f"# {dist} (core Python build/packaging tool; excluded from requirement lockfiles)")])
     matched_pin = ctx.frozen_env.get(canon)
     if canon in ctx.editables:
         return _editable(dist, label, ctx, guarded, where, placed)

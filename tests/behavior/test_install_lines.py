@@ -243,6 +243,14 @@ def test_install_line_and_import_of_one_distribution_give_one_entry(tmp_path, ba
     assert [canonicalize_name(d["name"]) for d in outcome.dependencies()] == [dist]
 
 
+@pytest.mark.parametrize("tool", ["pip", "setuptools"])
+def test_an_install_line_for_a_packaging_tool_is_not_pinned(tmp_path, tool):
+    outcome = run("scan", Notebook(code(f"%pip install --upgrade {tool}")).write(tmp_path))
+    assert outcome.exit_code in (0, 1), outcome.log
+    assert outcome.dependency(tool)["status"] == "build_tool"
+    assert tool not in outcome.pins()
+
+
 @pytest.mark.venv
 @finding("G2")
 def test_unconditional_install_wins_over_a_guarded_import_of_another_name(tmp_path, base_venv):
