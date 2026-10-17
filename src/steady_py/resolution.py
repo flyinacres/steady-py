@@ -208,7 +208,7 @@ def _distribution(
             return Resolved([DependencyEntry(
                 name=dist, version="", status=DependencyStatus.GUARDED, is_comment=True,
                 comment_text=f"# {dist} (optional or conditional dependency inside try/except block; {installed.direct_reference_note(direct_url)})")],
-                warnings=_local_install_warning(dist, label, direct_url, where))
+                warnings=_local_install_warning(dist, label, direct_url, where, ctx))
         if matched_pin:
             return Resolved([DependencyEntry(
                 name=dist, version=pin_version or "", status=DependencyStatus.GUARDED, is_comment=True,
@@ -228,7 +228,7 @@ def _distribution(
             return Resolved([DependencyEntry(
                 name=dist, status=DependencyStatus.SYSTEM_PATH, is_comment=True,
                 comment_text=f"# {dist} (imported as '{label}'; {note})")],
-                warnings=_local_install_warning(dist, label, direct_url, where))
+                warnings=_local_install_warning(dist, label, direct_url, where, ctx))
         return Resolved([DependencyEntry(
             name=dist, status=DependencyStatus.DIRECT_REFERENCE, is_comment=True,
             comment_text=f"# {dist} (imported as '{label}'; {note})", direct_url=direct_url)])
@@ -263,9 +263,14 @@ def _promoted_extra(dist: str, submodules: Set[str]) -> Optional[str]:
     return None
 
 
-def _local_install_warning(dist: str, label: str, direct_url: str, where: Optional[ImportOccurrence]) -> List[DiagnosticEvent]:
-    """The needs-attention warning for a package installed from a file on this machine (E2a, ED3)."""
+def _local_install_warning(dist: str, label: str, direct_url: str, where: Optional[ImportOccurrence],
+                           ctx: join.JoinContext) -> List[DiagnosticEvent]:
+    """The needs-attention warning for a package installed from a file on this machine (E2a, ED3).
+    None when the notebook's own install line installs that file: it is carried in raw_installs,
+    and the install line already has its notice."""
     if not installed.is_local_direct_url(direct_url):
+        return []
+    if os.path.normcase(installed.file_url_path(direct_url)) in ctx.local_installs:
         return []
     return [_at(where, "local_file_import",
                 f"'{label}' comes from {dist}, installed from a file on this machine, so anyone running this "
@@ -444,7 +449,7 @@ def build_writefile_tool_entries(
             _, pin_version, direct_url = installed.split_frozen_pin(matched_pin)
             if direct_url:
                 text = f"# {name}  ({where}; {installed.direct_reference_note(direct_url)})"
-                resolved.warnings.extend(_local_install_warning(name, module, direct_url, None))
+                resolved.warnings.extend(_local_install_warning(name, module, direct_url, None, ctx))
             else:
                 text, version = f"# {matched_pin}  ({where})", pin_version or ""
         resolved.entries.append(DependencyEntry(

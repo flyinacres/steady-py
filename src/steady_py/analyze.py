@@ -5,7 +5,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterator, List, Mapping, Optional, Set, Tuple
+from typing import Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 from steady_py import accelerator, installed, join, localmodules, magics, resolution, scanning, util
 from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DEFAULT_IGNORED_DIRS, ENVIRONMENT_DIR_MARKERS, DependencyStatus, PLATFORM_PSEUDO_MODULES, StatusLabel, STD_LIB, UNSHAREABLE_STATUSES
@@ -200,12 +200,15 @@ def join_context(
     pkg_dist_map: Mapping[str, List[str]],
     editables: Optional[Mapping[str, str]],
     root_fallback: Optional[str],
+    raw_specs: Sequence[str] = (),
 ) -> join.JoinContext:
-    """The import join's evidence for one notebook: the environment, the notebook's folder, and its
-    project root (localmodules.project_root, with `root_fallback` when no project marker is found)."""
+    """The import join's evidence for one notebook: the environment, the notebook's folder, its
+    project root (localmodules.project_root, with `root_fallback` when no project marker is found),
+    and the local paths its own install lines install (`raw_specs`)."""
     notebook_dir = str(notebook_path.parent)
     return join.JoinContext(frozen_env=frozen_env, pkg_dist_map=pkg_dist_map, editables=editables or {},
-                            notebook_dir=notebook_dir, root_dir=localmodules.project_root(notebook_dir, root_fallback))
+                            notebook_dir=notebook_dir, root_dir=localmodules.project_root(notebook_dir, root_fallback),
+                            local_installs=installed.local_paths(raw_specs, notebook_dir))
 
 
 def build_single_notebook_report(
@@ -218,7 +221,8 @@ def build_single_notebook_report(
 ) -> NotebookAnalysisReport:
     """Builds a complete NotebookAnalysisReport object for a single notebook. `root_dir` is the
     fallback project root for when the notebook has no project marker above it."""
-    ctx = join_context(scan_res.path, frozen_env, pkg_dist_map, editables, root_dir)
+    ctx = join_context(scan_res.path, frozen_env, pkg_dist_map, editables, root_dir,
+                       raw_specs=[r.spec for r in scan_res.raw_installs])
 
     timeline_res = resolution.build_unified_timeline(scan_res.cells, ctx)
 

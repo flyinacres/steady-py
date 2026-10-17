@@ -9,7 +9,7 @@ import re
 import sys
 import urllib.parse
 import urllib.request
-from typing import Dict, FrozenSet, Iterator, Optional, Set, Tuple
+from typing import Dict, FrozenSet, Iterator, List, Optional, Sequence, Set, Tuple
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
@@ -232,6 +232,19 @@ def read_editables() -> Dict[str, str]:
             if location:
                 roots[canon] = str(pathlib.Path(location).resolve())
     return roots
+
+
+def local_paths(specs: Sequence[str], base_dir: str) -> Tuple[str, ...]:
+    """The normalized local paths among install-line specs (`./x.whl`, `/abs/dir`, `file://...`),
+    relative ones taken from `base_dir`; URLs, VCS sources and `name @ url` specs are left out."""
+    paths: List[str] = []
+    for spec in specs:
+        if spec.startswith("file:"):
+            paths.append(os.path.normcase(file_url_path(spec)))
+        elif "://" not in spec and "@" not in spec and not spec.startswith(("git+", "hg+", "svn+", "bzr+")):
+            path = pathlib.Path(spec)
+            paths.append(os.path.normcase(str((path if path.is_absolute() else pathlib.Path(base_dir) / path).resolve())))
+    return tuple(paths)
 
 
 def file_url_path(url: str) -> str:

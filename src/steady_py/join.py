@@ -39,6 +39,7 @@ class JoinContext:
     editables: Mapping[str, str]                 # canonical name -> source directory (installed.read_editables)
     notebook_dir: Optional[str] = None
     root_dir: Optional[str] = None
+    local_installs: Tuple[str, ...] = ()         # normalized local paths the notebook's own install lines install
 
 
 @dataclass(frozen=True)

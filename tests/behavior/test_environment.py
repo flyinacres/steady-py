@@ -67,6 +67,18 @@ def test_local_file_install_is_reported_not_pinned(tmp_path, base_venv):
 
 
 @pytest.mark.venv
+@finding("E2a")
+def test_local_file_the_notebook_installs_itself_raises_no_warning(tmp_path, base_venv):
+    # The install line carries the file into raw_installs; it has its own notice, so no exit 1.
+    wheel = tmp_path / "wheelpkg-2.0-py3-none-any.whl"
+    site = SiteDir(tmp_path / "site")
+    site.add("wheelpkg", "2.0", **file_url(wheel))
+    outcome = _run(base_venv, tmp_path, f"%pip install {wheel.as_posix()}\nimport wheelpkg", site)
+    assert outcome.exit_code == 0, outcome.log
+    assert not outcome.warnings(type="local_file_import")
+
+
+@pytest.mark.venv
 @finding("E2b")
 def test_conda_built_package_is_pinned_with_a_notice(tmp_path, base_venv):
     site = SiteDir(tmp_path / "site")

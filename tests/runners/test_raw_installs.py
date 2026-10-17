@@ -86,14 +86,16 @@ def remove_package(step: str, verify: bool = False) -> None:
               shown.returncode != 0)
 
 
-def snapshot_notebook(step: str, code_cells: list[str], name: str):
-    """Runs steady-py snapshot --output on a temporary notebook. Returns (merged_path, manifest, cell2_source, raw_text)."""
+def snapshot_notebook(step: str, code_cells: list[str], name: str, expect_exit: int = 0):
+    """Runs steady-py snapshot --output on a temporary notebook, which must exit `expect_exit` (1 when
+    the notebook imports something only this machine has). Returns (merged_path, manifest, cell2_source, raw_text)."""
     nb_path = FIXTURES_DIR / f"temp_raw_installs_{name}.ipynb"
     merged_path = nb_path.with_name(nb_path.stem + "_merged.ipynb")
     with temp_notebook(nb_path, code_cells, metadata={"language_info": {"name": "python"}}):
         result = run_steady_py("snapshot", str(nb_path), "--output")
-        if not result.ok:
-            fail_test(step, "steady-py snapshot --output failed", stdout=result.stdout, stderr=result.stderr)
+        if result.returncode != expect_exit:
+            fail_test(step, f"steady-py snapshot --output exited {result.returncode}, expected {expect_exit}",
+                      stdout=result.stdout, stderr=result.stderr)
         if not merged_path.exists():
             fail_test(step, f"merged notebook was not written: {merged_path}", stdout=result.stdout)
     manifest, error = generate.extract_manifest_from_file(str(merged_path))
@@ -219,8 +221,10 @@ def main() -> None:
         show("raw_installs", manifest.raw_installs)
         show("pinned", [d.name for d in manifest.dependencies])
         show("Cell 2 says", line_with(cell2, DIST_NAME))
-        check(step, "the recorded source URL is inferred into raw_installs",
-              [r.spec for r in manifest.raw_installs] == [url], raw_installs=manifest.raw_installs)
+        # pip records the archive's hash, and the inferred spec carries it (step 2.1), so pip verifies it at install.
+        inferred = [r.spec for r in manifest.raw_installs]
+        check(step, "the recorded source URL is inferred into raw_installs, with its hash",
+              len(inferred) == 1 and inferred[0].split("#sha256=")[0] == url, raw_installs=manifest.raw_installs)
         check(step, "the package is not pinned as if it were on PyPI",
               not [d for d in manifest.dependencies if DIST_NAME in d.name], dependencies=manifest.dependencies)
         check(step, "Cell 2 describes it as installed from a direct URL, not 'not found'",
@@ -230,7 +234,7 @@ def main() -> None:
         show("kernel run", f"{cells} code cells executed, {len(errors)} errors")
         show_output(stdout, relevant, errors)
         check(step, "the generated notebook runs cleanly in a fresh kernel", not errors, errors=errors, stdout=stdout)
-        check(step, "Cell 2 installs the inferred URL", f"{url} installed successfully" in stdout, stdout=stdout)
+        check(step, "Cell 2 installs the inferred URL", f"{inferred[0]} installed successfully" in stdout, stdout=stdout)
         check(step, "the package is usable after Cell 2", "RAW-INSTALL-VERIFIED inferred-url" in stdout, stdout=stdout)
 
         step = begin(3, "Unreachable source", "the step 2 notebook again, with the HTTP server stopped")
@@ -240,7 +244,7 @@ def main() -> None:
         stdout, errors, cells = execute(step, inferred_url_notebook)
         show("kernel run", f"{cells} code cells executed, {len(errors)} errors")
         show_output(stdout, relevant, errors)
-        check(step, "Cell 2 reports that the raw install failed", f"{url} failed to install" in stdout, stdout=stdout)
+        check(step, "Cell 2 reports that the raw install failed", f"{inferred[0]} failed to install" in stdout, stdout=stdout)
         check(step, "Cell 2 explains what a failed custom source means",
               "custom-specified source" in stdout and "contact the notebook's author" in stdout, stdout=stdout)
         check(step, "the failure surfaces downstream as exactly one ModuleNotFoundError (nothing is hidden)",
@@ -249,7 +253,7 @@ def main() -> None:
         step = begin(4, "Inferred local path", "installed by hand from a local path; the notebook has no install line")
         remove_package(step)
         pip(step, "install", str(wheel))
-        merged, manifest, cell2, text = snapshot_notebook(step, [verify_code("local-path")], "local_path")
+        merged, manifest, cell2, text = snapshot_notebook(step, [verify_code("local-path")], "local_path", expect_exit=1)
         merged_files.append(merged)
         show("raw_installs", manifest.raw_installs)
         show("Cell 2 says", line_with(cell2, DIST_NAME))
