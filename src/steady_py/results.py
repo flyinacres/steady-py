@@ -52,7 +52,7 @@ class Environment:
     """
     frozen_env: Dict[str, str]                 # installed distribution -> its pin, e.g. 'numpy==2.0.1'
     pkg_dist_map: Mapping[str, List[str]]      # import name -> distributions that provide it
-    raw_full_freeze: List[str] = field(default_factory=list)  # full pip freeze lines
+    raw_full_freeze: List[str] = field(default_factory=list)  # every installed pin, for --full-freeze
 
 
 @dataclass(frozen=True)

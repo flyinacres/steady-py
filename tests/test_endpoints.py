@@ -168,7 +168,7 @@ def isolated(monkeypatch):
 
     def no_detection():
         raise AssertionError("the environment should have been passed in")
-    monkeypatch.setattr(installed, "get_installed_environment", no_detection)
+    monkeypatch.setattr(installed, "read_installed", no_detection)
 
 
 def _source(tmp_path, source="import requests", name="nb.ipynb"):
@@ -203,7 +203,7 @@ class TestScan:
 
     def test_detects_the_environment_when_none_is_given(self, tmp_path, monkeypatch):
         monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
-        monkeypatch.setattr(installed, "get_installed_environment", lambda: ({"requests": "requests==2.32.3"}, []))
+        monkeypatch.setattr(installed, "read_installed", lambda: {"requests": "requests==2.32.3"})
         notebook, = scan(_source(tmp_path)).notebooks
         assert [d.version for d in notebook.report.dependencies] == ["2.32.3"]
 

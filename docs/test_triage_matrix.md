@@ -90,19 +90,19 @@ Reading test status:
 
 | ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| E1 | Failed freeze gives an empty verified manifest, exit 0 | Y |  | 2.1 | V | `venv --without-pip` | Exit 2, nothing written. Non-ASCII editable path variant on the Windows host |
+| E1 | Failed freeze gives an empty verified manifest, exit 0 | Y |  | fixed | V | `venv --without-pip` | Capture reads importlib.metadata and needs no pip; the test asserts a pip-less venv is captured |
 | E2a | Local `file://` wheel dropped | Y |  | 2.1 | V | F5 | Expect a creator candidate report |
 | E2b | Conda-built `file://` packages dropped | Y |  | 2.1 | V | F4 | `INSTALLER=conda`; confirm once in F8 |
-| E3 | Overlay pins a shadowed copy | Y |  | 2.1 | V | F4 | Two site dirs, first without `direct_url.json` |
-| E5 | `#subdirectory=` lost; monorepo packages merged | Y |  | 2.1 | V | F4 | The loss is in reading `direct_url.json`; a runtime install from a monorepo needs F6 |
-| E6 | `===` versions stored with a stray `=` | Y |  | 2.1 | V | F4 | Can't be built with modern tools; hand-written only |
-| E7 | Directory scan reports git and conda packages as missing | Y |  | 2.1 | V | F4 |  |
-| E8 | Cell 2 claims a direct reference is installed when nothing installs it | Y |  | 2.1 | V | F4 | One of few assertions on rendered text; a direct reference exists only in a venv |
-| K6 | OpenCV variant from `pip list`; shadowed variant pinned | Y |  | 2.1 | V | F4 | cv2 stubs in two site dirs |
-| C1 | conda-forge OpenCV stubs: wrong variant, false removed | Y |  | 2.1 | V | F4, F3 |  |
+| E3 | Overlay pins a shadowed copy | Y |  | fixed | V | F4 | Two site dirs, first without `direct_url.json` |
+| E5 | `#subdirectory=` lost; monorepo packages merged | Y |  | fixed | V | F4 | A runtime install from a monorepo stays untested until F6 exists |
+| E6 | `===` versions stored with a stray `=` | Y |  | fixed | V | F4 | Can't be built with modern tools; hand-written only |
+| E7 | Directory scan reports git and conda packages as missing | Y |  | fixed | V | F4 |  |
+| E8 | Cell 2 claims a direct reference is installed when nothing installs it | Y |  | fixed | V | F4 | One of few assertions on rendered text; a direct reference exists only in a venv |
+| K6 | OpenCV variant from `pip list`; shadowed variant pinned | Y |  | fixed | V | F4 | cv2 stubs in two site dirs |
+| C1 | conda-forge OpenCV stubs: wrong variant, false removed | Y |  | fixed | V | F4, F3 | With conda stubs alone, opencv-python (the GUI build, a superset of headless) is pinned |
 | K12 | Live kernel treats site-packages modules as local | Y |  | 2.2 | L | F7 |  |
 | E4 | `--full-freeze` embeds private paths | C | not planned | out |  |  | Pending removal decision |
-| DG5 | Pins come from the CLI's interpreter (pipx, uv tool) | N | not planned | 2.1 | V | F5 | Characterization test to confirm the lead; expected behavior is an architecture decision |
+| DG5 | Pins come from the CLI's interpreter (pipx, uv tool) | Y |  | fixed | V | F4 | File and directory runs warn when most third-party imports aren't installed in the CLI's interpreter (fix_plan.md §4 item 5); a `--python` option can follow the release |
 
 ## Editables and local modules
 

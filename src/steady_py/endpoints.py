@@ -27,9 +27,10 @@ DEFAULT_COMPANION_SUFFIX = "_merged"
 
 def detect_environment() -> Environment:
     """The environment this process is running in."""
-    frozen_env, raw_full_freeze = installed.get_installed_environment()
+    frozen_env = installed.read_installed()
     pkg_dist_map = importlib.metadata.packages_distributions() if hasattr(importlib.metadata, "packages_distributions") else {}
-    return Environment(frozen_env=frozen_env, pkg_dist_map=pkg_dist_map, raw_full_freeze=raw_full_freeze)
+    return Environment(frozen_env=frozen_env, pkg_dist_map=pkg_dist_map,
+                       raw_full_freeze=sorted(frozen_env.values(), key=str.lower))
 
 
 def _read_manifest(path: object) -> Tuple[Optional[models.SteadyPyManifest], Optional[str]]:
@@ -102,6 +103,15 @@ def _analyze(target: Optional[str], environment: Optional[Environment]) -> _Anal
     report = analyze.build_single_notebook_report(
         scan_result, environment.frozen_env, environment.pkg_dist_map, hardware, root_dir=root_dir,
     )
+    if kind == TargetKind.FILE:  # a live session's kernel is the notebook's own environment
+        third_party = [d for d in report.dependencies if d.status in
+                       {constants.DependencyStatus.PINNED, constants.DependencyStatus.DIRECT_REFERENCE,
+                        constants.DependencyStatus.SYSTEM_PATH}]
+        missing = sum(1 for d in third_party if d.status == constants.DependencyStatus.PINNED and d.is_comment)
+        warning = analyze.other_interpreter_warning(missing, len(third_party) - missing)
+        if warning:
+            warning.notebook = str(path)
+            report.warnings.append(warning)
     return _Analysis(
         path=str(path), kind=kind, report=report, environment=environment,
         scan_result=scan_result, hardware=hardware, root_dir=root_dir,
@@ -214,6 +224,9 @@ def _analyze_directory(target: str, environment: Optional[Environment], skip_suf
     repo_map = analyze.walk_and_scan_directory(target, skip_suffix=skip_suffix)
     hardware = accelerator.inspect_gpu_environment(list(dict.fromkeys(repo_map.global_imports)))
     summary = analyze.analyze_batch_repository(repo_map, environment.frozen_env, environment.pkg_dist_map, hardware)
+    warning = analyze.other_interpreter_warning(len(summary.missing_packages), len(summary.matched_packages))
+    if warning:
+        summary.dynamic_warnings.append(warning)
     return _DirectoryAnalysis(repo_map=repo_map, summary=summary, environment=environment, hardware=hardware)
 
 

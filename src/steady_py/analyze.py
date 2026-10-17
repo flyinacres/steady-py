@@ -2,6 +2,7 @@
 repository-wide environment map batch runs share (global imports, index URLs, local builds)."""
 import logging
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterator, List, Mapping, Optional, Set, Tuple
@@ -180,6 +181,19 @@ def walk_and_scan_directory(target_dir: str, skip_suffix: Optional[str] = None) 
     return repo_map
 
 
+def other_interpreter_warning(missing: int, installed_count: int) -> Optional[DiagnosticEvent]:
+    """A warning when most of a notebook's third-party imports aren't installed where steady-py
+    runs (DG5): pins come from this interpreter, so the notebook probably runs in another one
+    (a kernel's venv or conda env, while steady-py runs under pipx or uv tool). None otherwise."""
+    if missing == 0 or missing * 2 <= missing + installed_count:
+        return None
+    return DiagnosticEvent(
+        type="other_interpreter",
+        detail=f"{missing} of {missing + installed_count} third-party imports aren't installed in the Python "
+               f"running steady-py ({sys.executable}), so their versions can't be pinned. If the notebook "
+               f"runs in another environment, run steady-py with that environment's Python.")
+
+
 def build_single_notebook_report(
     scan_res: NotebookScanResult,
     frozen_env: Dict[str, str],
@@ -209,12 +223,22 @@ def build_single_notebook_report(
         writefile_entries=writefile_entries
     )
 
+    notices = list(scan_res.magic_notices)
+    for dep in all_dep_entries:
+        installed_pin = frozen_env.get(util.canonicalize_pkg_name(dep.name)) if not dep.is_comment else None
+        conda_version = installed.split_frozen_pin(installed_pin)[1] if installed_pin else None
+        if conda_version and dep.version != conda_version and dep.version == resolution.conda_opencv_release(dep.name, conda_version):
+            notices.append(DiagnosticEvent(
+                type="conda_opencv", level="notice",
+                detail=f"{dep.name} is installed from conda-forge as {conda_version}, which PyPI doesn't have; "
+                       f"pinned PyPI's {dep.version}, the newest release of that version"))
+
     all_warnings: List[DiagnosticEvent] = []
     all_warnings.extend(scan_res.dynamic_warnings)
     all_warnings.extend(scan_res.magic_warnings)
     all_warnings.extend(timeline_res.conflict_warnings)
     all_warnings.extend(hw_warnings)
-    for event in (*all_warnings, *scan_res.magic_notices):
+    for event in (*all_warnings, *notices):
         event.notebook = str(scan_res.path)
     for line in scan_res.install_lines:
         line.notebook = str(scan_res.path)
@@ -237,7 +261,7 @@ def build_single_notebook_report(
         build_and_packaging_tools=build_tools_detected,
         gpu=gpu_info,
         warnings=all_warnings,
-        notices=scan_res.magic_notices,
+        notices=notices,
         promotions=timeline_res.promotion_notices,
         local_tagged=local_tagged,
         install_lines=scan_res.install_lines,
@@ -289,6 +313,9 @@ def analyze_batch_repository(
 
             if dep.is_comment:
                 if dep.status in {"platform_pseudo_module", "build_tool", "local_module"}:
+                    continue
+                if dep.status in {DependencyStatus.DIRECT_REFERENCE, DependencyStatus.SYSTEM_PATH}:
+                    summary.matched_packages.add(dep.name)  # installed, just not from PyPI (E7)
                     continue
                 pypi_name = dep.name
                 if pypi_name:

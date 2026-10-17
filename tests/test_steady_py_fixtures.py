@@ -36,9 +36,8 @@ def mock_environment(monkeypatch):
         "beautifulsoup4": "beautifulsoup4==4.12.3",
         "torch": "torch==2.3.1+cu121",
     }
-    raw_freeze = list(frozen_env.values())
-    monkeypatch.setattr(installed, "get_installed_environment", lambda: (frozen_env, raw_freeze))
-    monkeypatch.setattr(resolution, "resolve_opencv_variant", lambda submodules=None: "opencv-python")
+    monkeypatch.setattr(installed, "read_installed", lambda: frozen_env)
+    monkeypatch.setattr(resolution, "resolve_opencv_variant", lambda submodules=None, frozen_env=None: "opencv-python")
 
     fake_packages_distributions = {
         "numpy": ["numpy"],
@@ -130,9 +129,8 @@ class TestKitchenSinkNotebook:
             "torch": "torch==2.3.1+cu121",
             "umap-learn": "umap-learn==0.5.5",
         }
-        mock_raw_freeze = list(mock_frozen_env.values())
-        monkeypatch.setattr(installed, "get_installed_environment", lambda: (mock_frozen_env, mock_raw_freeze))
-        monkeypatch.setattr(resolution, "resolve_opencv_variant", lambda submodules=None: "opencv-python")
+        monkeypatch.setattr(installed, "read_installed", lambda: mock_frozen_env)
+        monkeypatch.setattr(resolution, "resolve_opencv_variant", lambda submodules=None, frozen_env=None: "opencv-python")
         monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
         monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(kitchen_sink_notebook)])
 

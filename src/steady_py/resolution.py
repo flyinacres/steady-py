@@ -2,11 +2,11 @@
 timeline, import-to-distribution resolution, and the pinned entries the manifest is built from."""
 import importlib.metadata
 import logging
-import subprocess
-import sys
 from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
-from steady_py import installed, localmodules, magics, scanning, util
+from packaging.version import InvalidVersion, Version
+
+from steady_py import installed, localmodules, magics, pypi, scanning, util
 from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DependencyStatus, IMPORT_TO_PYPI_MAP, PLATFORM_PSEUDO_MODULES, STD_LIB
 from steady_py.models import DependencyEntry, DiagnosticEvent, ImportOccurrence, PromotionDetail, TimelineResult
 
@@ -271,7 +271,7 @@ def resolve_pypi_package_and_extras(
         pypi_name = pkg_dist_map[imp][0]
 
     if imp == "cv2":
-        pypi_name = resolve_opencv_variant(submodules_set)
+        pypi_name = resolve_opencv_variant(submodules_set, frozen_env)
 
     if not pypi_name:
         pypi_name = IMPORT_TO_PYPI_MAP.get(imp, imp)
@@ -315,11 +315,11 @@ def resolve_pypi_package_and_extras(
             version="",
             status=DependencyStatus.PINNED,
             is_comment=True,
-            comment_text=f"# {pypi_name} (imported as '{imp}'; not found via pip-freeze or local file scan -- verify before assuming this is truly missing)"
+            comment_text=f"# {pypi_name} (imported as '{imp}'; not installed here or found as a local file -- verify before assuming this is truly missing)"
         ), None
 
     if direct_url:
-        note = installed.direct_reference_note(direct_url)
+        note = installed.direct_reference_note(direct_url, cell2_installs=True)
         if installed.is_local_direct_url(direct_url):
             return DependencyEntry(
                 name=pypi_name,
@@ -335,7 +335,8 @@ def resolve_pypi_package_and_extras(
             direct_url=direct_url
         ), None
 
-    pkg_part, ver_part = matched_pin.split("==", 1)
+    pkg_part, ver, _ = installed.split_frozen_pin(matched_pin)
+    ver_part = conda_opencv_release(pkg_part, ver or "") or ver or ""
 
     extra_tag = None
     if submodules_set:
@@ -415,23 +416,53 @@ def build_dependency_objects(
     return entries, promotions
 
 
-def resolve_opencv_variant(submodules: Optional[Set[str]] = None) -> str:
-    """Determines the appropriate OpenCV package variant installed in the active environment."""
-    has_contrib = any('contrib' in s.lower() or 'aruco' in s.lower() for s in submodules) if submodules else False
+_OPENCV_VARIANTS = ("opencv-python", "opencv-python-headless", "opencv-contrib-python", "opencv-contrib-python-headless")
+
+
+def _installed_by_conda(name: str) -> bool:
     try:
-        res = subprocess.run([sys.executable, "-m", "pip", "list"], capture_output=True, text=True)
-        installed = res.stdout.lower()
-        if "opencv-contrib-python-headless" in installed:
-            return "opencv-contrib-python-headless"
-        elif "opencv-python-headless" in installed:
-            return "opencv-python-headless"
-        elif "opencv-contrib-python" in installed:
-            return "opencv-contrib-python"
-        elif "opencv-python" in installed:
-            return "opencv-python"
-    except Exception as e:  # falls back to the default variant below
-        logger.debug(f"Could not inspect installed OpenCV variants: {e}", exc_info=True)
+        return (importlib.metadata.distribution(name).read_text("INSTALLER") or "").strip() == "conda"
+    except importlib.metadata.PackageNotFoundError:
+        return False
+
+
+def resolve_opencv_variant(submodules: Optional[Set[str]] = None, frozen_env: Optional[Dict[str, str]] = None) -> str:
+    """The installed OpenCV variant that `import cv2` loads: the first on sys.path, since
+    `frozen_env` keeps installed distributions in sys.path order. conda-forge writes stubs for
+    both opencv-python and its headless twin in every build, so with conda stubs alone the
+    GUI variant is chosen, a superset of the headless one (C1). With none installed, the
+    contrib variant when the notebook uses a contrib submodule, else the base one."""
+    found = [canon for canon in frozen_env or {} if canon in _OPENCV_VARIANTS]
+    if found and "opencv-python" in found and all(_installed_by_conda(canon) for canon in found):
+        return "opencv-python"
+    if found:
+        return found[0]
+    has_contrib = any('contrib' in s.lower() or 'aruco' in s.lower() for s in submodules) if submodules else False
     return "opencv-contrib-python" if has_contrib else "opencv-python"
+
+
+def conda_opencv_release(name: str, version: str) -> Optional[str]:
+    """The PyPI release for a conda-forge OpenCV stub (C1): conda versions have three parts
+    (5.0.0), PyPI's four (5.0.0.93), so `==5.0.0` matches nothing. Returns the newest PyPI
+    release with the same first three parts, or None when `name` isn't a conda-built OpenCV
+    or PyPI has no such release."""
+    if util.canonicalize_pkg_name(name) not in _OPENCV_VARIANTS or not _installed_by_conda(name):
+        return None
+    try:
+        conda_version = Version(version)
+    except InvalidVersion:
+        return None
+    if len(conda_version.release) > 3:
+        return None
+    matching = []
+    for release in pypi.fetch_pypi_package_metadata(name).releases or {}:
+        try:
+            candidate = Version(release)
+        except InvalidVersion:
+            continue
+        if candidate.release[:3] == conda_version.release[:3] and not candidate.is_prerelease:
+            matching.append(candidate)
+    return str(max(matching)) if matching else None
 
 
 def process_package_requirements(

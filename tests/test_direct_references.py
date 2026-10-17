@@ -2,11 +2,11 @@
 Packages installed from a direct reference (git URL, archive URL, local path,
 editable install) rather than from PyPI.
 
-Root cause these tests pin down: get_installed_environment assumed every
+Root cause these tests pin down: installed-state capture once assumed every
 `pip freeze` line is `name==version`. Direct references (`name @ url`) were
 dropped, and an editable install's comment line (`# Editable ... (name==0.1.0)`)
 was parsed into a garbage entry, so an installed package was reported as
-"not found".
+"not found". Capture now reads importlib.metadata (installed.read_installed).
 
 Behavior under test:
   - Remote direct reference: not a PyPI pin; carried into raw_installs (unless
@@ -15,7 +15,6 @@ Behavior under test:
     the manifest, and the path never appears anywhere in the generated output.
 """
 import json
-import types
 
 import pytest
 
@@ -28,14 +27,6 @@ LOCAL_DIR = "/home/ron/src/zzq-local"
 REMOTE_PIN = f"zzq-remote @ {REMOTE_URL}"
 LOCAL_PIN = f"zzq-local @ file://{LOCAL_DIR}"
 
-FREEZE_TEXT = "\n".join([
-    "numpy==1.26.4",
-    REMOTE_PIN,
-    LOCAL_PIN,
-    "# Editable Git install with no remote (zzq-editable==0.1.0)",
-    "-e /home/ron/src/zzq-editable",
-])
-
 
 def _make_dist(site_dir, name, version, direct_url):
     info = site_dir / f"{name.replace('-', '_')}-{version}.dist-info"
@@ -46,7 +37,7 @@ def _make_dist(site_dir, name, version, direct_url):
 
 @pytest.fixture
 def fake_environment(tmp_path, monkeypatch):
-    """A site dir holding direct-reference distributions, plus a canned `pip freeze`."""
+    """A site dir holding direct-reference distributions, first on sys.path."""
     site = tmp_path / "site"
     site.mkdir()
     _make_dist(site, "zzq-remote", "1.0", {
@@ -58,28 +49,23 @@ def fake_environment(tmp_path, monkeypatch):
         "url": "file:///home/ron/src/zzq-editable", "dir_info": {"editable": True},
     })
     monkeypatch.syspath_prepend(str(site))
-    monkeypatch.setattr(
-        installed.subprocess, "run",
-        lambda *a, **k: types.SimpleNamespace(returncode=0, stdout=FREEZE_TEXT, stderr=""),
-    )
     return site
 
 
-# --- get_installed_environment ------------------------------------------------
+# --- read_installed -------------------------------------------------------------
 
 class TestInstalledEnvironmentParsing:
     def test_no_garbage_entries_from_comment_or_editable_lines(self, fake_environment):
-        frozen, _ = installed.get_installed_environment()
-        assert frozen["numpy"] == "numpy==1.26.4"
+        frozen = installed.read_installed()
         bad = [k for k in frozen if k.startswith(("#", "-")) or " " in k or "install with no" in k]
         assert bad == []
 
     def test_remote_direct_reference_recorded_with_commit(self, fake_environment):
-        frozen, _ = installed.get_installed_environment()
+        frozen = installed.read_installed()
         assert frozen["zzq-remote"] == REMOTE_PIN
 
     def test_local_and_editable_recorded_as_direct_references(self, fake_environment):
-        frozen, _ = installed.get_installed_environment()
+        frozen = installed.read_installed()
         assert frozen["zzq-local"] == LOCAL_PIN
         assert frozen["zzq-editable"] == "zzq-editable @ file:///home/ron/src/zzq-editable"
 

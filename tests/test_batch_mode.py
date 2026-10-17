@@ -20,7 +20,6 @@ def mock_batch_env(monkeypatch):
         "scikit-learn": "scikit-learn==1.4.2",
         "umap-learn": "umap-learn==0.5.5",
     }
-    raw_freeze = list(frozen_env.values())
     pkg_dist_map = {
         "numpy": ["numpy"],
         "pandas": ["pandas"],
@@ -28,7 +27,7 @@ def mock_batch_env(monkeypatch):
         "sklearn": ["scikit-learn"],
         "umap": ["umap-learn"]
     }
-    monkeypatch.setattr(installed, "get_installed_environment", lambda: (frozen_env, raw_freeze))
+    monkeypatch.setattr(installed, "read_installed", lambda: frozen_env)
     return frozen_env, pkg_dist_map
 
 
@@ -261,7 +260,7 @@ class TestBatchOrchestration:
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         report, is_clean = reporting.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
-        assert "Packages not resolvable via pip-freeze or local file scan: 0" in report
+        assert "Packages neither installed nor found as local files: 0" in report
 
     def test_local_repo_modules_not_flagged_as_missing_pypi_packages(self, tmp_path, mock_batch_env):
         frozen_env, pkg_dist_map = mock_batch_env
@@ -278,7 +277,7 @@ class TestBatchOrchestration:
         repo_map = analyze.walk_and_scan_directory(str(tmp_path))
         report, is_clean = reporting.generate_batch_analysis_report(repo_map, frozen_env, pkg_dist_map, None)
 
-        assert "Packages not resolvable via pip-freeze or local file scan: 0" in report
+        assert "Packages neither installed nor found as local files: 0" in report
 
     def test_canonicalize_pkg_name_normalizes_variants(self):
         """PEP 503 normalization: equate hyphens, underscores, and periods."""

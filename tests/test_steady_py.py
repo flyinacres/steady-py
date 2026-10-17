@@ -347,7 +347,7 @@ class TestDualPathIngestion:
         nb_path: Path = tmp_path / "test_uninstalled.ipynb"
         nb_path.write_text(json.dumps(nb), encoding="utf-8")
 
-        monkeypatch.setattr(installed, "get_installed_environment", lambda: ({}, []))
+        monkeypatch.setattr(installed, "read_installed", lambda: {})
         monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(nb_path)])
 
         with pytest.raises(SystemExit):
@@ -993,39 +993,11 @@ class TestExecutionChronology:
 
 class TestResolveOpencvVariant:
 
-    def _mock_pip_list(self, output: str):
-        return lambda *a, **kw: types.SimpleNamespace(returncode=0, stdout=output, stderr="")
-
-    def test_contrib_headless_detected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When pip list shows opencv-contrib-python-headless, that exact variant is returned."""
-        monkeypatch.setattr(subprocess, "run", self._mock_pip_list("opencv-contrib-python-headless 4.9.0"))
-        assert resolution.resolve_opencv_variant() == "opencv-contrib-python-headless"
-
-    def test_headless_detected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When pip list shows opencv-python-headless, that exact variant is returned."""
-        monkeypatch.setattr(subprocess, "run", self._mock_pip_list("opencv-python-headless 4.9.0"))
-        assert resolution.resolve_opencv_variant() == "opencv-python-headless"
-
-    def test_contrib_detected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When pip list shows opencv-contrib-python, that exact variant is returned."""
-        monkeypatch.setattr(subprocess, "run", self._mock_pip_list("opencv-contrib-python 4.9.0"))
-        assert resolution.resolve_opencv_variant() == "opencv-contrib-python"
-
-    def test_base_detected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When pip list shows plain opencv-python, that exact variant is returned."""
-        monkeypatch.setattr(subprocess, "run", self._mock_pip_list("opencv-python 4.9.0"))
-        assert resolution.resolve_opencv_variant() == "opencv-python"
-
-    def test_no_match_falls_back_to_submodule_heuristic(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When pip list succeeds but matches none of the four variant strings, resolution falls back to the submodules heuristic."""
-        monkeypatch.setattr(subprocess, "run", self._mock_pip_list("some-other-package 1.0.0"))
-        assert resolution.resolve_opencv_variant({"aruco"}) == "opencv-contrib-python"
+    def test_no_variant_installed_falls_back_to_submodule_heuristic(self) -> None:
+        """With no OpenCV variant installed, resolution falls back to the submodules heuristic."""
+        assert resolution.resolve_opencv_variant({"aruco"}, {"some-other-package": "some-other-package==1.0.0"}) == "opencv-contrib-python"
         assert resolution.resolve_opencv_variant(set()) == "opencv-python"
 
-    def test_subprocess_exception_falls_back_to_submodule_heuristic(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When 'pip list' itself raises, resolution falls back to the submodules heuristic."""
-        def raise_error(*a, **kw):
-            raise OSError("pip not found")
-        monkeypatch.setattr(subprocess, "run", raise_error)
+    def test_no_environment_falls_back_to_submodule_heuristic(self) -> None:
         assert resolution.resolve_opencv_variant({"contrib"}) == "opencv-contrib-python"
         assert resolution.resolve_opencv_variant(None) == "opencv-python"

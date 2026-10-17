@@ -28,13 +28,12 @@ def mock_batch_env(
         "pandas": "pandas==2.2.1",
         "torch": "torch==2.3.1+cu121",
     }
-    raw_freeze: List[str] = list(frozen_env.values())
     pkg_dist_map: Dict[str, List[str]] = {
         "numpy": ["numpy"],
         "pandas": ["pandas"],
         "torch": ["torch"],
     }
-    monkeypatch.setattr(installed, "get_installed_environment", lambda: (frozen_env, raw_freeze))
+    monkeypatch.setattr(installed, "read_installed", lambda: frozen_env)
     return frozen_env, pkg_dist_map
 
 

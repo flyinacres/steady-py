@@ -186,7 +186,7 @@ def format_console_report(summary: BatchAnalysisSummary) -> str:
     out.append(f"  • Installed & Verified: {len(matched_list)} packages ({', '.join(matched_list[:5])}{'...' if len(matched_list) > 5 else ''})")
     
     if summary.missing_packages:
-        out.append(f"  • Packages not resolvable via pip-freeze or local file scan: {len(summary.missing_packages)}")
+        out.append(f"  • Packages neither installed nor found as local files: {len(summary.missing_packages)}")
         out.append("    (Not found installed, nor as a sibling file/package next to the notebook or in the declared")
         out.append("     root dir. If any of these resolve via a custom sys.path setup -- PYTHONPATH, an IDE project")
         out.append("     root, an editable install, or a platform like Databricks Repos -- this is a false positive;")
@@ -197,7 +197,7 @@ def format_console_report(summary: BatchAnalysisSummary) -> str:
             more = f", +{len(set(nbs))-3} more" if len(set(nbs)) > 3 else ""
             out.append(f"      - {pkg} (imported in: {nb_list}{more})")
     else:
-        out.append("  • Packages not resolvable via pip-freeze or local file scan: 0")
+        out.append("  • Packages neither installed nor found as local files: 0")
 
     if summary.guarded_packages:
         out.append(f"  • Guarded/optional imports (inside try/except): {len(summary.guarded_packages)}")

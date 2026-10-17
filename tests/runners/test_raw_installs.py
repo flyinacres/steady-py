@@ -200,7 +200,7 @@ def main() -> None:
         check(step, "the package is not pinned as if it were on PyPI",
               not [d for d in manifest.dependencies if DIST_NAME in d.name], dependencies=manifest.dependencies)
         check(step, "the installed package is not reported as 'not found'",
-              "not found via pip-freeze" not in cell2, cell2=cell2[:1500])
+              "not installed here" not in cell2, cell2=cell2[:1500])
         remove_package(step, verify=True)
         stdout, errors, cells = execute(step, merged)
         show("kernel run", f"{cells} code cells executed, {len(errors)} errors")
@@ -224,7 +224,7 @@ def main() -> None:
         check(step, "the package is not pinned as if it were on PyPI",
               not [d for d in manifest.dependencies if DIST_NAME in d.name], dependencies=manifest.dependencies)
         check(step, "Cell 2 describes it as installed from a direct URL, not 'not found'",
-              "not found via pip-freeze" not in cell2 and "installed from a direct URL" in cell2, cell2=cell2[:1500])
+              "not installed here" not in cell2 and "installed from a direct URL" in cell2, cell2=cell2[:1500])
         remove_package(step, verify=True)
         stdout, errors, cells = execute(step, merged)
         show("kernel run", f"{cells} code cells executed, {len(errors)} errors")

@@ -1,8 +1,13 @@
 """Capturing the creator's installed environment."""
+import json
+import os
+import re
+import subprocess
+
 import pytest
 
 from tests.support.envs import uninstall
-from tests.support.markers import known_bug
+from tests.support.markers import finding, known_bug
 from tests.support.notebooks import Notebook, code
 from tests.support.outcomes import cell2_text, manifest
 from tests.support.runner import run_in
@@ -12,7 +17,7 @@ COMMIT = "a" * 40
 
 
 @pytest.mark.venv
-@known_bug("E6", "a non-PEP 440 version is stored with the stray '=' of pip freeze's '==='")
+@finding("E6")
 def test_legacy_version_is_recorded_verbatim(tmp_path, base_venv):
     site = SiteDir(tmp_path / "site")
     site.add("legacypkg", "0.8.1ubuntu1")
@@ -22,13 +27,15 @@ def test_legacy_version_is_recorded_verbatim(tmp_path, base_venv):
 
 
 @pytest.mark.venv
-@known_bug("E1", "a failed pip freeze gives an empty 'verified' manifest and exit 0")
+@finding("E1")
 @pytest.mark.parametrize("verb", [["scan"], ["snapshot", "--output"]], ids=["scan", "snapshot"])
-def test_failed_freeze_stops_the_run_and_writes_nothing(tmp_path, fresh_venv, verb):
+def test_capture_needs_no_pip(tmp_path, fresh_venv, pypi, verb):
+    # Capture once ran pip freeze, and a venv without pip gave an empty "verified" manifest.
+    pypi.allow_unknown()  # validation's lookups aren't under test
     uninstall(fresh_venv, "pip")  # no pip module, as in a uv venv
     outcome = run_in(fresh_venv, verb[0], Notebook(code("import packaging")).write(tmp_path), *verb[1:])
-    assert outcome.exit_code == 2, outcome.log
-    assert list(tmp_path.glob("*_merged.ipynb")) == []
+    assert outcome.exit_code in (0, 1), outcome.log
+    assert "packaging" in outcome.pins()
 
 
 
@@ -41,7 +48,7 @@ def _run(venv, tmp_path, source, *sites, verb="scan", options=(), directory=Fals
 
 
 @pytest.mark.venv
-@known_bug("E3", "the direct-reference overlay pins a shadowed copy")
+@finding("E3")
 def test_pin_is_the_copy_that_imports(tmp_path, base_venv):
     active, shadowed = SiteDir(tmp_path / "active"), SiteDir(tmp_path / "shadowed")
     active.add("sixlike", "1.17.0")
@@ -70,7 +77,7 @@ def test_conda_built_package_is_pinned_with_a_notice(tmp_path, base_venv):
 
 
 @pytest.mark.venv
-@known_bug("E5", "#subdirectory= is lost, so a monorepo's packages merge into one install")
+@finding("E5")
 def test_monorepo_packages_keep_their_subdirectories(tmp_path, base_venv, pypi):
     site = SiteDir(tmp_path / "site")
     for name in ("alpha", "beta"):
@@ -81,7 +88,7 @@ def test_monorepo_packages_keep_their_subdirectories(tmp_path, base_venv, pypi):
 
 
 @pytest.mark.venv
-@known_bug("E7", "a directory scan lists git and conda packages as missing")
+@finding("E7")
 def test_directory_scan_lists_only_missing_packages_as_missing(tmp_path, base_venv):
     site = SiteDir(tmp_path / "site")
     site.add("gitpkg", "1.0", **vcs_ref("https://example.com/g.git", COMMIT))
@@ -91,7 +98,7 @@ def test_directory_scan_lists_only_missing_packages_as_missing(tmp_path, base_ve
 
 
 @pytest.mark.venv
-@known_bug("E8", "Cell 2 says a direct reference is installed when nothing installs it")
+@finding("E8")
 def test_cell2_claims_an_install_only_for_what_it_installs(tmp_path, base_venv, pypi):
     # Text is the contract here: a false claim in Cell 2 misleads whoever runs the notebook.
     site = SiteDir(tmp_path / "site")
@@ -108,7 +115,7 @@ def test_cell2_claims_an_install_only_for_what_it_installs(tmp_path, base_venv, 
 
 
 @pytest.mark.venv
-@known_bug("K6", "the OpenCV variant comes from pip list, not from the copy that imports")
+@finding("K6")
 def test_opencv_pin_is_the_variant_that_imports(tmp_path, base_venv):
     first, second = SiteDir(tmp_path / "first"), SiteDir(tmp_path / "second")
     first.add("opencv-python", "4.10.0.84", modules=["cv2/__init__.py"])
@@ -117,7 +124,7 @@ def test_opencv_pin_is_the_variant_that_imports(tmp_path, base_venv):
 
 
 @pytest.mark.venv
-@known_bug("C1", "a conda-forge OpenCV stub's version is pinned verbatim and reported removed")
+@finding("C1")
 def test_conda_forge_opencv_maps_to_a_pypi_release(tmp_path, base_venv, pypi):
     for name in ("opencv-python", "opencv-python-headless"):
         pypi.add(name, {"4.10.0.84": {}, "5.0.0.90": {}, "5.0.0.93": {}})
@@ -130,3 +137,61 @@ def test_conda_forge_opencv_maps_to_a_pypi_release(tmp_path, base_venv, pypi):
     check = run_in(base_venv, "check", outcome.written[0], env=pythonpath(site))
     assert check.report is not None, check.log
     assert check.findings(signal="removed") == []
+
+
+@pytest.mark.venv
+@finding("DG5")
+def test_warns_when_most_imports_are_installed_elsewhere(tmp_path, base_venv):
+    site = SiteDir(tmp_path / "site")
+    site.add("herepkg", "1.0")
+    outcome = _run(base_venv, tmp_path, "import herepkg, gonea, goneb", site)
+    assert outcome.warnings(type="other_interpreter")
+    half = _run(base_venv, tmp_path / "half", "import herepkg, gonea", site)  # half isn't most
+    assert not half.warnings(type="other_interpreter")
+
+
+# pip freeze as the oracle for importlib.metadata capture (working_rules.md §2.4): every line freeze
+# prints, capture pins identically. Freeze hides pip (and setuptools and wheel before Python 3.12)
+# and prints editables as `-e` lines, so capture may add those and nothing else. pip before 26
+# omits an archive's hash from its freeze line, so a hash only capture carries is ignored.
+_ORACLE = """
+import json, re, subprocess, sys
+from steady_py import installed, util
+freeze = {}
+out = subprocess.run([sys.executable, "-m", "pip", "freeze"], capture_output=True, text=True, check=True).stdout
+for line in out.splitlines():
+    if line and not line.startswith(("#", "-")):
+        freeze[util.canonicalize_pkg_name(re.split(r" @ |===|==", line, maxsplit=1)[0])] = line
+print(json.dumps({"freeze": freeze, "capture": installed.read_installed()}))
+"""
+
+
+def _without_hash(pin: str) -> str:
+    return re.sub(r"#?\bsha\d+=[0-9a-f]+&?", lambda m: "#" if m.group(0).endswith("&") else "", pin)
+
+
+@pytest.mark.venv
+def test_capture_agrees_with_pip_freeze(tmp_path, base_venv):
+    first, second = SiteDir(tmp_path / "first"), SiteDir(tmp_path / "second")
+    first.add("sixlike", "1.17.0")
+    second.add("sixlike", "1.16.0", **file_url(tmp_path / "sixlike-1.16.0-py3-none-any.whl"))  # shadowed
+    for name in ("alpha", "beta"):
+        first.add(name, "1.0", **vcs_ref("https://example.com/mono.git", COMMIT, subdirectory=name))
+    first.add("legacypkg", "0.8.1ubuntu1")
+    first.add("hashpkg", "2.0", direct_url={"url": "https://example.com/hashpkg-2.0.tar.gz",
+                                             "archive_info": {"hashes": {"sha256": "ab" * 32}}})
+    first.add("oldhashpkg", "2.0", direct_url={"url": "https://example.com/oldhashpkg-2.0.tar.gz",
+                                                "archive_info": {"hash": "sha256=" + "cd" * 32}})
+    first.add("condapkg", "1.3", installer="conda", **file_url(tmp_path / "conda-bld" / "condapkg"))
+    first.add("dirpkg", "0.1", direct_url={"url": (tmp_path / "src" / "dirpkg").as_uri(), "dir_info": {}})
+    first.add("editpkg", "0.1", direct_url={"url": (tmp_path / "src" / "editpkg").as_uri(),
+                                             "dir_info": {"editable": True}})
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV")}
+    result = subprocess.run([str(base_venv.python), "-c", _ORACLE], capture_output=True, text=True,
+                            encoding="utf-8", env={**env, **pythonpath(first, second)})
+    assert result.returncode == 0, result.stderr
+    found = json.loads(result.stdout)
+    freeze, capture = found["freeze"], found["capture"]
+    assert {k: capture.get(k) if "#sha" in line else _without_hash(capture.get(k, "")) for k, line in freeze.items()} == freeze
+    assert set(capture) - set(freeze) <= {"pip", "setuptools", "wheel", "editpkg"}
+    assert capture["editpkg"] == f"editpkg @ {(tmp_path / 'src' / 'editpkg').as_uri()}"

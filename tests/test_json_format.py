@@ -20,14 +20,13 @@ def mock_json_env(monkeypatch):
         "torch": "torch==2.3.1+cu121",
         "scikit-learn": "scikit-learn==1.4.2",
     }
-    raw_freeze = list(frozen_env.values())
     pkg_dist_map = {
         "numpy": ["numpy"],
         "pandas": ["pandas"],
         "torch": ["torch"],
         "sklearn": ["scikit-learn"],
     }
-    monkeypatch.setattr(installed, "get_installed_environment", lambda: (frozen_env, raw_freeze))
+    monkeypatch.setattr(installed, "read_installed", lambda: frozen_env)
     return frozen_env, pkg_dist_map
 
 
@@ -429,7 +428,7 @@ class TestConsoleJsonParity:
         # Matched/missing package counts must agree between renderers.
         assert json_payload["summary"]["total_python_notebooks"] == 1
         assert f"Installed & Verified: {len(json_payload['summary']['matched_packages'])} packages" in console_text
-        assert f"Packages not resolvable via pip-freeze or local file scan: {len(json_payload['summary']['missing_packages'])}" in console_text
+        assert f"Packages neither installed nor found as local files: {len(json_payload['summary']['missing_packages'])}" in console_text
 
         # Every warning/notice/promotion detail present in JSON must also appear in console text.
         for w in summary.magic_warnings:

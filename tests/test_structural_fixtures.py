@@ -59,8 +59,8 @@ def minimal_environment(monkeypatch):
     """No packages pre-installed; isolates local-module resolution from
     unrelated missing/matched-package noise, and prevents any real
     subprocess calls (pip list / pip freeze) during generation."""
-    monkeypatch.setattr(installed, "get_installed_environment", lambda: ({}, []))
-    monkeypatch.setattr(resolution, "resolve_opencv_variant", lambda submodules=None: "opencv-python")
+    monkeypatch.setattr(installed, "read_installed", lambda: {})
+    monkeypatch.setattr(resolution, "resolve_opencv_variant", lambda submodules=None, frozen_env=None: "opencv-python")
     monkeypatch.setattr(
         "subprocess.run",
         lambda *a, **k: pytest.fail("Unexpected real subprocess.run call during generation"),
@@ -169,7 +169,7 @@ def assert_case4(out: str, output_dir: Path, **_) -> None:
 def _missing_block(out: str) -> str:
     """Isolate the 'Packages missing from current environment' section so
     matches don't accidentally hit an unrelated part of the report."""
-    marker = "Packages not resolvable via pip-freeze or local file scan"
+    marker = "Packages neither installed nor found as local files"
     idx = out.find(marker)
     return out[idx:] if idx != -1 else ""
 

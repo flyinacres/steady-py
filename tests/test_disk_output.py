@@ -23,8 +23,8 @@ def mock_frozen_env(monkeypatch):
     }
     monkeypatch.setattr(
         installed, 
-        "get_installed_environment", 
-        lambda: (mock_env, ["pandas==2.1.0", "numpy==1.25.0", "requests==2.31.0"])
+        "read_installed",
+        lambda: mock_env
     )
     return mock_env
 

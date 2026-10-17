@@ -11,7 +11,6 @@ import sys
 from pathlib import Path
 
 import steady_py
-from steady_py import resolution
 from tests.support.markers import finding
 
 SRC_DIR = str(Path(steady_py.__file__).resolve().parents[1])
@@ -61,16 +60,6 @@ def testconfigure_console_is_where_streams_and_the_handler_get_set_up():
         PYTHONIOENCODING="latin-1",
     )
     assert out == "utf-8 ['StreamHandler'] False"
-
-
-def test_failed_opencv_probe_falls_back_and_is_logged_at_debug(monkeypatch, caplog):
-    def boom(*args, **kwargs):
-        raise OSError("pip is unavailable")
-
-    monkeypatch.setattr(resolution.subprocess, "run", boom)
-    caplog.set_level(logging.DEBUG, logger="steady_py")
-    assert resolution.resolve_opencv_variant() == "opencv-python"
-    assert "Could not inspect installed OpenCV variants" in caplog.text
 
 
 def test_reloading_the_module_in_one_process_never_stacks_handlers():
