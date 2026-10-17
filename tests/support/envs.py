@@ -19,10 +19,11 @@ CONSTRAINTS = REPO_ROOT / "constraints-dev.txt"
 TOOLING = ["setuptools>=64", "wheel", "hatchling", "pdm-backend", "editables", "packaging", "resolvelib", "ipython", "ipykernel"]
 OFFLINE = ("--no-index", "--find-links", str(WHEELHOUSE), "-c", str(CONSTRAINTS))
 # The Docker tier installs steady-py offline from the wheelhouse into python:3.11-slim (docker.IMAGE),
-# on x86_64 and on Apple Silicon. A download on Windows evaluates markers for Windows and the host's
-# Python, so it misses ipython's Linux-only pexpect and ptyprocess, and gets no Linux build of psutil
-# or wcwidth: steady-py's own dependencies are also fetched for each container platform.
-DOCKER_TOOLING = ["packaging", "resolvelib", "ipython"]
+# on x86_64 and on Apple Silicon. `pip download --platform --python-version` picks wheel tags for the
+# target but still evaluates markers for the host, so on Windows 3.13 it skips ipython's pexpect
+# (`sys_platform != "win32"`) and typing_extensions (`python_version < "3.12"`): those are named
+# explicitly, and the download per platform brings the Linux builds of psutil and wcwidth.
+DOCKER_TOOLING = ["packaging", "resolvelib", "ipython", "pexpect", "typing_extensions"]
 DOCKER_TARGETS = [("--only-binary=:all:", "--platform", platform, "--python-version", "3.11", "--implementation", "cp")
                   for platform in ("manylinux2014_x86_64", "manylinux2014_aarch64")]
 
