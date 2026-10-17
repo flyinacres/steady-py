@@ -91,7 +91,18 @@ class DependencyStatus:
     AUXILIARY_TOOL = "auxiliary_tool"
     WRITEFILE_SCRIPT = "writefile_script"
     DIRECT_REFERENCE = "direct_reference"
-    SYSTEM_PATH = "system_path"
+    SYSTEM_PATH = "system_path"    # installed from a file on this machine
+    EDITABLE = "editable"          # an editable install of the creator's own package
+    CUSTOM_PATH = "custom_path"    # importable from a folder no installed distribution owns
+    AMBIGUOUS = "ambiguous"        # several installed distributions provide the same module
+
+
+# Statuses for dependencies that are installed here but can't be pinned for anyone else.
+UNSHAREABLE_STATUSES = frozenset({DependencyStatus.SYSTEM_PATH, DependencyStatus.EDITABLE, DependencyStatus.CUSTOM_PATH})
+
+# Warnings that leave a dependency the notebook needs unpinned: a run that raises one needs the
+# creator's attention (exit 1), as an unreadable notebook does.
+ATTENTION_DIAGNOSTICS = frozenset({"editable_import", "local_file_import", "custom_path_import", "ambiguous_import"})
 
 
 class FetchStatus:

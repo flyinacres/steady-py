@@ -8,7 +8,8 @@ import pathlib
 import re
 import sys
 import urllib.parse
-from typing import Dict, FrozenSet, List, Optional, Tuple
+import urllib.request
+from typing import Dict, FrozenSet, Iterator, Optional, Set, Tuple
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
@@ -164,6 +165,31 @@ def _egg_link_location(name: str) -> Optional[str]:
     return None
 
 
+def _first_copies() -> Iterator[Tuple[str, importlib.metadata.Distribution]]:
+    """(canonical name, distribution) for every installed distribution, the first copy on
+    sys.path only, as at import."""
+    seen: Set[str] = set()
+    for dist in importlib.metadata.distributions():
+        name = dist.metadata["Name"]
+        if not name or dist.version is None:
+            continue
+        canon = util.canonicalize_pkg_name(name)
+        if canon not in seen:
+            seen.add(canon)
+            yield canon, dist
+
+
+def _direct_url_info(dist: importlib.metadata.Distribution) -> Optional[Dict[str, object]]:
+    """The parsed direct_url.json of `dist`, or None when it has none or it can't be read."""
+    try:
+        raw = dist.read_text("direct_url.json")
+        info = json.loads(raw) if raw else None
+    except (OSError, ValueError) as e:  # JSONDecodeError is a ValueError
+        logger.debug(f"Unreadable direct_url.json for {dist.metadata['Name']}: {e}")
+        return None
+    return info if isinstance(info, dict) else None
+
+
 def read_installed() -> Dict[str, str]:
     """Every distribution the running interpreter can import, read from importlib.metadata:
     canonical name -> pin. The first copy on sys.path wins, as at import. Ordinary installs
@@ -172,19 +198,10 @@ def read_installed() -> Dict[str, str]:
     directory. pip freeze agrees apart from what it hides (pip, and setuptools and wheel before
     Python 3.12) and editables, which it prints as `-e` lines; tests use it as the oracle."""
     pins: Dict[str, str] = {}
-    for dist in importlib.metadata.distributions():
+    for canon, dist in _first_copies():
         name, version = dist.metadata["Name"], dist.version
-        if not name or version is None:
-            continue
-        canon = util.canonicalize_pkg_name(name)
-        if canon in pins:
-            continue  # shadowed by an earlier copy
-        pin: Optional[str] = None
-        try:
-            raw = dist.read_text("direct_url.json")
-            pin = _direct_reference(json.loads(raw), name) if raw else None
-        except (OSError, ValueError) as e:  # JSONDecodeError is a ValueError
-            logger.debug(f"Unreadable direct_url.json for {name}: {e}")
+        info = _direct_url_info(dist)
+        pin = _direct_reference(info, name) if info else None
         if pin is None:
             location = _egg_link_location(name)
             if location:
@@ -197,3 +214,30 @@ def read_installed() -> Dict[str, str]:
                 pin = f"{name}==={version}"
         pins[canon] = pin
     return pins
+
+
+def read_editables() -> Dict[str, str]:
+    """canonical name -> source directory for every editable install, the first copy on sys.path
+    only: PEP 660 installs from direct_url.json's `dir_info.editable`, legacy `setup.py develop`
+    installs from their .egg-link. The import join matches module origins against these."""
+    roots: Dict[str, str] = {}
+    for canon, dist in _first_copies():
+        info = _direct_url_info(dist)
+        dir_info = info.get("dir_info") if info else None
+        url = info.get("url") if info else None
+        if isinstance(dir_info, dict) and dir_info.get("editable") and isinstance(url, str) and url.startswith("file:"):
+            roots[canon] = file_url_path(url)
+        elif info is None:
+            location = _egg_link_location(dist.metadata["Name"])
+            if location:
+                roots[canon] = str(pathlib.Path(location).resolve())
+    return roots
+
+
+def file_url_path(url: str) -> str:
+    """The local path of a file:// URL, as the OS writes it."""
+    parts = urllib.parse.urlsplit(url)
+    path = urllib.request.url2pathname(urllib.parse.unquote(parts.path))
+    if parts.netloc and parts.netloc != "localhost":  # a UNC share
+        path = f"//{parts.netloc}{path}"
+    return str(pathlib.Path(path).resolve())

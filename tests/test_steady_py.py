@@ -20,7 +20,7 @@ from typing import Dict, List, Set, Any
 import pytest
 
 import steady_py.cli as cli
-from steady_py import accelerator, constants, generate, installed, localmodules, magics, models, resolution, runtime, scanning, util
+from steady_py import accelerator, constants, generate, installed, magics, models, resolution, runtime, scanning, util
 from steady_py.constants import StatusLabel
 from steady_py.generate import BlueprintResult
 from steady_py.models import GpuInfo
@@ -120,38 +120,6 @@ class TestGuardedImports:
         assert "os" in imports
         assert "os" not in guarded_imports
         assert "pywin32" in guarded_imports
-
-    def test_uninstalled_guarded_import_formatted_as_optional_in_manifest(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        frozen_env = {"numpy": "numpy==1.26.4"}
-        submodules = {}
-        imports = {"numpy", "cupy"}
-        guarded_imports = {"cupy"}
-
-        pinned_entries, notices = resolution.build_manifest_entries(
-            imports, submodules, frozen_env, guarded_imports=guarded_imports
-        )
-
-        cupy_pin = next((p for p in pinned_entries if "cupy" in p), "")
-        assert cupy_pin.startswith("#")
-        assert "guarded" in cupy_pin.lower() or "optional" in cupy_pin.lower()
-
-    def test_installed_guarded_package_emitted_as_optional_comment(self) -> None:
-        """Installed packages inside try/except must NOT become hard pins in the manifest."""
-        frozen_env = {"cupy": "cupy==13.0.0", "numpy": "numpy==1.26.4"}
-        submodules = {}
-        imports = {"numpy", "cupy"}
-        guarded_imports = {"cupy"}
-
-        pinned_entries, notices = resolution.build_manifest_entries(
-            imports, submodules, frozen_env, guarded_imports=guarded_imports
-        )
-
-        cupy_pin = next((p for p in pinned_entries if "cupy" in p), "")
-        assert cupy_pin.startswith("#")
-        assert "cupy==13.0.0" in cupy_pin
-        assert "guarded" in cupy_pin.lower() or "optional" in cupy_pin.lower()
 
     def test_unconditional_import_overrides_guarded_import(self) -> None:
         """If a package is imported unconditionally in one cell and guarded in another, it is mandatory."""
@@ -266,42 +234,6 @@ class TestIndexUrlHarvesting:
         sources: List[str] = ["# !pip install torch --extra-index-url https://download.pytorch.org/whl/cu121"]
         urls: Set[str] = magics.harvest_index_urls_from_sources(sources)
         assert urls == set()
-
-
-# =====================================================================
-# 3. DYNAMIC RESOLUTION & PROVIDES-EXTRA PROMOTION
-# =====================================================================
-
-class TestDynamicResolution:
-    def test_submodule_import_promotes_to_package_extras(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        fake_dist = types.SimpleNamespace(
-            metadata=types.SimpleNamespace(get_all=lambda key: ["plot"] if key == "Provides-Extra" else [])
-        )
-        monkeypatch.setattr(importlib.metadata, "distribution", lambda pkg: fake_dist)
-        if hasattr(importlib.metadata, "packages_distributions"):
-            monkeypatch.setattr(importlib.metadata, "packages_distributions", lambda: {"umap": ["umap-learn"]})
-
-        frozen_env: Dict[str, str] = {"umap-learn": "umap-learn==0.5.5"}
-        submodules_set: Set[str] = {"umap.plot"}
-
-        pin, notice = resolution.resolve_pypi_package_and_extras("umap", submodules_set, frozen_env)
-
-        assert pin.specifier == "umap-learn[plot]==0.5.5"
-        assert notice is not None
-        assert "umap-learn[plot]==0.5.5" in notice
-
-    def test_fallback_map_used_when_uninstalled(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        if hasattr(importlib.metadata, "packages_distributions"):
-            monkeypatch.setattr(importlib.metadata, "packages_distributions", lambda: {})
-
-        frozen_env: Dict[str, str] = {}
-
-        pin, notice = resolution.resolve_pypi_package_and_extras("sklearn", set(), frozen_env)
-
-        assert pin.specifier.startswith("#")
-        assert "scikit-learn" in pin.specifier
-        assert "sklearn" in pin.specifier
-        assert notice is None
 
 
 # =====================================================================
@@ -612,44 +544,10 @@ class TestSequentialExecutionEngine:
         assert manifest.schema_version == constants.MANIFEST_SCHEMA_VERSION
         assert "'schema_version':" in blueprint["step2_code"]
 
-    def test_explicit_install_anchors_position_over_earlier_bare_import(self) -> None:
-        """An explicit pip install at cell 2 anchors timeline position over a bare import at cell 0."""
-        code_cells = [
-            "import torch\n",                                            # cell 0
-            "import pandas as pd\n",                                     # cell 1
-            "!pip install torch==2.3.1 --extra-index-url https://whl\n" # cell 2
-        ]
-        timeline_res = resolution.build_unified_timeline(
-            code_cells, 
-            frozen_env={"torch": "torch==2.3.1", "pandas": "pandas==2.2.1"}
-        )
-        
-        # Access .dependencies directly on the TimelineResult dataclass
-        dep_names = [d.name for d in timeline_res.dependencies if not d.is_comment]
-        assert dep_names == ["pandas", "torch"]
-        assert timeline_res.dependencies[1].flags == ["--extra-index-url", "https://whl"]
-
     def test_timeline_context_label_execution_vs_document(self) -> None:
         assert scanning.get_timeline_context_label(True) == "in execution sequence"
         assert scanning.get_timeline_context_label(False) == "in document order (execution counts unavailable or inconsistent)"
 
-    def test_active_env_discrepancy_logged_at_debug(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Explicit notebook pin differing from host frozen_env logs a DEBUG trace, preferring notebook pin."""
-        import logging
-        caplog.set_level(logging.DEBUG, logger="steady_py")
-        cli.logger.setLevel(logging.DEBUG)
-        
-        sources = ["!pip install pandas==2.0.0\n"]
-        frozen_env = {"pandas": "pandas==2.2.1"}  # Host has 2.2.1, notebook explicitly asked for 2.0.0
-        
-        res = resolution.build_unified_timeline(sources, frozen_env=frozen_env)
-        
-        assert res.dependencies[0].version == "2.0.0"
-        assert any(
-            "Explicit notebook pin 'pandas==2.0.0' preferred over active host version '2.2.1'" in record.message 
-            for record in caplog.records
-        )
-        
 class TestCellClassificationAndMagicHarvesting:
     """Tests Phase 2 cell classification and magic/shell command harvesting."""
 
@@ -733,30 +631,6 @@ class TestIntegrationAndFormatting:
         assert len(aux_entries) == 1
         assert "# awscli  (installed via cell command; not found in active env)" in aux_entries[0].comment_text
 
-    def test_writefile_script_dependencies_rendered_in_separate_section(self) -> None:
-        """Dependencies imported exclusively inside %%writefile cells render in a dedicated block."""
-        primary_imports = ["pandas"]
-        writefile_imports = ["requests", "pandas"]  # pandas is in primary, requests is script-only
-        frozen_env = {"pandas": "pandas==2.30.0", "requests": "requests==2.31.0"}
-
-        entries = resolution.build_writefile_tool_entries(writefile_imports, primary_imports, frozen_env)
-
-        assert len(entries) == 1  # the section heading is rendering, not an entry (G17)
-        assert "requests==2.31.0" in entries[0].comment_text
-        assert "imported inside script generated via %%writefile" in entries[0].comment_text
-
-def test_resolve_local_module_top_level(tmp_path):
-    """Verify resolve_local_module recognizes top-level modules and package directories,
-    but not modules nested inside a subpackage (matching plain `import <name>` semantics)."""
-    src_dir = tmp_path / "src" / "utils"
-    src_dir.mkdir(parents=True)
-    (src_dir / "helpers.py").write_text("# helper module", encoding="utf-8")
-    (tmp_path / "root_script.py").write_text("# root script", encoding="utf-8")
-
-    assert localmodules.resolve_local_module("src", str(tmp_path)) == "notebook_dir"
-    assert localmodules.resolve_local_module("root_script", str(tmp_path)) == "notebook_dir"
-    assert localmodules.resolve_local_module("helpers", str(tmp_path)) is None
-
 def test_install_failure_prints_troubleshooting_steps(monkeypatch, capsys):
     """When any install fails, install() prints troubleshooting steps including HELP_URL."""
     manifest = {
@@ -784,160 +658,6 @@ class TestMemoizeForRun:
     property is still covered below for build_manifest_entries, which does
     return mutable list/dict values.
     """
-
-    def test_local_module_dedupes_identical_calls(self, tmp_path, monkeypatch):
-        (tmp_path / "helper.py").write_text("# helper", encoding="utf-8")
-
-        call_count = {"n": 0}
-        real_found = localmodules._found_in_dir
-
-        def counting_found(*args, **kwargs):
-            call_count["n"] += 1
-            return real_found(*args, **kwargs)
-
-        monkeypatch.setattr(localmodules, "_found_in_dir", counting_found)
-        localmodules.resolve_local_module.cache_clear()
-
-        r1 = localmodules.resolve_local_module("helper", str(tmp_path))
-        calls_after_first = call_count["n"]
-        r2 = localmodules.resolve_local_module("helper", str(tmp_path))
-
-        assert r1 == r2 == "notebook_dir"
-        assert call_count["n"] == calls_after_first, "second identical call should not re-probe the filesystem"
-
-    def test_local_module_different_dirs_not_conflated(self, tmp_path):
-        """Distinct (name, notebook_dir) inputs must never share a cache entry."""
-        dir_a, dir_b = tmp_path / "a", tmp_path / "b"
-        dir_a.mkdir()
-        dir_b.mkdir()
-        (dir_a / "helper_a.py").write_text("# a", encoding="utf-8")
-        (dir_b / "helper_b.py").write_text("# b", encoding="utf-8")
-
-        localmodules.resolve_local_module.cache_clear()
-
-        assert localmodules.resolve_local_module("helper_a", str(dir_a)) == "notebook_dir"
-        assert localmodules.resolve_local_module("helper_a", str(dir_b)) is None
-        assert localmodules.resolve_local_module("helper_b", str(dir_b)) == "notebook_dir"
-        assert localmodules.resolve_local_module("helper_b", str(dir_a)) is None
-
-    def test_local_module_cache_clear_forces_recompute(self, tmp_path, monkeypatch):
-        (tmp_path / "helper.py").write_text("# helper", encoding="utf-8")
-
-        call_count = {"n": 0}
-        real_found = localmodules._found_in_dir
-
-        def counting_found(*args, **kwargs):
-            call_count["n"] += 1
-            return real_found(*args, **kwargs)
-
-        monkeypatch.setattr(localmodules, "_found_in_dir", counting_found)
-        localmodules.resolve_local_module.cache_clear()
-
-        localmodules.resolve_local_module("helper", str(tmp_path))
-        calls_before_clear = call_count["n"]
-        localmodules.resolve_local_module.cache_clear()
-        localmodules.resolve_local_module("helper", str(tmp_path))
-
-        assert call_count["n"] == calls_before_clear * 2, "cache_clear() must force a real recompute, not return stale data"
-
-    def test_build_manifest_entries_dedupes_identical_calls(self, monkeypatch):
-        call_count = {"n": 0}
-        real_resolve = resolution.resolve_pypi_package_and_extras
-
-        def counting_resolve(*args, **kwargs):
-            call_count["n"] += 1
-            return real_resolve(*args, **kwargs)
-
-        monkeypatch.setattr(resolution, "resolve_pypi_package_and_extras", counting_resolve)
-        resolution.build_manifest_entries.cache_clear()
-
-        imports = {"pandas", "numpy"}
-        # Same dict object passed to both calls, matching every real call site
-        # (analyze_batch_repository / generate_universal_manifest / apply_output_to_notebook
-        # all read the same res.submodules attribute repeatedly, never rebuild it) —
-        # see build_manifest_entries's memoization docstring: dict args are keyed
-        # by id(), not content, so two *different* dict objects (even empty,
-        # equal ones) would correctly miss the cache. See the dedicated test
-        # below for that case.
-        submodules: Dict[str, Set[str]] = {}
-        frozen_env = {"pandas": "pandas==2.2.0", "numpy": "numpy==1.26.0"}
-
-        r1 = resolution.build_manifest_entries(imports, submodules, frozen_env)
-        calls_after_first = call_count["n"]
-        r2 = resolution.build_manifest_entries(imports, submodules, frozen_env)
-
-        assert r1 == r2
-        assert call_count["n"] == calls_after_first, "second identical call (same object refs) should not re-resolve every import"
-
-    def test_build_manifest_entries_distinct_equal_dicts_not_treated_as_cache_hit(self, monkeypatch):
-        """
-        Verifies that calls with distinct dict objects having identical content
-        correctly hit the cache without re-resolving dependencies.
-        """
-        call_count = {"n": 0}
-        real_resolve = resolution.resolve_pypi_package_and_extras
-
-        def counting_resolve(*args, **kwargs):
-            call_count["n"] += 1
-            return real_resolve(*args, **kwargs)
-
-        monkeypatch.setattr(resolution, "resolve_pypi_package_and_extras", counting_resolve)
-        resolution.build_manifest_entries.cache_clear()
-        if hasattr(resolution.resolve_pypi_package_and_extras, "cache_clear"):
-            resolution.resolve_pypi_package_and_extras.cache_clear()
-
-        imports = {"pandas"}
-        frozen_env = {"pandas": "pandas==2.2.0"}
-
-        # 1. First call must execute resolution and record >= 1 call
-        r1 = resolution.build_manifest_entries(imports, {}, frozen_env)
-        calls_after_first = call_count["n"]
-        assert calls_after_first > 0, "First call must actively invoke dependency resolution"
-
-        # 2. Second call with a fresh distinct {} literal MUST hit build_manifest_entries cache
-        r2 = resolution.build_manifest_entries(imports, {}, frozen_env)
-
-        assert r1 == r2, "Results must match between cached runs"
-        assert call_count["n"] == calls_after_first, "Distinct dicts with identical content must not re-invoke resolution"
-
-    def test_build_manifest_entries_different_imports_not_conflated(self):
-        resolution.build_manifest_entries.cache_clear()
-        frozen_env = {"pandas": "pandas==2.2.0", "numpy": "numpy==1.26.0"}
-
-        entries_pandas, _ = resolution.build_manifest_entries({"pandas"}, {}, frozen_env)
-        entries_numpy, _ = resolution.build_manifest_entries({"numpy"}, {}, frozen_env)
-
-        assert any("pandas" in line for line in entries_pandas)
-        assert not any("pandas" in line for line in entries_numpy)
-        assert any("numpy" in line for line in entries_numpy)
-        assert not any("numpy" in line for line in entries_pandas)
-
-    def test_build_manifest_entries_different_frozen_env_not_conflated(self):
-        """Two distinct frozen_env dict objects (even if built independently)
-        must resolve independently — id()-keying must not accidentally treat
-        an unrelated dict as a cache hit."""
-        resolution.build_manifest_entries.cache_clear()
-        imports = {"pandas"}
-
-        entries_v1, _ = resolution.build_manifest_entries(imports, {}, {"pandas": "pandas==2.2.0"})
-        entries_v2, _ = resolution.build_manifest_entries(imports, {}, {"pandas": "pandas==1.5.0"})
-
-        assert any("2.2.0" in line for line in entries_v1)
-        assert any("1.5.0" in line for line in entries_v2)
-
-    def test_build_manifest_entries_returns_defensive_copy(self):
-        resolution.build_manifest_entries.cache_clear()
-        imports = {"pandas"}
-        submodules: Dict[str, Set[str]] = {}  # same object both calls — see dedup test above for why
-        frozen_env = {"pandas": "pandas==2.2.0"}
-
-        entries1, notes1 = resolution.build_manifest_entries(imports, submodules, frozen_env)
-        entries1.append("INJECTED_BY_TEST")
-        notes1.append("INJECTED_NOTE")
-        entries2, notes2 = resolution.build_manifest_entries(imports, submodules, frozen_env)
-
-        assert "INJECTED_BY_TEST" not in entries2
-        assert "INJECTED_NOTE" not in notes2
 
     def test_reset_run_caches_starts_every_memoized_function_afresh(self) -> None:
         calls: List[int] = []

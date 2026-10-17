@@ -75,15 +75,15 @@ Scope: the shared support code that the tests in `test_triage_matrix.md` are bui
 2. `steady_dist` builds steady-py's wheel once per session, offline, from a temporary copy of the packaging inputs (`pyproject.toml`, `src/`, and any `README*`, `LICENSE*`, `setup.*`). setuptools builds in the source tree, so building from the repository would leave `build/` there and collide between parallel workers.
 3. `steady_venv(path, dist)` creates a venv and installs steady-py from `dist` with its dependencies from the wheelhouse: non-editable, so steady-py itself doesn't appear as an editable in the environment it inspects, and deterministic. Fixtures: `base_venv` (session, shared, never installed into) and `fresh_venv` (per test, about 3 seconds, the test may install into it). `Venv.python` abstracts `bin/python` versus `Scripts\python.exe`.
 4. `install_project(venv, name, workdir, editable=False)` copies `tests/fixtures/projects/<name>` into the test's directory (builds write into the source tree) and installs it offline, with build isolation resolving backends from the wheelhouse. `uninstall(venv, *names)` removes distributions; uninstalling pip gives a venv like uv's (E1).
-5. Stub projects in `tests/fixtures/projects/` are added as rows need a real build (editables: ED1, ED4, a pdm project). `demo-editable` (setuptools) exists. The existing `notebook_env_test_fixture` package folds in here under a new name. Packages that only need to be installed are written directly as wheels by `wheels.write_wheel(directory, name, version, requires=(), extras=(), source="")`: a py3-none-any wheel with one package, no build backend, milliseconds to write. The runtime rows use it (`demo-extras`, `demo-a`/`demo-b`, `demo-loc 1.0+cu126`, and an old `steady-py` for D2). `envs.pip_install(venv, wheels, *requirements)` preinstalls from such a directory and `envs.installed_version(venv, name)` reads a version back.
+5. Stub projects in `tests/fixtures/projects/` are added as rows need a real build: `demo-editable` (setuptools, flat, requires `packaging`), `tabulate-ron` (hatchling, a renamed fork providing `tabulate`, no `top_level.txt`) and `pdm-demo` (pdm-backend through the `editables` shim). A legacy `setup.py develop` install is hand-written by `SiteDir.add_develop`, and `envs.install_editable(venv, spec)` installs a VCS URL editable (F6). The existing `notebook_env_test_fixture` package folds in here under a new name. Packages that only need to be installed are written directly as wheels by `wheels.write_wheel(directory, name, version, requires=(), extras=(), source="")`: a py3-none-any wheel with one package, no build backend, milliseconds to write. The runtime rows use it (`demo-extras`, `demo-a`/`demo-b`, `demo-loc 1.0+cu126`, and an old `steady-py` for D2). `envs.pip_install(venv, wheels, *requirements)` preinstalls from such a directory and `envs.installed_version(venv, name)` reads a version back.
 6. Cell 2 runtime tests install with `PIP_NO_INDEX=1` and `PIP_FIND_LINKS=<wheels>`, the mechanism development.md documents for Cell 2. `runner.install_in(venv, pins, wheels, raw_installs=(), python=<current>)` writes a minimal manifest and a script that calls `steady_py.install()` (public API) and prints the `InstallResult` on a marked line; the Outcome's `stdout` is what the runner sees and `install_result()` the result. `python` is the manifest's target, for the mismatch warning. The same script runs in Docker. `runner.run_cell2(venv, notebook, wheels)` runs a written notebook's Cell 2 text unmodified as a script, so a venv without steady-py installs its own helper from the wheel directory (which then needs steady-py's wheel and the wheelhouse); it returns an Outcome with no report. Both use one environment builder for the PIP_NO_INDEX/PIP_FIND_LINKS pair.
 7. Parallel runs (`pytest -n auto`, pytest-xdist) work for both tiers; not adopted as a dev dependency yet. A first run with an empty wheelhouse should not be parallel, since workers would download into it at once.
 
 ## 9. F6 Local git repositories
 
-1. A fixture copies a saved project into tmp, commits it, and returns a `git+file://...@<commit>` reference, with `#subdirectory=` for the monorepo.
+1. `tests/support/gitrepo.py`: `git_repo(workdir, project, subdirectory=None)` copies a saved project into tmp (under `subdirectory` for a monorepo), commits it, and returns the `git+file://` URL and the commit. ED5 installs it editable.
 2. Skips when git is missing.
-3. Waiting on this: a real `git+file://` raw install at run time. The characterization test of raw-install ordering uses a local wheel path instead, since the installer passes every raw spec to pip as one argument, whatever its source; the VCS-specific part, capturing the line verbatim, is tested at snapshot.
+3. Not yet used: a real `git+file://` raw install at run time, and E5's runtime monorepo install. The characterization test of raw-install ordering uses a local wheel path instead, since the installer passes every raw spec to pip as one argument, whatever its source; the VCS-specific part, capturing the line verbatim, is tested at snapshot.
 
 ## 10. F7 Kernel runner
 
@@ -106,7 +106,7 @@ Scope: the shared support code that the tests in `test_triage_matrix.md` are bui
 
 ## 13. To verify while coding
 
-1. Build isolation resolves hatchling and pdm-backend from find-links offline, on Windows and Linux (setuptools confirmed on Linux).
+1. Build isolation resolves hatchling and pdm-backend from find-links offline on Windows (setuptools, hatchling and pdm-backend confirmed on Linux).
 2. `git+file://` URL form for Windows drive paths.
 3. `DiagnosticEvent.to_dict` omits `level`; warnings and notices are separate lists, so matching by `type` within the list should suffice. Confirm no two diagnostics share a `type` with different meanings.
 4. Whether per-session base-venv creation (about 6 seconds on Linux once the wheelhouse exists) should be cached across sessions, keyed on a hash of the packaging inputs.
@@ -127,7 +127,7 @@ Gaps referred to below:
 1. Accelerator detection and hardware tags (torch, TensorFlow, JAX, fastai's transitive torch; GPU recorded in the manifest and markdown).
 2. Notebook language detection: non-Python kernels skipped, conflicting or missing metadata, majority and tie-break rules.
 3. Directory walks skipping hidden and `.ipynb_checkpoints` directories.
-4. Guarded and dynamic imports: guarded packages written as optional, an unconditional import overriding a guarded one, literal and variable `importlib.import_module`.
+4. (Covered by behavior/test_reading.py and test_install_lines.py.)
 5. Index-URL harvesting rules: per-package scoping, last-wins conflicts with a warning, directory-level aggregation.
 6. The JSON report contract: schema and tool-version fields, field shapes, console and JSON agreeing on counts. Boundary tests read the JSON but don't pin its shape.
 7. Delta for Python version, GPU, and findings that appeared or resolved (package changes are covered).
@@ -143,7 +143,6 @@ Top-level `tests/test_*.py`:
 | `test_cli.py` | Breaks: 60 patches of endpoints and drift | characterization/test_check_signals.py (exit code per signal), test_directory_runs.py, test_manifest_lifecycle.py; behavior/test_writing.py (text report) | none; its heuristic exit-code cases are the subject of matrix decision 8 |
 | `test_constants.py` | Survives | | The module list in `test_scan_covers_every_module_in_the_package` tracks the new layout; the manifest-literal case builds a baseline through `drift` |
 | `test_delta.py` | Breaks if `compute_delta` moves (pure, no patches) | characterization/test_scan_delta.py; behavior/test_writing.py (P3) | 7 |
-| `test_direct_references.py` | Breaks | behavior/test_environment.py (E5, E8), test_install_lines.py (G12); characterization/test_setup_runtime.py (VCS line verbatim) | none known |
 | `test_disk_output.py` | Breaks | characterization/test_manifest_lifecycle.py; behavior/test_writing.py (K7) | 1 |
 | `test_drift_check.py` | Breaks: patches `_fetch_pypi_json` and drift internals | characterization/test_check_signals.py; behavior/test_validation.py | Extras in the resolution graph walk (which extras are walked, conflicts an extra creates) |
 | `test_drift_check_live.py` | Breaks: calls `drift` and `pypi` against real PyPI | behavior/test_validation.py against the fake | The fake's response shapes are trimmed real responses; a slim real-PyPI contract check is still worth keeping |
@@ -154,7 +153,7 @@ Top-level `tests/test_*.py`:
 | `test_module_hygiene.py` | Survives, except `test_failed_opencv_probe_falls_back_and_is_logged_at_debug`, which patches `resolution.subprocess` | | |
 | `test_results.py` | Mostly survives: the result types are public API, but its helpers build them from `models` and `drift` | | |
 | `test_runtime.py` | Breaks: patches `subprocess.run` | characterization/test_setup_runtime.py; behavior/test_runtime.py | 8 |
-| `test_steady_py.py` | Breaks: 57 patches across most modules | behavior/test_reading.py, test_install_lines.py, test_pins.py; characterization/test_distribution_names.py | 1, 4 |
+| `test_steady_py.py` | Breaks: 57 patches across most modules; the tests step 2.2 broke are deleted | behavior/test_reading.py, test_install_lines.py, test_pins.py; characterization/test_distribution_names.py | 1 |
 | `test_steady_py_fixtures.py` | Breaks: patches the environment and OpenCV probe | characterization/test_distribution_names.py; behavior/test_pins.py (K9) | 1; extras in the resolution graph walk |
 | `test_structural_fixtures.py` | Breaks: same coupling | characterization (all files) | Cell order by execution count; the directory report's unresolved-packages section |
 

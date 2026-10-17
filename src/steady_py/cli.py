@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from steady_py import constants, endpoints, models, reporting, util
+from steady_py.constants import ATTENTION_DIAGNOSTICS
 from steady_py.results import (
     CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
     ScanResult, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
@@ -145,13 +146,15 @@ def run_check(target: str, output_format: str = "text", root_dir: Optional[str] 
 
 def _run_exit_code(result: Union[ScanResult, SnapshotResult]) -> int:
     """0 when everything was processed; 1 when some of it was and some was not (an unreadable
-    notebook, a failed write); 2 when nothing could be processed."""
+    notebook, a failed write), or when a notebook needs a dependency no runner can install or
+    steady-py can't pin (ATTENTION_DIAGNOSTICS, ED3); 2 when nothing could be processed."""
     failed = len(result.failed)
     processed = len(result.notebooks) - failed
     run_error = getattr(result, "error", None) is not None
-    if not failed and not run_error:
-        return EXIT_OK
-    return EXIT_ATTENTION if processed else EXIT_FAILED
+    if failed or run_error:
+        return EXIT_ATTENTION if processed else EXIT_FAILED
+    attention = any(w.type in ATTENTION_DIAGNOSTICS for n in result.notebooks if n.report for w in n.report.warnings)
+    return EXIT_ATTENTION if attention else EXIT_OK
 
 
 def scan_exit_code(result: ScanResult) -> int:

@@ -95,6 +95,11 @@ def install_project(venv: Venv, name: str, workdir: Path, editable: bool = False
     return source
 
 
+def install_editable(venv: Venv, spec: str) -> None:
+    """`pip install -e <spec>` offline, for a VCS URL (F6); pip clones it into the venv's src/."""
+    _pip(venv.python, "install", *OFFLINE, "-e", spec)
+
+
 def uninstall(venv: Venv, *names: str) -> None:
     """Removes distributions from `venv`. Uninstalling pip itself gives a venv like uv's (E1)."""
     _check(venv.python, "-m", "pip", "uninstall", "-y", "-q", *names)

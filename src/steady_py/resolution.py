@@ -2,12 +2,16 @@
 timeline, import-to-distribution resolution, and the pinned entries the manifest is built from."""
 import importlib.metadata
 import logging
+import os
+import subprocess
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
+from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
 
-from steady_py import installed, localmodules, magics, pypi, scanning, util
-from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DependencyStatus, IMPORT_TO_PYPI_MAP, PLATFORM_PSEUDO_MODULES, STD_LIB
+from steady_py import installed, join, magics, pypi, scanning, util
+from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DependencyStatus, PLATFORM_PSEUDO_MODULES, STD_LIB
 from steady_py.models import DependencyEntry, DiagnosticEvent, ImportOccurrence, PromotionDetail, TimelineResult
 
 logger = logging.getLogger("steady_py.resolution")
@@ -17,126 +21,356 @@ logger = logging.getLogger("steady_py.resolution")
 # UNIFIED TIMELINE ENGINE
 # =====================================================================
 
+def _skipped_import(module: str) -> bool:
+    """Imports that are never a dependency entry of their own: the standard library."""
+    return module.lower() in STD_LIB
+
+
+def _join(module: str, dotted: Set[str], ctx: join.JoinContext) -> join.Join:
+    """The import join for `module`, with OpenCV's variant rule applied for cv2 (K6, C1)."""
+    variant = resolve_opencv_variant(dotted, dict(ctx.frozen_env)) if module == "cv2" else None
+    return join.join_import(module, sorted(dotted), ctx, opencv_variant=variant)
+
+
+def _join_key(result: join.Join) -> List[str]:
+    """The timeline keys an import occupies: one per providing distribution, so an install line and
+    an import of one distribution give one entry whatever their names (G2); the likely PyPI name
+    when it isn't installed; the module name otherwise."""
+    if result.kind in (join.JoinKind.DISTRIBUTION, join.JoinKind.EDITABLE, join.JoinKind.NOT_FOUND):
+        return [util.canonicalize_pkg_name(d) for d in result.distributions]
+    return [f"import:{result.module}"]
+
+
 def build_unified_timeline(
     code_sources: scanning.CellsLike,
-    frozen_env: Dict[str, str],
-    pkg_dist_map: Optional[Mapping[str, List[str]]] = None,
+    ctx: join.JoinContext,
     is_execution_ordered: bool = True,
-    local_ctx: Optional[localmodules.LocalModuleContext] = None
 ) -> TimelineResult:
     """
     Constructs the master sequence of DependencyEntry objects:
     - Explicit pip install occurrences anchor timeline coordinates.
-    - Bare AST imports only anchor position if no explicit install was found anywhere in the notebook.
-    Returns a structured TimelineResult payload.
+    - Imports anchor a position only for what no install line already placed. Every import goes
+      through the import join, so pip and import names meet on the distribution (G2).
+    - An unconditional install line wins over a guarded import (decision 2); otherwise an entry
+      is guarded only when every import that reaches it is.
     """
     pip_occs, _raw_installs = magics.harvest_pip_install_occurrences(code_sources)
     resolved_pips, conflict_warnings = magics.resolve_pip_occurrences(pip_occs, is_execution_ordered=is_execution_ordered)
 
-    all_import_occs: List[ImportOccurrence] = []
-    submodules_map: Dict[str, Set[str]] = {}
-
+    occurrences: List[ImportOccurrence] = []
     for cell_idx, cell in enumerate(scanning.as_cells(code_sources)):
-        cell_imports = scanning.extract_import_occurrences_from_source(cell.source, cell_idx=cell_idx, cell=cell)
-        for imp in cell_imports:
-            all_import_occs.append(imp)
-            if imp.full_name and '.' in imp.full_name:
-                submodules_map.setdefault(imp.module, set()).add(imp.full_name)
-    guarded_set = scanning.guarded_modules(all_import_occs)
+        occurrences.extend(scanning.extract_import_occurrences_from_source(cell.source, cell_idx=cell_idx, cell=cell))
 
-    timeline_events: List[Tuple[Tuple[int, int], str, str]] = []
-    seen_packages: Set[str] = set()
+    dotted: Dict[str, Set[str]] = {}
+    for occ in occurrences:
+        if not _skipped_import(occ.module):
+            dotted.setdefault(occ.module, set()).update(occ.dotted_names)
+    joins = {module: _join(module, names, ctx) for module, names in dotted.items()
+             if module not in PLATFORM_PSEUDO_MODULES and module not in BUILD_AND_PACKAGING_TOOLS}
 
-    # 1. Place explicit pip installs
-    for norm_key, occ in resolved_pips.items():
-        canon = util.canonicalize_pkg_name(occ.name)
+    events: List[Tuple[Tuple[int, int], str, str]] = []  # (coord, kind, key)
+    first_import: Dict[str, ImportOccurrence] = {}
+    submods: Dict[str, Set[str]] = {}
+    unguarded: Set[str] = set()
+
+    for norm_key, pip_occ in resolved_pips.items():
+        canon = util.canonicalize_pkg_name(pip_occ.name)
         if norm_key == canon:
-            coord = (occ.cell_idx, occ.line_idx)
-            timeline_events.append((coord, "PIP", occ.name))
-            seen_packages.add(canon)
+            events.append(((pip_occ.cell_idx, pip_occ.line_idx), "PIP", canon))
+            unguarded.add(canon)
 
-    # 2. Place bare imports only if not already placed via pip install
-    for imp in all_import_occs:
-        norm_imp = util.canonicalize_pkg_name(imp.module)
-        if imp.module.lower() in STD_LIB:
+    placed = {key for _, _, key in events}
+    for occ in occurrences:
+        if occ.module not in dotted:
             continue
-        pypi_name = IMPORT_TO_PYPI_MAP.get(imp.module, imp.module)
-        canon_pypi = util.canonicalize_pkg_name(pypi_name)
-        if norm_imp not in seen_packages and canon_pypi not in seen_packages:
-            coord = (imp.cell_idx, imp.line_idx)
-            timeline_events.append((coord, "IMPORT", imp.module))
-            seen_packages.add(norm_imp)
-            seen_packages.add(canon_pypi)
+        keys = [f"import:{occ.module}"] if occ.module not in joins else _join_key(joins[occ.module])
+        for key in keys:
+            first_import.setdefault(key, occ)
+            if key not in placed:
+                placed.add(key)
+                events.append(((occ.cell_idx, occ.line_idx), "IMPORT", key))
+            if occ.full_name and "." in occ.full_name:
+                submods.setdefault(key, set()).add(occ.full_name)
+            if not occ.is_guarded:
+                unguarded.add(key)
 
-    timeline_events.sort(key=lambda t: t[0])
+    events.sort(key=lambda t: t[0])
 
-    dependencies: List[DependencyEntry] = []
-    promotion_notices: List[PromotionDetail] = []
-
-    for coord, kind, pkg_name in timeline_events:
-        canon_name = util.canonicalize_pkg_name(pkg_name)
-        submods = submodules_map.get(pkg_name, set())
-        is_guarded = pkg_name in guarded_set
-
+    result = TimelineResult(conflict_warnings=conflict_warnings)
+    for _coord, kind, key in events:
+        guarded = key not in unguarded
+        occ_import = first_import.get(key)
         if kind == "PIP":
-            occ = resolved_pips[canon_name]
-            dep_entry, promo = resolve_pypi_package_and_extras(
-                occ.name, submods, frozen_env, pkg_dist_map=pkg_dist_map, is_guarded=is_guarded, local_ctx=local_ctx
-            )
-            dep_entry.source = "pip_command"
-            if occ.version_spec and not dep_entry.is_comment:
-                v_clean = occ.version_spec.lstrip("=<>!~")
-                dep_entry.version = v_clean
-                
-                host_match = frozen_env.get(canon_name)
-                if host_match and "==" in host_match:
-                    host_ver = host_match.split("==", 1)[1]
-                    if host_ver != v_clean:
-                        logger.debug(
-                            f"[Timeline] Explicit notebook pin '{pkg_name}=={v_clean}' preferred over active host version '{host_ver}'."
-                        )
-            if occ.extras and not dep_entry.is_comment:
-                base, _extra = installed.split_pin_name(dep_entry.name)
-                dep_entry.name = f"{base}[{','.join(occ.extras)}]"  # G16: the install line's extras, as written
-            dep_entry.flags = list(occ.flags)
-            dependencies.append(dep_entry)
-            if promo and promo not in promotion_notices:
-                promotion_notices.append(promo)
+            pip = resolved_pips[key]
+            imported_as = occ_import.module if occ_import else None
+            resolved = _distribution(pip.name, submods.get(key, set()), ctx, guarded=False,
+                                     imported_as=imported_as, where=occ_import, placed=placed)
+            entry = resolved.entries[0]
+            entry.source = "pip_command"
+            if pip.version_spec and not entry.is_comment:
+                entry.version = pip.version_spec.lstrip("=<>!~")
+            if pip.extras and not entry.is_comment:
+                base, _extra = installed.split_pin_name(entry.name)
+                entry.name = f"{base}[{','.join(pip.extras)}]"  # G16: the install line's extras, as written
+            entry.flags = list(pip.flags)
         else:
-            dep_entry, promo = resolve_pypi_package_and_extras(
-                pkg_name, submods, frozen_env, pkg_dist_map=pkg_dist_map, is_guarded=is_guarded, local_ctx=local_ctx
-            )
-            dep_entry.source = "import"
-            dependencies.append(dep_entry)
-            if promo and promo not in promotion_notices:
-                promotion_notices.append(promo)
-
-    return TimelineResult(
-        dependencies=dependencies,
-        promotion_notices=promotion_notices,
-        conflict_warnings=conflict_warnings
-    )
+            assert occ_import is not None
+            module = occ_import.module
+            target = joins.get(module) or join.Join(module, join.JoinKind.NOT_FOUND)
+            resolved = _for_import(module, target, key, submods.get(key, set()), ctx, guarded, occ_import, placed)
+        result.add(resolved)
+    return result
 
 
 # =====================================================================
 # ENVIRONMENT CORRELATION & EXTRAS PROMOTION
 # =====================================================================
 
+@dataclass
+class Resolved:
+    """The entries one import or install line produces, with what to tell the creator about it."""
+    entries: List[DependencyEntry] = field(default_factory=list)
+    promotion: Optional[PromotionDetail] = None
+    warnings: List[DiagnosticEvent] = field(default_factory=list)
+    notices: List[DiagnosticEvent] = field(default_factory=list)
+
+
+def _at(where: Optional[ImportOccurrence], type: str, detail: str, level: str = "warning") -> DiagnosticEvent:
+    """A diagnostic at the import that raised it, or unlocated (a %%writefile script's import)."""
+    if where is None:
+        return DiagnosticEvent(type=type, detail=detail, level=level)
+    return DiagnosticEvent.at(where.cell, where.line_idx, type, detail, level=level)
+
+
+def _for_import(
+    module: str, target: join.Join, key: str, submodules: Set[str], ctx: join.JoinContext, guarded: bool,
+    where: Optional[ImportOccurrence], placed: Set[str],
+) -> Resolved:
+    """The entries for one import, by what the join found it loads."""
+    if module in PLATFORM_PSEUDO_MODULES:
+        return Resolved([DependencyEntry(
+            name=module, status=DependencyStatus.PLATFORM_PSEUDO_MODULE, is_comment=True,
+            comment_text=f"# {module} (provided automatically by platform like Colab/Databricks; no install needed)")])
+    if module in BUILD_AND_PACKAGING_TOOLS:
+        return Resolved([DependencyEntry(
+            name=module, status=DependencyStatus.BUILD_TOOL, is_comment=True,
+            comment_text=f"# {module} (core Python build/packaging tool; excluded from requirement lockfiles)")])
+    if target.kind == join.JoinKind.LOCAL:
+        return Resolved([DependencyEntry(
+            name=module, status=DependencyStatus.LOCAL_MODULE, is_comment=True,
+            comment_text=f"# {module} (local folder/file next to notebook; ensure sibling files were shared)",
+            anchor=target.anchor)])
+    if target.kind == join.JoinKind.CUSTOM_PATH:
+        return Resolved(
+            [DependencyEntry(name=module, status=DependencyStatus.CUSTOM_PATH, is_comment=True,
+                             comment_text=f"# {module} (importable on this machine from a folder no installed package owns; can't be pinned)")],
+            warnings=[_at(where, "custom_path_import",
+                          f"'{module}' is importable here from a folder that no installed package owns (one added with "
+                          f"PYTHONPATH, a .pth file or `conda develop`, or a package installed without pip's records), "
+                          f"so it can't be pinned. Make sure anyone running this notebook has it.")])
+    if target.kind == join.JoinKind.AMBIGUOUS:
+        names = ", ".join(target.distributions)
+        return Resolved(
+            [DependencyEntry(name=module, status=DependencyStatus.AMBIGUOUS, is_comment=True,
+                             comment_text=f"# {module} (provided by more than one installed package: {names}; none pinned)")],
+            warnings=[_at(where, "ambiguous_import",
+                          f"'{module}' is provided by more than one installed package ({names}), so steady-py can't "
+                          f"tell which one the notebook uses and pins none of them.")])
+    dist = next(d for d in target.distributions if util.canonicalize_pkg_name(d) == key)
+    return _distribution(dist, submodules, ctx, guarded=guarded, imported_as=module, where=where, placed=placed)
+
+
+def _distribution(
+    dist: str, submodules: Set[str], ctx: join.JoinContext, guarded: bool, imported_as: Optional[str],
+    where: Optional[ImportOccurrence], placed: Set[str],
+) -> Resolved:
+    """The entries for one distribution, by how it is installed: not at all, editable, from a
+    local file or a URL, or from an index (pinned, with extras promotion)."""
+    label = imported_as or dist
+    canon = util.canonicalize_pkg_name(dist)
+    matched_pin = ctx.frozen_env.get(canon)
+    if canon in ctx.editables:
+        return _editable(dist, label, ctx, guarded, where, placed)
+
+    pin_version: Optional[str] = None
+    direct_url: Optional[str] = None
+    if matched_pin:
+        _, pin_version, direct_url = installed.split_frozen_pin(matched_pin)
+        if direct_url and installed.is_local_direct_url(direct_url) and _installed_by_conda(dist):
+            return _conda_built(dist, label, guarded, where)
+
+    if guarded:
+        if direct_url:
+            return Resolved([DependencyEntry(
+                name=dist, version="", status=DependencyStatus.GUARDED, is_comment=True,
+                comment_text=f"# {dist} (optional or conditional dependency inside try/except block; {installed.direct_reference_note(direct_url)})")],
+                warnings=_local_install_warning(dist, label, direct_url, where))
+        if matched_pin:
+            return Resolved([DependencyEntry(
+                name=dist, version=pin_version or "", status=DependencyStatus.GUARDED, is_comment=True,
+                comment_text=f"# {matched_pin} (optional or conditional dependency inside try/except block)")])
+        return Resolved([DependencyEntry(
+            name=dist, version="", status=DependencyStatus.GUARDED, is_comment=True,
+            comment_text=f"# {dist} (optional or conditional dependency inside try/except block)")])
+
+    if not matched_pin:
+        return Resolved([DependencyEntry(
+            name=dist, version="", status=DependencyStatus.PINNED, is_comment=True,
+            comment_text=f"# {dist} (imported as '{label}'; not installed here or found as a local file -- verify before assuming this is truly missing)")])
+
+    if direct_url:
+        note = installed.direct_reference_note(direct_url, cell2_installs=True)
+        if installed.is_local_direct_url(direct_url):
+            return Resolved([DependencyEntry(
+                name=dist, status=DependencyStatus.SYSTEM_PATH, is_comment=True,
+                comment_text=f"# {dist} (imported as '{label}'; {note})")],
+                warnings=_local_install_warning(dist, label, direct_url, where))
+        return Resolved([DependencyEntry(
+            name=dist, status=DependencyStatus.DIRECT_REFERENCE, is_comment=True,
+            comment_text=f"# {dist} (imported as '{label}'; {note})", direct_url=direct_url)])
+
+    pkg_part, ver, _ = installed.split_frozen_pin(matched_pin)
+    ver_part = conda_opencv_release(pkg_part, ver or "") or ver or ""
+    promoted = _promoted_extra(pkg_part, submodules)
+    if promoted:
+        promoted_name = f"{pkg_part}[{promoted}]"
+        promoted_pin = f"{promoted_name}=={ver_part}"
+        promo = PromotionDetail(
+            import_name=f"{label}.{promoted}", promoted_name=promoted_name, version=ver_part,
+            detail=f"💡 Extra Dependency Promotion: importing '{label}.{promoted}' automatically promoted requirement to '{promoted_pin}'")
+        return Resolved([DependencyEntry(name=promoted_name, version=ver_part, status=DependencyStatus.PINNED)], promotion=promo)
+    return Resolved([DependencyEntry(name=pkg_part, version=ver_part, status=DependencyStatus.PINNED)])
+
+
+def _promoted_extra(dist: str, submodules: Set[str]) -> Optional[str]:
+    """The extra whose name matches an imported submodule's last part, if any (K9 tracks this
+    heuristic's limits)."""
+    if not submodules:
+        return None
+    try:
+        extras: List[str] = importlib.metadata.distribution(dist).metadata.get_all("Provides-Extra") or []
+    except importlib.metadata.PackageNotFoundError:
+        return None  # not installed here, so there are no extras to match
+    provided = {e.lower(): e for e in extras}
+    for sub in submodules:
+        tail = sub.split('.')[-1].lower()
+        if tail in provided:
+            return provided[tail]
+    return None
+
+
+def _local_install_warning(dist: str, label: str, direct_url: str, where: Optional[ImportOccurrence]) -> List[DiagnosticEvent]:
+    """The needs-attention warning for a package installed from a file on this machine (E2a, ED3)."""
+    if not installed.is_local_direct_url(direct_url):
+        return []
+    return [_at(where, "local_file_import",
+                f"'{label}' comes from {dist}, installed from a file on this machine, so anyone running this "
+                f"notebook can't install it from there. Publish it, or host it at a shared URL.")]
+
+
+def _conda_built(dist: str, label: str, guarded: bool, where: Optional[ImportOccurrence]) -> Resolved:
+    """A conda-built package (its direct_url.json points at conda's build folder): pinned as
+    name==version from PyPI, with a notice, since conda and PyPI builds can differ (E2b)."""
+    version = importlib.metadata.distribution(dist).version
+    if guarded:
+        return Resolved([DependencyEntry(
+            name=dist, version=version, status=DependencyStatus.GUARDED, is_comment=True,
+            comment_text=f"# {dist}=={version} (optional or conditional dependency inside try/except block)")])
+    notice = _at(where, "conda_package",
+                 f"{dist} {version} was built and installed by conda; pinned {dist}=={version} from PyPI, "
+                 f"whose build can differ from conda's.", level="notice")
+    return Resolved([DependencyEntry(name=dist, version=version, status=DependencyStatus.PINNED)], notices=[notice])
+
+
+def _editable(dist: str, label: str, ctx: join.JoinContext, guarded: bool, where: Optional[ImportOccurrence],
+              placed: Set[str]) -> Resolved:
+    """An editable install: a comment and a needs-attention warning (ED3), since runners can't
+    install it, plus a pin for each of its own requirements that nothing else in the notebook
+    places (ED1), as installed here. The `editables` shim hatchling and pdm inject is left out."""
+    resolved = Resolved(
+        [DependencyEntry(name=dist, status=DependencyStatus.EDITABLE, is_comment=True,
+                         comment_text=f"# {dist} (imported as '{label}'; your in-development package, installed "
+                                      f"in editable mode; runners can't install it)")],
+        warnings=[_editable_warning(dist, label, ctx, where)])
+    for requirement in _editable_requirements(dist):
+        canon = util.canonicalize_pkg_name(requirement)
+        if canon in placed:
+            continue
+        placed.add(canon)
+        dependency = _distribution(requirement, set(), ctx, guarded=guarded, imported_as=None, where=where, placed=placed)
+        for entry in dependency.entries:
+            entry.source = "editable_requirement"
+        resolved.entries.extend(dependency.entries)
+        resolved.warnings.extend(dependency.warnings)
+        resolved.notices.extend(dependency.notices)
+    return resolved
+
+
+def _editable_warning(dist: str, label: str, ctx: join.JoinContext, where: Optional[ImportOccurrence]) -> DiagnosticEvent:
+    """The needs-attention warning for an import an editable install provides (ED3), naming the Git
+    source that could replace it when the folder is a checkout with a remote (ED5)."""
+    candidate = _git_candidate(ctx.editables[util.canonicalize_pkg_name(dist)])
+    detail = (f"'{label}' comes from {dist}, your own package installed in editable mode from a folder on this "
+              f"machine, so anyone running this notebook can't install it. Publish it, or share it from a Git URL")
+    detail += (f": `{candidate}` would install this commit, once it is pushed and the folder has no uncommitted "
+               f"changes." if candidate else ".")
+    return _at(where, "editable_import", detail)
+
+
+def _editable_requirements(dist: str) -> List[str]:
+    """The names of an editable's own requirements that apply here, in METADATA order. Markers are
+    evaluated for this machine with no extras, as pip does for a plain install."""
+    try:
+        requires = importlib.metadata.distribution(dist).requires or []
+    except importlib.metadata.PackageNotFoundError:
+        return []
+    names: List[str] = []
+    for line in requires:
+        try:
+            requirement = Requirement(line)
+        except InvalidRequirement:
+            logger.debug(f"Unreadable requirement '{line}' of {dist}")
+            continue
+        if requirement.marker is not None and not requirement.marker.evaluate({"extra": ""}):
+            continue
+        if util.canonicalize_pkg_name(requirement.name) != "editables" and requirement.name not in names:
+            names.append(requirement.name)
+    return names
+
+
+@util.memoize_for_run
+def _git_candidate(folder: str) -> Optional[str]:
+    """`git+<remote>@<commit>` (with `#subdirectory=` when the project isn't the repository's root)
+    for an editable's folder, read with the git command line; None when it isn't a git checkout
+    with a remote, or git isn't available (ED5)."""
+    def git(*args: str) -> Optional[str]:
+        try:
+            done = subprocess.run(["git", "-C", folder, *args], capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.debug(f"[Join] git {' '.join(args)} failed in {folder}: {e}")
+            return None
+        return done.stdout.strip() or None if done.returncode == 0 else None
+    remote, commit, top = git("config", "--get", "remote.origin.url"), git("rev-parse", "HEAD"), git("rev-parse", "--show-toplevel")
+    if not (remote and commit and top):
+        return None
+    spec = f"git+{remote}@{commit}"
+    subdirectory = os.path.relpath(os.path.realpath(folder), os.path.realpath(top)).replace(os.sep, "/")
+    return spec + (f"#subdirectory={subdirectory}" if subdirectory != "." else "")
+
+
 def build_auxiliary_tool_entries(
     harvested_packages: Set[str],
     imported_packages: Any,
-    frozen_env: Dict[str, str]
+    frozen_env: Mapping[str, str]
 ) -> List[DependencyEntry]:
-    """Builds commented DependencyEntry instances for CLI tools installed via cell magics."""
+    """Builds commented DependencyEntry instances for CLI tools installed via cell magics. These are
+    distribution names from install lines, so they are looked up by name, not joined as imports."""
     aux_entries: List[DependencyEntry] = []
     imported_set = {util.canonicalize_pkg_name(imp) for imp in imported_packages}
     unimported_tools = sorted([
         pkg for pkg in harvested_packages 
         if util.canonicalize_pkg_name(pkg) not in imported_set and pkg.lower() not in STD_LIB
     ])
-
-    if not unimported_tools:
-        return aux_entries
 
     for tool in unimported_tools:
         canon_tool = util.canonicalize_pkg_name(tool)
@@ -176,213 +410,53 @@ def build_auxiliary_tool_entries(
 def build_writefile_tool_entries(
     writefile_imports: Any,
     primary_imports: Any,
-    frozen_env: Dict[str, str]
-) -> List[DependencyEntry]:
-    """Builds commented DependencyEntry instances for dependencies inside %%writefile scripts."""
-    entries: List[DependencyEntry] = []
+    ctx: join.JoinContext,
+) -> Resolved:
+    """Commented entries for imports found only inside %%writefile scripts, joined like any other
+    import (ED4), with the same warnings for what runners can't install."""
+    resolved = Resolved()
     primary_set = {util.canonicalize_pkg_name(imp) for imp in primary_imports}
     script_only = sorted([
         pkg for pkg in writefile_imports 
-        if util.canonicalize_pkg_name(pkg) not in primary_set and pkg.lower() not in STD_LIB
+        if util.canonicalize_pkg_name(pkg) not in primary_set and not _skipped_import(pkg)
     ])
 
-    if not script_only:
-        return entries
-
-    for pkg in script_only:
-        pypi_name = IMPORT_TO_PYPI_MAP.get(pkg, pkg)
-        canon_pypi = util.canonicalize_pkg_name(pypi_name)
-        matched_pin = frozen_env.get(canon_pypi)
-        _, ver, direct_url = installed.split_frozen_pin(matched_pin) if matched_pin else ("", "", None)
-        ver = ver or ""
-        if direct_url:
-            entries.append(DependencyEntry(
-                name=pypi_name,
-                source="writefile_script",
-                status=DependencyStatus.WRITEFILE_SCRIPT,
-                is_comment=True,
-                comment_text=f"# {pypi_name}  (imported inside script generated via %%writefile; {installed.direct_reference_note(direct_url)})"
-            ))
+    for module in script_only:
+        target = _join(module, {module}, ctx)
+        where = "imported inside script generated via %%writefile"
+        name = target.distributions[0] if target.distributions else module
+        matched_pin = ctx.frozen_env.get(util.canonicalize_pkg_name(name)) if target.distributions else None
+        text = f"# {name}  ({where}; not found in active env)"
+        version = ""
+        if target.kind == join.JoinKind.LOCAL:
+            text = f"# {module}  ({where}; local folder/file next to notebook)"
+        elif target.kind == join.JoinKind.EDITABLE:
+            text = f"# {name}  ({where}; your in-development package, installed in editable mode)"
+            resolved.warnings.append(_editable_warning(name, module, ctx, None))
+        elif target.kind in (join.JoinKind.CUSTOM_PATH, join.JoinKind.AMBIGUOUS):
+            text = f"# {module}  ({where}; can't be pinned, see the warning)"
+            resolved.warnings.extend(_for_import(module, target, "", set(), ctx, False, None, set()).warnings)
         elif matched_pin:
-            entries.append(DependencyEntry(
-                name=pypi_name,
-                version=ver,
-                source="writefile_script",
-                status=DependencyStatus.WRITEFILE_SCRIPT,
-                is_comment=True,
-                comment_text=f"# {matched_pin}  (imported inside script generated via %%writefile)"
-            ))
-        else:
-            entries.append(DependencyEntry(
-                name=pypi_name,
-                version="",
-                source="writefile_script",
-                status=DependencyStatus.WRITEFILE_SCRIPT,
-                is_comment=True,
-                comment_text=f"# {pypi_name}  (imported inside script generated via %%writefile; not found in active env)"
-            ))
-
-    return entries
+            _, pin_version, direct_url = installed.split_frozen_pin(matched_pin)
+            if direct_url:
+                text = f"# {name}  ({where}; {installed.direct_reference_note(direct_url)})"
+                resolved.warnings.extend(_local_install_warning(name, module, direct_url, None))
+            else:
+                text, version = f"# {matched_pin}  ({where})", pin_version or ""
+        resolved.entries.append(DependencyEntry(
+            name=name, version=version, source="writefile_script", status=DependencyStatus.WRITEFILE_SCRIPT,
+            is_comment=True, comment_text=text))
+    return resolved
 
 
-def resolve_pypi_package_and_extras(
-    imp: str, 
-    submodules_set: Set[str], 
-    frozen_env: Dict[str, str], 
-    pkg_dist_map: Optional[Mapping[str, List[str]]] = None,
-    is_guarded: bool = False,
-    local_ctx: Optional[localmodules.LocalModuleContext] = None
-) -> Tuple[DependencyEntry, Optional[PromotionDetail]]:
-    """Resolves top-level import to a DependencyEntry."""
-    if imp in PLATFORM_PSEUDO_MODULES:
-        return DependencyEntry(
-            name=imp,
-            status=DependencyStatus.PLATFORM_PSEUDO_MODULE,
-            is_comment=True,
-            comment_text=f"# {imp} (provided automatically by platform like Colab/Databricks; no install needed)"
-        ), None
-
-    if imp in BUILD_AND_PACKAGING_TOOLS:
-        return DependencyEntry(
-            name=imp,
-            status=DependencyStatus.BUILD_TOOL,
-            is_comment=True,
-            comment_text=f"# {imp} (core Python build/packaging tool; excluded from requirement lockfiles)"
-        ), None
-
-    resolved_anchor = localmodules.resolve_local_module(imp, local_ctx.notebook_dir, local_ctx.root_dir) if local_ctx else None
-    if resolved_anchor:
-        return DependencyEntry(
-            name=imp,
-            status=DependencyStatus.LOCAL_MODULE,
-            is_comment=True,
-            comment_text=f"# {imp} (local folder/file next to notebook; ensure sibling files were shared)",
-            anchor=resolved_anchor
-        ), None
-
-    pypi_name = None
-    if pkg_dist_map is None and hasattr(importlib.metadata, "packages_distributions"):
-        try:
-            pkg_dist_map = importlib.metadata.packages_distributions()
-        except Exception:
-            pkg_dist_map = {}
-
-    if pkg_dist_map and imp in pkg_dist_map:
-        pypi_name = pkg_dist_map[imp][0]
-
-    if imp == "cv2":
-        pypi_name = resolve_opencv_variant(submodules_set, frozen_env)
-
-    if not pypi_name:
-        pypi_name = IMPORT_TO_PYPI_MAP.get(imp, imp)
-
-    canon_pypi = util.canonicalize_pkg_name(pypi_name)
-    matched_pin = frozen_env.get(canon_pypi)
-
-    pin_version: Optional[str] = None
-    direct_url: Optional[str] = None
-    if matched_pin:
-        _, pin_version, direct_url = installed.split_frozen_pin(matched_pin)
-
-    if is_guarded:
-        if direct_url:
-            return DependencyEntry(
-                name=pypi_name,
-                version="",
-                status=DependencyStatus.GUARDED,
-                is_comment=True,
-                comment_text=f"# {pypi_name} (optional or conditional dependency inside try/except block; {installed.direct_reference_note(direct_url)})"
-            ), None
-        if matched_pin:
-            return DependencyEntry(
-                name=pypi_name,
-                version=pin_version or "",
-                status=DependencyStatus.GUARDED,
-                is_comment=True,
-                comment_text=f"# {matched_pin} (optional or conditional dependency inside try/except block)"
-            ), None
-        return DependencyEntry(
-            name=pypi_name,
-            version="",
-            status=DependencyStatus.GUARDED,
-            is_comment=True,
-            comment_text=f"# {pypi_name} (optional or conditional dependency inside try/except block)"
-        ), None
-
-    if not matched_pin:
-        return DependencyEntry(
-            name=pypi_name,
-            version="",
-            status=DependencyStatus.PINNED,
-            is_comment=True,
-            comment_text=f"# {pypi_name} (imported as '{imp}'; not installed here or found as a local file -- verify before assuming this is truly missing)"
-        ), None
-
-    if direct_url:
-        note = installed.direct_reference_note(direct_url, cell2_installs=True)
-        if installed.is_local_direct_url(direct_url):
-            return DependencyEntry(
-                name=pypi_name,
-                status=DependencyStatus.SYSTEM_PATH,
-                is_comment=True,
-                comment_text=f"# {pypi_name} (imported as '{imp}'; {note})"
-            ), None
-        return DependencyEntry(
-            name=pypi_name,
-            status=DependencyStatus.DIRECT_REFERENCE,
-            is_comment=True,
-            comment_text=f"# {pypi_name} (imported as '{imp}'; {note})",
-            direct_url=direct_url
-        ), None
-
-    pkg_part, ver, _ = installed.split_frozen_pin(matched_pin)
-    ver_part = conda_opencv_release(pkg_part, ver or "") or ver or ""
-
-    extra_tag = None
-    if submodules_set:
-        try:
-            dist = importlib.metadata.distribution(pkg_part)
-            provided_extras = dist.metadata.get_all("Provides-Extra") or []
-            provided_extras_lower = {e.lower(): e for e in provided_extras}
-
-            for sub in submodules_set:
-                sub_tail = sub.split('.')[-1].lower()
-                if sub_tail in provided_extras_lower:
-                    extra_tag = provided_extras_lower[sub_tail]
-                    break
-        except importlib.metadata.PackageNotFoundError:
-            pass  # not installed here, so there are no extras to match
-        except Exception as e:  # extras tagging is best-effort; never let odd metadata stop the run
-            logger.debug(f"Could not read Provides-Extra for '{pkg_part}': {e}", exc_info=True)
-
-    if extra_tag:
-        promoted_name = f"{pkg_part}[{extra_tag}]"
-        promoted_pin = f"{promoted_name}=={ver_part}"
-        notice_detail = f"💡 Extra Dependency Promotion: importing '{imp}.{extra_tag}' automatically promoted requirement to '{promoted_pin}'"
-        promo = PromotionDetail(
-            import_name=f"{imp}.{extra_tag}",
-            promoted_name=promoted_name,
-            version=ver_part,
-            detail=notice_detail
-        )
-        return DependencyEntry(name=promoted_name, version=ver_part, status=DependencyStatus.PINNED), promo
-
-    return DependencyEntry(name=pkg_part, version=ver_part, status=DependencyStatus.PINNED), None
-
-
-@util.memoize_for_run
 def build_manifest_entries(
     imports: Any, 
     submodules: Dict[str, Set[str]], 
-    frozen_env: Dict[str, str], 
-    pkg_dist_map: Optional[Mapping[str, List[str]]] = None,
+    ctx: join.JoinContext,
     guarded_imports: Optional[Set[str]] = None,
-    local_ctx: Optional[localmodules.LocalModuleContext] = None
 ) -> Tuple[List[str], List[str]]:
     """Builds string-formatted manifest lines for legacy/batch consumers while preserving order."""
-    entries, promotions = build_dependency_objects(
-        imports, submodules, frozen_env, pkg_dist_map, guarded_imports, local_ctx
-    )
+    entries, promotions = build_dependency_objects(imports, submodules, ctx, guarded_imports)
     pinned_manifest = [e.specifier for e in entries]
     notices = [p.detail for p in promotions if p.detail]
     return pinned_manifest, notices
@@ -391,27 +465,28 @@ def build_manifest_entries(
 def build_dependency_objects(
     imports: Any, 
     submodules: Dict[str, Set[str]], 
-    frozen_env: Dict[str, str], 
-    pkg_dist_map: Optional[Mapping[str, List[str]]] = None,
+    ctx: join.JoinContext,
     guarded_imports: Optional[Set[str]] = None,
-    local_ctx: Optional[localmodules.LocalModuleContext] = None
 ) -> Tuple[List[DependencyEntry], List[PromotionDetail]]:
-    """Generates typed DependencyEntry instances in first-encountered order."""
+    """Generates typed DependencyEntry instances in first-encountered order (`--universal`)."""
     entries: List[DependencyEntry] = []
     promotions: List[PromotionDetail] = []
     guarded_set = guarded_imports or set()
+    placed: Set[str] = set()
 
     for imp in imports:
-        if imp in STD_LIB:
+        if _skipped_import(imp):
             continue
         submods = submodules.get(imp, set())
-        is_guarded = imp in guarded_set
-        dep_entry, promo = resolve_pypi_package_and_extras(
-            imp, submods, frozen_env, pkg_dist_map=pkg_dist_map, is_guarded=is_guarded, local_ctx=local_ctx
-        )
-        entries.append(dep_entry)
-        if promo and promo not in promotions:
-            promotions.append(promo)
+        target = _join(imp, submods | {imp}, ctx)
+        for key in _join_key(target):
+            if key in placed:
+                continue
+            placed.add(key)
+            resolved = _for_import(imp, target, key, submods, ctx, imp in guarded_set, None, placed)
+            entries.extend(resolved.entries)
+            if resolved.promotion and resolved.promotion not in promotions:
+                promotions.append(resolved.promotion)
 
     return entries, promotions
 
@@ -426,7 +501,7 @@ def _installed_by_conda(name: str) -> bool:
         return False
 
 
-def resolve_opencv_variant(submodules: Optional[Set[str]] = None, frozen_env: Optional[Dict[str, str]] = None) -> str:
+def resolve_opencv_variant(submodules: Optional[Set[str]] = None, frozen_env: Optional[Mapping[str, str]] = None) -> str:
     """The installed OpenCV variant that `import cv2` loads: the first on sys.path, since
     `frozen_env` keeps installed distributions in sys.path order. conda-forge writes stubs for
     both opencv-python and its headless twin in every build, so with conda stubs alone the

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from packaging.utils import canonicalize_name
 
-from tests.support.markers import finding, known_bug
+from tests.support.markers import finding
 from tests.support.notebooks import Notebook, code
 from tests.support.outcomes import manifest
 from tests.support.runner import pip_option_table, run, run_in
@@ -232,8 +232,7 @@ def test_directory_scan_reports_no_package_named_from_display_text(tmp_path):
 @pytest.mark.venv
 @pytest.mark.parametrize("dist, module", [
     pytest.param("python-dotenv", "dotenv", id="dotenv-control"),
-    pytest.param("paddlepaddle-gpu", "paddle", id="paddle",
-                 marks=known_bug("G2", "an install line and an import of the same distribution give two entries")),
+    pytest.param("paddlepaddle-gpu", "paddle", id="paddle", marks=finding("G2")),
 ])
 def test_install_line_and_import_of_one_distribution_give_one_entry(tmp_path, base_venv, dist, module):
     site = SiteDir(tmp_path / "site")
@@ -242,6 +241,30 @@ def test_install_line_and_import_of_one_distribution_give_one_entry(tmp_path, ba
                      env=pythonpath(site))
     assert outcome.exit_code in (0, 1), outcome.log
     assert [canonicalize_name(d["name"]) for d in outcome.dependencies()] == [dist]
+
+
+@pytest.mark.venv
+@finding("G2")
+def test_unconditional_install_wins_over_a_guarded_import_of_another_name(tmp_path, base_venv):
+    # Decision 2: the install line is what the author ran, whatever the pip and import names.
+    site = SiteDir(tmp_path / "site")
+    site.add("python-dotenv", "1.0.1", modules=["dotenv/__init__.py"])
+    source = "%pip install python-dotenv\ntry:\n    import dotenv\nexcept ImportError:\n    pass"
+    outcome = run_in(base_venv, "scan", Notebook(code(source)).write(tmp_path / "nb"), env=pythonpath(site))
+    assert outcome.exit_code in (0, 1), outcome.log
+    assert outcome.pins() == {"python-dotenv": "1.0.1"}
+
+
+@pytest.mark.venv
+@finding("G2")
+def test_submodules_reach_an_install_line_of_another_name(tmp_path, base_venv):
+    # Extras promotion keys on the distribution, so an import's submodules reach the install line.
+    site = SiteDir(tmp_path / "site")
+    site.add("demo-dist", "1.0", extras=["fast"], modules=["demomod/__init__.py", "demomod/fast.py"])
+    source = "%pip install demo-dist\nimport demomod.fast"
+    outcome = run_in(base_venv, "scan", Notebook(code(source)).write(tmp_path / "nb"), env=pythonpath(site))
+    assert outcome.exit_code in (0, 1), outcome.log
+    assert [d["name"] for d in outcome.dependencies()] == ["demo-dist[fast]"]
 
 
 @pytest.mark.venv

@@ -149,14 +149,14 @@ Reads the manifest stored in each notebook and compares it with what PyPI says t
 
 | Option | What it does |
 | --- | --- |
-| `--root-dir DIR` | The project root to look in for your own helper files that were found through a project root when the notebook was set up. Without it, those are reported as "could not check". For a folder, the folder itself is the default. |
+| `--root-dir DIR` | The project root to look in for your own helper files that were found through a project root when the notebook was set up. Without it, steady-py uses the nearest folder above the notebook holding `.git`, `pyproject.toml`, `setup.py` or `setup.cfg`, as it did at setup; failing that, the folder you gave it, or for a single notebook those files are reported as "could not check". |
 
 ### Exit codes
 
 Useful when running steady-py from a script or a scheduled job:
 
 - **0** — everything was processed and nothing needs attention.
-- **1** — the job was done but something needs attention: `check` found a problem, or some notebooks in a folder were skipped.
+- **1** — the job was done but something needs attention: `check` found a problem, some notebooks in a folder were skipped, or a notebook imports something only your machine has (your own package in editable mode, a package installed from a local file, a module on a custom path) or that more than one installed package provides.
 - **2** — the job couldn't be done: a bad option, a missing path, a notebook that couldn't be read, or `check` couldn't verify something.
 
 For `check`, a "worth reviewing" item that was already present when the notebook was set up doesn't count as a problem.
@@ -249,7 +249,10 @@ Lines starting with `#` in Cell 2 are notes; nothing on them is installed.
 | `# x (local folder/file next to notebook; ensure sibling files were shared)` | Your own code, next to the notebook. Share it with the notebook. |
 | `# x (provided automatically by platform like Colab/Databricks; no install needed)` | Something the platform provides; nothing to install. |
 | `# x (core Python build/packaging tool; excluded from requirement lockfiles)` | Tools like `pip` or `setuptools`; deliberately left out. |
-| `# x (... found on a system-dependent path, which can't and shouldn't be shared directly ...)` | Installed on your computer from a local folder or in editable mode. That location only exists on your machine, so it isn't recorded. |
+| `# x (... found on a system-dependent path, which can't and shouldn't be shared directly ...)` | Installed on your computer from a local file. That location only exists on your machine, so it isn't recorded, and a warning says so. |
+| `# x (imported as 'm'; your in-development package, installed in editable mode; ...)` | Your own package, installed in editable mode. Runners can't install it; a warning suggests publishing it or sharing it from Git, naming the Git source when the folder is a checkout. Its own requirements are pinned. |
+| `# m (importable on this machine from a folder no installed package owns; ...)` | Found through `PYTHONPATH`, a `.pth` file or `conda develop`, not an installed package, so it can't be pinned. |
+| `# m (provided by more than one installed package: ...)` | Several installed packages ship this module, so none is pinned; a warning names them. |
 | `# x (... installed from a direct URL, not PyPI ...)` | Installed from a web address, such as a git repository. The address is recorded and installed as written. |
 | `# tool (installed via cell command; ...)` | Installed by an install command in the notebook but never imported, like a command-line tool. |
 | `# pkg (imported inside script generated via %%writefile ...)` | Used by a script the notebook writes to disk. |

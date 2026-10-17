@@ -280,7 +280,8 @@ class NotebookImportVisitor(GuardTracker):
     def guarded_imports(self) -> Set[str]:
         return guarded_modules(self.occurrences)
 
-    def _record_import(self, base_pkg: str, full_name: Optional[str] = None, lineno: int = 1) -> None:
+    def _record_import(self, base_pkg: str, full_name: Optional[str] = None, lineno: int = 1,
+                       from_names: Tuple[str, ...] = ()) -> None:
         if base_pkg == TOOL_IMPORT_NAME:
             return  # steady-py is the tool, never a dependency; Cell 2 installs it (D1)
         line_idx = max(0, lineno - 1)
@@ -305,6 +306,7 @@ class NotebookImportVisitor(GuardTracker):
                 full_name=full_name or base_pkg,
                 is_guarded=is_guarded,
                 cell=self.cell,
+                from_names=from_names,
             )
         )
 
@@ -323,7 +325,8 @@ class NotebookImportVisitor(GuardTracker):
                 for alias in node.names:
                     if alias.name == "import_module":
                         self._import_module_bindings.add(alias.asname or "import_module")
-            self._record_import(base_pkg, full_name=node.module, lineno=node.lineno)
+            self._record_import(base_pkg, full_name=node.module, lineno=node.lineno,
+                                from_names=tuple(a.name for a in node.names if a.name != "*"))
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:

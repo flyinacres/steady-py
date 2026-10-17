@@ -63,6 +63,21 @@ def test_guarded_install_line_keeps_the_cells_imports(tmp_path):
     assert "packaging" in outcome.pins()
 
 
+def test_a_guarded_import_is_optional_not_pinned(tmp_path):
+    outcome = run("scan", Notebook(code("try:\n    import packaging\nexcept ImportError:\n    pass")).write(tmp_path))
+    assert outcome.exit_code in (0, 1), outcome.log
+    assert outcome.dependency("packaging")["status"] == "guarded"
+    assert "packaging" not in outcome.pins()
+
+
+def test_dynamic_imports_are_read_when_literal_and_flagged_when_not(tmp_path):
+    source = "import importlib\nimportlib.import_module('packaging')\nname = 'x'\nimportlib.import_module(name)"
+    outcome = run("scan", Notebook(code(source)).write(tmp_path))
+    assert outcome.exit_code in (0, 1), outcome.log
+    assert "packaging" in outcome.pins()
+    assert outcome.warnings(type="dynamic_import")
+
+
 @finding("G20")
 def test_an_unconditional_import_outweighs_an_earlier_guarded_one(tmp_path):
     guarded = code("try:\n    import packaging\nexcept ImportError:\n    %pip install packaging")

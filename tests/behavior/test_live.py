@@ -5,7 +5,7 @@ import pytest
 
 from tests.support.envs import installed_version
 from tests.support.kernel import run_live
-from tests.support.markers import finding, known_bug
+from tests.support.markers import finding
 from tests.support.notebooks import Notebook, code
 from tests.support.runner import run_in
 
@@ -23,11 +23,8 @@ def _run(mode, venv, directory, cells):
     return outcome
 
 
-def _modes(finding_id, why):
-    return pytest.mark.parametrize("mode", ["file", pytest.param("live", marks=known_bug(finding_id, why))])
-
-
-@_modes("K12", "any importable module is a local module in a live kernel, so nothing installed is pinned")
+@finding("K12")
+@pytest.mark.parametrize("mode", ["file", "live"])
 def test_installed_package_is_pinned_and_local_module_stays_local(tmp_path, live_venv, mode):
     outcome = _run(mode, live_venv, tmp_path / "nb", [code("import packaging\nimport helper")])
     assert outcome.dependency("helper")["status"] == "local_module"  # control: local detection survives the fix
@@ -47,15 +44,9 @@ FORMS = {
 }
 
 
-def _form_modes():
-    # The live pin also needs K12: today any importable module is a local module in a live kernel.
-    k12 = known_bug("K12", "the harvested install is pinned as a local module in a live kernel")
-    return [pytest.param(form, mode, marks=k12 if (form, mode) == ("shell-pip", "live") else ())
-            for form in FORMS for mode in ("file", "live")]
-
-
 @finding("G15")
-@pytest.mark.parametrize(("form", "mode"), _form_modes())
+@pytest.mark.parametrize("mode", ["file", "live"])
+@pytest.mark.parametrize("form", FORMS)
 def test_install_forms_are_harvested(tmp_path, live_venv, mode, form):
     source, check = FORMS[form]
     version = installed_version(live_venv, "resolvelib")  # installed, so pip in the kernel is a no-op

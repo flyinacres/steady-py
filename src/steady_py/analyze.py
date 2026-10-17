@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterator, List, Mapping, Optional, Set, Tuple
 
-from steady_py import accelerator, installed, localmodules, magics, resolution, scanning, util
-from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DEFAULT_IGNORED_DIRS, ENVIRONMENT_DIR_MARKERS, DependencyStatus, PLATFORM_PSEUDO_MODULES, StatusLabel, STD_LIB
+from steady_py import accelerator, installed, join, localmodules, magics, resolution, scanning, util
+from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DEFAULT_IGNORED_DIRS, ENVIRONMENT_DIR_MARKERS, DependencyStatus, PLATFORM_PSEUDO_MODULES, StatusLabel, STD_LIB, UNSHAREABLE_STATUSES
 from steady_py.models import BatchAnalysisSummary, Cell, DiagnosticEvent, ExtractionResult, GpuInfo, InstallLine, NotebookAnalysisReport, RawInstall
 
 logger = logging.getLogger("steady_py.analyze")
@@ -194,36 +194,48 @@ def other_interpreter_warning(missing: int, installed_count: int) -> Optional[Di
                f"runs in another environment, run steady-py with that environment's Python.")
 
 
+def join_context(
+    notebook_path: Path,
+    frozen_env: Mapping[str, str],
+    pkg_dist_map: Mapping[str, List[str]],
+    editables: Optional[Mapping[str, str]],
+    root_fallback: Optional[str],
+) -> join.JoinContext:
+    """The import join's evidence for one notebook: the environment, the notebook's folder, and its
+    project root (localmodules.project_root, with `root_fallback` when no project marker is found)."""
+    notebook_dir = str(notebook_path.parent)
+    return join.JoinContext(frozen_env=frozen_env, pkg_dist_map=pkg_dist_map, editables=editables or {},
+                            notebook_dir=notebook_dir, root_dir=localmodules.project_root(notebook_dir, root_fallback))
+
+
 def build_single_notebook_report(
     scan_res: NotebookScanResult,
     frozen_env: Dict[str, str],
     pkg_dist_map: Mapping[str, List[str]],
     gpu_info: Optional[GpuInfo],
-    root_dir: Optional[str] = None
+    root_dir: Optional[str] = None,
+    editables: Optional[Mapping[str, str]] = None,
 ) -> NotebookAnalysisReport:
-    """Builds a complete NotebookAnalysisReport object for a single notebook."""
-    local_ctx = localmodules.LocalModuleContext(str(scan_res.path.parent), root_dir)
+    """Builds a complete NotebookAnalysisReport object for a single notebook. `root_dir` is the
+    fallback project root for when the notebook has no project marker above it."""
+    ctx = join_context(scan_res.path, frozen_env, pkg_dist_map, editables, root_dir)
 
-    timeline_res = resolution.build_unified_timeline(
-        scan_res.cells,
-        frozen_env=frozen_env,
-        pkg_dist_map=pkg_dist_map,
-        local_ctx=local_ctx
-    )
+    timeline_res = resolution.build_unified_timeline(scan_res.cells, ctx)
 
     timeline_pkgs = {util.canonicalize_pkg_name(installed.split_pin_name(d.name)[0]) for d in timeline_res.dependencies if d.name}
     untimed = {pkg for pkg in scan_res.harvested_pkgs if util.canonicalize_pkg_name(pkg) not in timeline_pkgs}  # G17
     aux_entries = resolution.build_auxiliary_tool_entries(untimed, scan_res.imports, frozen_env)
-    writefile_entries = resolution.build_writefile_tool_entries(scan_res.writefile_imports, scan_res.imports, frozen_env)
+    writefile = resolution.build_writefile_tool_entries(scan_res.writefile_imports, scan_res.imports, ctx)
 
     all_dep_entries, local_tagged, hw_warnings = resolution.build_dependency_entries(
         timeline_res.dependencies,
         scoped_flags=scan_res.scoped_flags,
         auxiliary_entries=aux_entries,
-        writefile_entries=writefile_entries
+        writefile_entries=writefile.entries
     )
 
     notices = list(scan_res.magic_notices)
+    notices.extend(timeline_res.notices)
     for dep in all_dep_entries:
         installed_pin = frozen_env.get(util.canonicalize_pkg_name(dep.name)) if not dep.is_comment else None
         conda_version = installed.split_frozen_pin(installed_pin)[1] if installed_pin else None
@@ -237,16 +249,15 @@ def build_single_notebook_report(
     all_warnings.extend(scan_res.dynamic_warnings)
     all_warnings.extend(scan_res.magic_warnings)
     all_warnings.extend(timeline_res.conflict_warnings)
+    all_warnings.extend(timeline_res.warnings)
+    all_warnings.extend(writefile.warnings)
     all_warnings.extend(hw_warnings)
     for event in (*all_warnings, *notices):
         event.notebook = str(scan_res.path)
     for line in scan_res.install_lines:
         line.notebook = str(scan_res.path)
 
-    local_mods_detected = sorted([
-        imp for imp in set(scan_res.imports)
-        if localmodules.resolve_local_module(imp, local_ctx.notebook_dir, local_ctx.root_dir)
-    ])
+    local_mods_detected = sorted({d.name for d in timeline_res.dependencies if d.status == DependencyStatus.LOCAL_MODULE})
     pseudo_mods_detected = sorted(list(PLATFORM_PSEUDO_MODULES.intersection(set(scan_res.imports))))
     build_tools_detected = sorted(list(BUILD_AND_PACKAGING_TOOLS.intersection(set(scan_res.imports))))
 
@@ -272,7 +283,8 @@ def analyze_batch_repository(
     repo_map: RepoEnvironmentMap, 
     frozen_env: Dict[str, str], 
     pkg_dist_map: Mapping[str, List[str]], 
-    batch_hw_cache: Optional[GpuInfo]
+    batch_hw_cache: Optional[GpuInfo],
+    editables: Optional[Mapping[str, str]] = None,
 ) -> BatchAnalysisSummary:
     """Aggregates dependency metrics, warnings, and index settings across repository notebooks."""
     parse_errors_list = [
@@ -302,7 +314,7 @@ def analyze_batch_repository(
         nb_gpu_info = accelerator.resolve_notebook_gpu_info(res.imports, batch_hw_cache)
 
         nb_report = build_single_notebook_report(
-            res, frozen_env, pkg_dist_map, nb_gpu_info, root_dir=repo_map.target_dir
+            res, frozen_env, pkg_dist_map, nb_gpu_info, root_dir=repo_map.target_dir, editables=editables
         )
         summary.notebooks.append(nb_report)
 
@@ -314,8 +326,13 @@ def analyze_batch_repository(
             if dep.is_comment:
                 if dep.status in {"platform_pseudo_module", "build_tool", "local_module"}:
                     continue
-                if dep.status in {DependencyStatus.DIRECT_REFERENCE, DependencyStatus.SYSTEM_PATH}:
-                    summary.matched_packages.add(dep.name)  # installed, just not from PyPI (E7)
+                if dep.status in {DependencyStatus.DIRECT_REFERENCE, DependencyStatus.AMBIGUOUS}:
+                    summary.matched_packages.add(dep.name)  # installed, just not from PyPI (E7) or not one package
+                    continue
+                if dep.status in UNSHAREABLE_STATUSES:  # installed here only; runners can't install it (ED3)
+                    summary.local_packages.setdefault(dep.name, [])
+                    if Path(nb_report.notebook_path).name not in summary.local_packages[dep.name]:
+                        summary.local_packages[dep.name].append(Path(nb_report.notebook_path).name)
                     continue
                 pypi_name = dep.name
                 if pypi_name:

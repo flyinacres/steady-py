@@ -199,6 +199,15 @@ def format_console_report(summary: BatchAnalysisSummary) -> str:
     else:
         out.append("  • Packages neither installed nor found as local files: 0")
 
+    if summary.local_packages:
+        out.append(f"  • Installed only on this machine, so runners can't install them: {len(summary.local_packages)}")
+        out.append("    (Editable installs, packages installed from a local file, or modules on a custom path.")
+        out.append("     Publish them or share them from a Git URL; each notebook's warnings say more.)")
+        for pkg, nbs in sorted(summary.local_packages.items()):
+            nb_list = ", ".join(sorted(set(nbs))[:3])
+            more = f", +{len(set(nbs))-3} more" if len(set(nbs)) > 3 else ""
+            out.append(f"      - {pkg} (imported in: {nb_list}{more})")
+
     if summary.guarded_packages:
         out.append(f"  • Guarded/optional imports (inside try/except): {len(summary.guarded_packages)}")
         for pkg, nbs in sorted(summary.guarded_packages.items()):
@@ -281,6 +290,7 @@ def format_json_batch_report(
             "matched_packages": sorted(list(summary.matched_packages)),
             "missing_packages": summary.missing_packages,
             "guarded_packages": summary.guarded_packages,
+            "local_packages": summary.local_packages,
             "hardware_warnings": summary.batch_hardware_warnings,
             "promotions": [p.to_dict() for p in summary.promotions],
             "primary_index_url": summary.primary_url,

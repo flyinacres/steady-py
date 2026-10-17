@@ -76,7 +76,7 @@ Reading test status:
 | P4 | `-e path` vanishes with no warning | Y |  | fixed | U | F1 |  |
 | C2 | mamba, micromamba, `conda env update` give no notice | Y |  | fixed | U | F1 | `--file` handled like `-r` |
 | D5 | Folder scan reports a package named `---` | Y |  | fixed | U | magic_sink |  |
-| G2 | Pip/import name mismatch drops guard; paddle double entry | Y |  | 2.2 | V | F4 | One entry per package; an unconditional install wins over a guarded import whatever the names (decision 2). python-dotenv doesn't double; only paddle does |
+| G2 | Pip/import name mismatch drops guard; paddle double entry | Y |  | fixed | V | F4 | One entry per package; an unconditional install wins over a guarded import whatever the names (decision 2). python-dotenv doesn't double; only paddle does. Submodules reach an install line of another name |
 | G7 | Non-literal dynamic imports: generic warning | N | not planned | out |  |  | Behavior undefined |
 | G8 | Guard tagging coarse | N | not planned | out |  |  | No agreed guard classes |
 | G9 | Wrapper helper loses guard | Y |  | fixed | U | F1 | An install line in a function body is guarded; call sites aren't traced |
@@ -91,16 +91,16 @@ Reading test status:
 | ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | E1 | Failed freeze gives an empty verified manifest, exit 0 | Y |  | fixed | V | `venv --without-pip` | Capture reads importlib.metadata and needs no pip; the test asserts a pip-less venv is captured |
-| E2a | Local `file://` wheel dropped | Y |  | 2.1 | V | F5 | Expect a creator candidate report |
-| E2b | Conda-built `file://` packages dropped | Y |  | 2.1 | V | F4 | `INSTALLER=conda`; confirm once in F8 |
+| E2a | Local `file://` wheel dropped | Y |  | fixed | V | F4 | Not pinned; a `local_file_import` warning, exit 1. Fixed in 2.2 with ED3's warning |
+| E2b | Conda-built `file://` packages dropped | Y |  | fixed | V | F4 | `INSTALLER=conda`; confirm once in F8. Fixed in 2.2, so conda builds don't get E2a's warning |
 | E3 | Overlay pins a shadowed copy | Y |  | fixed | V | F4 | Two site dirs, first without `direct_url.json` |
-| E5 | `#subdirectory=` lost; monorepo packages merged | Y |  | fixed | V | F4 | A runtime install from a monorepo stays untested until F6 exists |
+| E5 | `#subdirectory=` lost; monorepo packages merged | Y |  | fixed | V | F4 | A runtime install from a monorepo is not tested yet; F6 (`tests/support/gitrepo.py`) can build the monorepo |
 | E6 | `===` versions stored with a stray `=` | Y |  | fixed | V | F4 | Can't be built with modern tools; hand-written only |
 | E7 | Directory scan reports git and conda packages as missing | Y |  | fixed | V | F4 |  |
 | E8 | Cell 2 claims a direct reference is installed when nothing installs it | Y |  | fixed | V | F4 | One of few assertions on rendered text; a direct reference exists only in a venv |
 | K6 | OpenCV variant from `pip list`; shadowed variant pinned | Y |  | fixed | V | F4 | cv2 stubs in two site dirs |
 | C1 | conda-forge OpenCV stubs: wrong variant, false removed | Y |  | fixed | V | F4, F3 | With conda stubs alone, opencv-python (the GUI build, a superset of headless) is pinned |
-| K12 | Live kernel treats site-packages modules as local | Y |  | 2.2 | L | F7 |  |
+| K12 | Live kernel treats site-packages modules as local | Y |  | fixed | L | F7 |  |
 | E4 | `--full-freeze` embeds private paths | C | not planned | out |  |  | Pending removal decision |
 | DG5 | Pins come from the CLI's interpreter (pipx, uv tool) | Y |  | fixed | V | F4 | File and directory runs warn when most third-party imports aren't installed in the CLI's interpreter (fix_plan.md §4 item 5); a `--python` option can follow the release |
 
@@ -108,12 +108,12 @@ Reading test status:
 
 | ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| ED1 | Editable's own dependencies never pinned | Y | deferred | 2.2 | V | F5 |  |
-| ED2 | Directory and file runs classify the same import differently | Y | deferred | 2.2 | V | F5 | Also covers test_plan item 3 (file and directory runs agree) |
-| ED3 | Editable import: no warning, exit 0 | Y |  | 2.2 | V | F5 |  |
-| ED4 | Join misses hatchling, pdm, legacy editables | Y | deferred | 2.2 | V | F5 | `conda develop` confirmed once in F8 |
-| ED5 | VCS editable reported as a local path | Y | deferred | 2.2 | V | F5, F6 |  |
-| ED6 | Data folder hides an installed package | Y | deferred | 2.2 | V | F4 | `datasets/` holding only a CSV |
+| ED1 | Editable's own dependencies never pinned | Y |  | fixed | V | F5 | The `editables` shim (pdm-demo) is left out |
+| ED2 | Directory and file runs classify the same import differently | Y |  | fixed | V | F5 | Also covers test_plan item 3 (file and directory runs agree). The root is the nearest folder with a project marker (`localmodules.project_root`); without one, a directory run still falls back to its target, so the runs can differ there |
+| ED3 | Editable import: no warning, exit 0 | Y |  | fixed | V | F5 |  |
+| ED4 | Join misses hatchling, pdm, legacy editables | Y |  | fixed | V | F4, F5 | Legacy develop hand-written (F4); `conda develop` stands in as a custom path (PYTHONPATH), confirmed once in F8 |
+| ED5 | VCS editable reported as a local path | Y |  | fixed | V | F5, F6 |  |
+| ED6 | Data folder hides an installed package | Y |  | fixed | V | F4 | `datasets/` holding only a CSV |
 | K4 | `importlib.machinery` bound only incidentally | Y |  | fixed | U | lint | Structural: no behavioral symptom while it is latent |
 
 ## Resolution and pins
@@ -121,7 +121,7 @@ Reading test status:
 | ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | P1 | Version operators stripped into invalid pins | Y |  | pf3 | U | F1 | Host `packaging` is the installed version |
-| P2 | Namespace import resolves to an arbitrary distribution | Y |  | 2.2 | V | F4 | Needs `RECORD` for `dist.files` |
+| P2 | Namespace import resolves to an arbitrary distribution | Y |  | fixed | V | F4 | Needs `RECORD` for `dist.files` |
 | P6 | Not-found imports labeled `pinned` | Y |  | pf3 | U | F1 | JSON status |
 | LV4 | Cell 1 lists flag names as URLs | Y |  | pf3 | U | F1 |  |
 | K9 | Extras promotion nondeterministic | P |  | pf3 | V | F4 | Determinism settled (four `PYTHONHASHSEED` values); heuristic open |
@@ -195,15 +195,13 @@ All N, blocked on feature design, except DG8, which is fixed. DG5 is under Envir
 
 Rows:
 
-1. ED1, ED2, ED4, ED6 (V): the editable and local-module join is rewritten in step 2.2. They need stub projects not yet in `tests/fixtures/projects/` (hatchling, pdm-backend, a legacy `setup.py develop`), and ED4 needs design §13.1 confirmed.
-2. ED5 (V): also needs F6.
+None.
 
 Foundations and infrastructure:
 
-1. F6 local git repositories (`tests/support/gitrepo.py`, design §9): not built. First needed by ED5; also unlocks a real `git+file://` raw install at run time and E5's runtime monorepo install. Windows URL form still to verify (design §13.2).
-2. Miniconda image (F8, design §11.3): a one-time confirmation that the hand-written conda dist-infos behind E2b, C1 and ED4's `conda develop` match real conda. The rows are already tested against the stubs, so this checks the fixture, not the product.
-3. Runner conversion (design §11.3): `tests/runners/` becoming pytest-collected `docker` tests, with `run_suite.py` a thin driver. The runners are the only coverage of the Kaggle and Colab images; converting them before the rearchitecture settles Cell 2's output would mean converting their assertions twice.
-4. `e2e_harness.py`'s own kernel manager (design §10.4): replaced by `tests/support/kernel.py` as part of the runner conversion.
+1. Miniconda image (F8, design §11.3): a one-time confirmation that the hand-written conda dist-infos behind E2b, C1 and ED4's `conda develop` match real conda. The rows are already tested against the stubs, so this checks the fixture, not the product.
+2. Runner conversion (design §11.3): `tests/runners/` becoming pytest-collected `docker` tests, with `run_suite.py` a thin driver. The runners are the only coverage of the Kaggle and Colab images; converting them before the rearchitecture settles Cell 2's output would mean converting their assertions twice.
+3. `e2e_harness.py`'s own kernel manager (design §10.4): replaced by `tests/support/kernel.py` as part of the runner conversion.
 
 ## Decisions that unblock rows
 

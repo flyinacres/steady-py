@@ -78,6 +78,15 @@ class Outcome:
     def delta(self) -> Optional[dict]:
         return self._single().get("delta")
 
+    def notebook(self, name: str) -> "Outcome":
+        """One notebook of a directory report, by file name, as a single-file Outcome."""
+        if self.report is None or self.report.get("mode") != "batch":
+            raise ValueError("notebook() needs a directory report")
+        found = [n for n in self.report["notebooks"] if Path(n["notebook_path"]).name == name]
+        if len(found) != 1:
+            raise LookupError(f"{len(found)} notebooks named {name} in the report")
+        return Outcome(self.exit_code, self.stdout, self.log, {**found[0], "mode": "single_file"})
+
     def notebooks(self) -> list:
         """Paths of the notebooks a directory report covers."""
         if self.report is None or self.report.get("mode") != "batch":

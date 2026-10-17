@@ -5,7 +5,7 @@ from importlib.metadata import version
 import pytest
 
 from tests.support.manifests import snapshotted
-from tests.support.markers import known_bug
+from tests.support.markers import finding, known_bug
 from tests.support.notebooks import Notebook, code
 from tests.support.outcomes import setup_markdown
 from tests.support.runner import run, run_in
@@ -50,7 +50,7 @@ def _scan_in(venv, tmp_path, site, source):
 
 
 @pytest.mark.venv
-@known_bug("P2", "a namespace import resolves to the first distribution under the top-level name")
+@finding("P2")
 def test_namespace_import_pins_the_distribution_that_provides_it(tmp_path, base_venv):
     site = SiteDir(tmp_path / "site")
     for part in "ab":
@@ -60,12 +60,14 @@ def test_namespace_import_pins_the_distribution_that_provides_it(tmp_path, base_
 
 
 @pytest.mark.venv
-@known_bug("P2", "a module two distributions provide is pinned to one of them, silently")
+@finding("P2")
 def test_ambiguous_import_is_reported(tmp_path, base_venv):
     site = SiteDir(tmp_path / "site")
     site.add("dupmod-x", "1.0", modules=["dupmod/__init__.py"])
     site.add("dupmod-y", "2.0", modules=["dupmod/__init__.py"])
-    assert _scan_in(base_venv, tmp_path, site, "import dupmod").warnings(about="dupmod")
+    outcome = _scan_in(base_venv, tmp_path, site, "import dupmod")
+    assert outcome.warnings(type="ambiguous_import", about="dupmod")
+    assert outcome.pins() == {}
 
 
 @pytest.mark.venv

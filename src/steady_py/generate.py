@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, TypedDict, Union
 
-from steady_py import accelerator, analyze, drift, installed, localmodules, pypi, resolution, scanning
+from steady_py import accelerator, analyze, drift, installed, pypi, resolution, scanning
 from steady_py.constants import DependencyStatus, FetchStatus, ReportKind, SETUP_MARKDOWN_HEADING, TOOL_VERSION
 from steady_py.models import Cell, DependencyEntry, GpuInfo, NotebookAnalysisReport, PinnedDependency, RawInstall, SteadyPyManifest
 
@@ -322,6 +322,7 @@ def generate_universal_manifest(
     frozen_env: Dict[str, str],
     pkg_dist_map: Mapping[str, List[str]],
     skipped: Optional[Sequence[Tuple[str, str]]] = None,
+    editables: Optional[Mapping[str, str]] = None,
 ) -> str:
     """Generates content string for universal manifest.
 
@@ -352,15 +353,8 @@ def generate_universal_manifest(
 
     pinned_entries_set: Set[str] = set()
     for res in repo_map.scan_results:
-        nb_local_ctx = localmodules.LocalModuleContext(str(res.path.parent), repo_map.target_dir)
-        entries, _ = resolution.build_manifest_entries(
-            res.imports, 
-            res.submodules, 
-            frozen_env, 
-            pkg_dist_map, 
-            guarded_imports=res.guarded_imports,
-            local_ctx=nb_local_ctx
-        )
+        ctx = analyze.join_context(res.path, frozen_env, pkg_dist_map, editables, repo_map.target_dir)
+        entries, _ = resolution.build_manifest_entries(res.imports, res.submodules, ctx, guarded_imports=res.guarded_imports)
         pinned_entries_set.update(entries)
 
         aux_entries = resolution.build_auxiliary_tool_entries(res.harvested_pkgs, res.imports, frozen_env)

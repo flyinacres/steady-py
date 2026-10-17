@@ -41,10 +41,24 @@ class SiteDir:
             (dist_info / filename).write_text(text, encoding="utf-8")
         return dist_info
 
+    def add_develop(self, name: str, version: str, source: Path) -> Path:
+        """A legacy `setup.py develop` install of `name`: an .egg-link here naming `source`, which
+        holds the package and its .egg-info. `source` must also be on PYTHONPATH (develop's
+        easy-install.pth line), after this site dir. Returns `source`."""
+        module = re.sub(r"[-.]+", "_", name).lower()
+        (Path(source) / module).mkdir(parents=True, exist_ok=True)
+        (Path(source) / module / "__init__.py").touch()
+        egg_info = Path(source) / f"{module}.egg-info"
+        egg_info.mkdir()
+        (egg_info / "PKG-INFO").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n", encoding="utf-8")
+        (egg_info / "top_level.txt").write_text(f"{module}\n", encoding="utf-8")
+        (self.path / f"{name}.egg-link").write_text(f"{Path(source).resolve()}\n.\n", encoding="utf-8")
+        return Path(source)
 
-def pythonpath(*sites: SiteDir) -> dict:
-    """The environment entry that puts `sites` first on sys.path, in order."""
-    return {"PYTHONPATH": os.pathsep.join(str(s.path) for s in sites)}
+
+def pythonpath(*sites) -> dict:
+    """The environment entry that puts `sites` (SiteDirs or plain folders) first on sys.path, in order."""
+    return {"PYTHONPATH": os.pathsep.join(str(getattr(s, "path", s)) for s in sites)}
 
 
 # Recurring shapes, as keyword arguments to SiteDir.add.

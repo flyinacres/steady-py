@@ -1,78 +1,44 @@
-"""Local sibling modules: whether an import resolves to a file next to the notebook or under the
-repository root rather than to a package, and the drift check that those files are still present."""
+"""Local modules: the folders a notebook's own modules are found in (beside the notebook, or under
+the project root), and the drift check that those files are still present. Whether an import is a
+local module at all is the import join's decision (join.py)."""
 import importlib.machinery
-import importlib.util
 import logging
 from pathlib import Path
-from typing import List, NamedTuple, Optional
+from typing import List, Optional
 
-from steady_py import util
 from steady_py.constants import Severity, Signal
 from steady_py.models import DriftFinding, SteadyPyManifest
 
 logger = logging.getLogger("steady_py.localmodules")
 
 
-class LocalModuleContext(NamedTuple):
-    """Carries the two directories local-sibling-module resolution may check against."""
-    notebook_dir: Optional[str] = None
-    root_dir: Optional[str] = None
+# Files or folders that mark a project's root folder.
+PROJECT_MARKERS = (".git", "pyproject.toml", "setup.py", "setup.cfg")
 
 
-def _found_in_dir(name: str, directory: Optional[str]) -> bool:
-    """Checks whether `name` resolves as a top-level module/package inside `directory`,
-    without executing any code (top-level find_spec never runs __init__.py)."""
-    if not directory or not Path(directory).exists():
-        return False
+def project_root(notebook_dir: Optional[str], fallback: Optional[str]) -> Optional[str]:
+    """The root a notebook's root-anchored local modules are found and re-verified under, the one
+    derivation every entry point uses: the nearest folder at or above the notebook's that holds a
+    project marker, so a file run, a directory run and check agree on it; `fallback` (the
+    directory a run was given, or None) when there is none."""
+    if notebook_dir:
+        start = Path(notebook_dir).resolve()
+        for folder in (start, *start.parents):
+            if any((folder / marker).exists() for marker in PROJECT_MARKERS):
+                return str(folder)
+    return fallback
+
+
+def spec_in_dir(name: str, directory: Optional[str]) -> Optional[importlib.machinery.ModuleSpec]:
+    """How top-level `name` resolves inside `directory` alone, without running any code
+    (top-level find_spec never runs __init__.py); None when it doesn't."""
+    if not directory or not Path(directory).is_dir():
+        return None
     try:
-        return importlib.machinery.PathFinder.find_spec(name, path=[directory]) is not None
-    except Exception as e:
+        return importlib.machinery.PathFinder.find_spec(name, path=[directory])
+    except (ImportError, ValueError) as e:
         logger.debug(f"[ModuleScan] find_spec probe failed for '{name}' in '{directory}': {e}")
-        return False
-
-
-@util.memoize_for_run
-def resolve_local_module(name: str, notebook_dir: Optional[str], root_dir: Optional[str] = None) -> Optional[str]:
-    """
-    Checks whether `name` resolves as a local sibling module, using the most
-    accurate mechanism available for how this process is running:
-
-    - Live IPython/Jupyter kernel (util.is_running_in_ipython() True): the tool's own
-      process IS (or is running inside) a real, already-verified environment, so
-      this asks the live interpreter directly via an unrestricted find_spec --
-      real sys.path, no guessing, correctly reflects platform-injected paths
-      (Databricks Repos root, PYTHONPATH, editable installs, etc.).
-    - External CLI/batch invocation: no live kernel exists for the target
-      notebook, so this checks only the two directories that are actually
-      knowable from outside -- the notebook's own directory and an optional
-      declared root_dir -- via PathFinder, without executing any code and
-      without mutating sys.path.
-
-    Returns the anchor it resolved against ("notebook_dir" or "root_dir"), or
-    None if not found by either. Only ever checks the top-level segment of a
-    dotted name, matching how import classification already operates elsewhere
-    in this file, and consistent with never executing package __init__ code.
-    """
-    top_level = name.split(".", 1)[0]
-
-    if util.is_running_in_ipython():
-        try:
-            spec = importlib.util.find_spec(top_level)
-        except Exception as e:
-            logger.debug(f"[ModuleScan] live find_spec failed for '{top_level}': {e}")
-            spec = None
-        if spec is None:
-            return None
-        if _found_in_dir(top_level, notebook_dir):
-            return "notebook_dir"
-        return "root_dir"
-
-    if _found_in_dir(top_level, notebook_dir):
-        return "notebook_dir"
-    if _found_in_dir(top_level, root_dir):
-        return "root_dir"
-    return None
-
+        return None
 
 
 def check_local_modules(
@@ -118,14 +84,15 @@ def check_local_modules(
             ))
             continue
 
-        if _found_in_dir(name, anchor_dir):
+        if spec_in_dir(name, anchor_dir) is not None:
             continue
 
         findings.append(DriftFinding(
             package=name, version="", signal=Signal.LOCAL_MODULE_MISSING, severity=Severity.CONFIRMED,
             message=f"'{name}' was originally found at {anchor_dir}; it can no longer be found there. "
                     f"Check that it will still be available to users, or re-run generation if the "
-                    f"project structure changed.",
+                    f"project structure changed."
+                    + (" If the project's root folder is elsewhere, pass it with --root-dir." if anchor == "root_dir" else ""),
         ))
 
     return findings

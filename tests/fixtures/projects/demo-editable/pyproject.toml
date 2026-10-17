@@ -5,3 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "demo-editable"
 version = "0.1.0"
+dependencies = ["packaging>=20"]
+
+[tool.setuptools]
+packages = ["demo_editable"]

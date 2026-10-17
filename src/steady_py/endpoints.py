@@ -30,7 +30,7 @@ def detect_environment() -> Environment:
     frozen_env = installed.read_installed()
     pkg_dist_map = importlib.metadata.packages_distributions() if hasattr(importlib.metadata, "packages_distributions") else {}
     return Environment(frozen_env=frozen_env, pkg_dist_map=pkg_dist_map,
-                       raw_full_freeze=sorted(frozen_env.values(), key=str.lower))
+                       raw_full_freeze=sorted(frozen_env.values(), key=str.lower), editables=installed.read_editables())
 
 
 def _read_manifest(path: object) -> Tuple[Optional[models.SteadyPyManifest], Optional[str]]:
@@ -102,11 +102,12 @@ def _analyze(target: Optional[str], environment: Optional[Environment]) -> _Anal
     scan_result = analyze.build_scan_result(path, ext_res)
     report = analyze.build_single_notebook_report(
         scan_result, environment.frozen_env, environment.pkg_dist_map, hardware, root_dir=root_dir,
+        editables=environment.editables,
     )
     if kind == TargetKind.FILE:  # a live session's kernel is the notebook's own environment
         third_party = [d for d in report.dependencies if d.status in
                        {constants.DependencyStatus.PINNED, constants.DependencyStatus.DIRECT_REFERENCE,
-                        constants.DependencyStatus.SYSTEM_PATH}]
+                        constants.DependencyStatus.AMBIGUOUS, *constants.UNSHAREABLE_STATUSES}]
         missing = sum(1 for d in third_party if d.status == constants.DependencyStatus.PINNED and d.is_comment)
         warning = analyze.other_interpreter_warning(missing, len(third_party) - missing)
         if warning:
@@ -223,8 +224,10 @@ def _analyze_directory(target: str, environment: Optional[Environment], skip_suf
     environment = environment or detect_environment()
     repo_map = analyze.walk_and_scan_directory(target, skip_suffix=skip_suffix)
     hardware = accelerator.inspect_gpu_environment(list(dict.fromkeys(repo_map.global_imports)))
-    summary = analyze.analyze_batch_repository(repo_map, environment.frozen_env, environment.pkg_dist_map, hardware)
-    warning = analyze.other_interpreter_warning(len(summary.missing_packages), len(summary.matched_packages))
+    summary = analyze.analyze_batch_repository(repo_map, environment.frozen_env, environment.pkg_dist_map, hardware,
+                                               editables=environment.editables)
+    warning = analyze.other_interpreter_warning(len(summary.missing_packages),
+                                                len(summary.matched_packages) + len(summary.local_packages))
     if warning:
         summary.dynamic_warnings.append(warning)
     return _DirectoryAnalysis(repo_map=repo_map, summary=summary, environment=environment, hardware=hardware)
@@ -271,7 +274,8 @@ def _snapshot_directory(target: str, options: SnapshotOptions, environment: Opti
         out_file = Path(target) / options.universal
         try:
             out_file.write_text(
-                generate.generate_universal_manifest(repo_map, analysis.environment.frozen_env, analysis.environment.pkg_dist_map, skipped),
+                generate.generate_universal_manifest(repo_map, analysis.environment.frozen_env, analysis.environment.pkg_dist_map, skipped,
+                                                    editables=analysis.environment.editables),
                 encoding="utf-8",
             )
             result.universal_path = str(out_file)
@@ -299,8 +303,9 @@ def check(target: str, options: Optional[CheckOptions] = None) -> CheckResult:
     Read-only. A file with no manifest is not an error (a notebook from before manifests is a
     valid state): its result has `manifest_found` False and nothing to report. For a directory,
     the result also carries the aggregate validation section, and generated companion files are
-    checked too, since they are where the manifests are. A directory is the default `root_dir`
-    for local modules, the same root snapshot recorded them against.
+    checked too, since they are where the manifests are. Without `root_dir`, local modules are
+    re-verified under the project root snapshot derived (localmodules.project_root), with the
+    directory as the fallback for a directory run.
     """
     options = options or CheckOptions()
     util.reset_run_caches()
@@ -310,14 +315,13 @@ def check(target: str, options: Optional[CheckOptions] = None) -> CheckResult:
 
 
 def _check_directory(target: str, options: CheckOptions) -> CheckResult:
-    options = CheckOptions(root_dir=options.root_dir or target)
-    notebooks = [_check_file(str(path), options) for path in analyze.iter_notebook_paths(target)]
+    notebooks = [_check_file(str(path), options, root_fallback=target) for path in analyze.iter_notebook_paths(target)]
     reports = [(util.relative_notebook_path(Path(n.path), target), n.report) for n in notebooks if n.report is not None]
     validation = drift.build_batch_validation(reports) if reports else None
     return CheckResult(target=target, kind=TargetKind.DIRECTORY, notebooks=notebooks, validation=validation)
 
 
-def _check_file(path: str, options: CheckOptions) -> NotebookCheck:
+def _check_file(path: str, options: CheckOptions, root_fallback: Optional[str] = None) -> NotebookCheck:
     manifest, error = generate.extract_manifest_from_file(path)
     if error:
         return NotebookCheck(path=path, error=error)
@@ -338,7 +342,9 @@ def _check_file(path: str, options: CheckOptions) -> NotebookCheck:
             details={"stored_hash": stored_hash, "recomputed_hash": recomputed_hash},
         ))
 
-    findings.extend(localmodules.check_local_modules(manifest, notebook_dir=str(Path(path).parent), root_dir=options.root_dir))
+    notebook_dir = str(Path(path).parent)
+    root_dir = options.root_dir or localmodules.project_root(notebook_dir, root_fallback)  # as snapshot derived it
+    findings.extend(localmodules.check_local_modules(manifest, notebook_dir=notebook_dir, root_dir=root_dir))
     findings.extend(drift.run_pin_checks(manifest.dependencies, manifest.python_version))
 
     report = drift.build_drift_check_report(path, manifest, findings)

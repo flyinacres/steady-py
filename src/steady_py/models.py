@@ -129,6 +129,7 @@ class ImportOccurrence:
         module: Base imported package stem (e.g. 'torch').
         full_name: Full imported module string (e.g. 'umap.plot').
         is_guarded: True if import occurred inside a try/except or conditional block.
+        from_names: For `from x import a, b`, the names imported ('a', 'b').
     """
     cell_idx: int
     line_idx: int
@@ -136,6 +137,14 @@ class ImportOccurrence:
     full_name: str = ""
     is_guarded: bool = False
     cell: Optional[Cell] = None
+    from_names: Tuple[str, ...] = ()  # the names a `from x import a, b` brings in
+
+    @property
+    def dotted_names(self) -> Set[str]:
+        """Every dotted name this import could load: the module, and for a from-import each name
+        under it, which is a submodule when the module is a namespace package (P2)."""
+        base = self.full_name or self.module
+        return {base, *(f"{base}.{name}" for name in self.from_names)}
 
 
 @dataclass(frozen=True)
@@ -320,10 +329,23 @@ class TimelineResult:
         dependencies: Ordered list of DependencyEntry objects.
         promotion_notices: Informational PromotionDetail objects.
         conflict_warnings: Structured diagnostic events for overwritten pins or conflicting flags.
+        warnings: What the creator must act on for the imports themselves (an editable install,
+            a package installed from a local file, a custom path, an ambiguous import).
+        notices: Informational events about the imports (a conda-built package).
     """
     dependencies: List[DependencyEntry] = field(default_factory=list)
     promotion_notices: List[PromotionDetail] = field(default_factory=list)
     conflict_warnings: List[DiagnosticEvent] = field(default_factory=list)
+    warnings: List[DiagnosticEvent] = field(default_factory=list)
+    notices: List[DiagnosticEvent] = field(default_factory=list)
+
+    def add(self, resolved: Any) -> None:
+        """Appends one import's or install line's entries and diagnostics (a resolution.Resolved)."""
+        self.dependencies.extend(resolved.entries)
+        if resolved.promotion and resolved.promotion not in self.promotion_notices:
+            self.promotion_notices.append(resolved.promotion)
+        self.warnings.extend(resolved.warnings)
+        self.notices.extend(resolved.notices)
 
     def __iter__(self) -> Iterator[Any]:
         """Unpacking fallback allowing `deps, notices = timeline_result` in legacy callers."""
@@ -598,6 +620,7 @@ class BatchAnalysisSummary:
     matched_packages: Set[str] = field(default_factory=set)    
     missing_packages: Dict[str, List[str]] = field(default_factory=dict)
     guarded_packages: Dict[str, List[str]] = field(default_factory=dict)
+    local_packages: Dict[str, List[str]] = field(default_factory=dict)  # installed here but unshareable (editable, local file, custom path)
     promotions: List[PromotionDetail] = field(default_factory=list)
     dynamic_warnings: List[DiagnosticEvent] = field(default_factory=list)
     magic_warnings: List[DiagnosticEvent] = field(default_factory=list)

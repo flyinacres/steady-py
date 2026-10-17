@@ -7,7 +7,7 @@ import subprocess
 import pytest
 
 from tests.support.envs import uninstall
-from tests.support.markers import finding, known_bug
+from tests.support.markers import finding
 from tests.support.notebooks import Notebook, code
 from tests.support.outcomes import cell2_text, manifest
 from tests.support.runner import run_in
@@ -57,7 +57,7 @@ def test_pin_is_the_copy_that_imports(tmp_path, base_venv):
 
 
 @pytest.mark.venv
-@known_bug("E2a", "a package installed from a local file is dropped, silently")
+@finding("E2a")
 def test_local_file_install_is_reported_not_pinned(tmp_path, base_venv):
     site = SiteDir(tmp_path / "site")
     site.add("wheelpkg", "2.0", **file_url(tmp_path / "wheelpkg-2.0-py3-none-any.whl"))
@@ -67,7 +67,7 @@ def test_local_file_install_is_reported_not_pinned(tmp_path, base_venv):
 
 
 @pytest.mark.venv
-@known_bug("E2b", "a conda-built package is dropped")
+@finding("E2b")
 def test_conda_built_package_is_pinned_with_a_notice(tmp_path, base_venv):
     site = SiteDir(tmp_path / "site")
     site.add("condapkg", "1.3", installer="conda", **file_url(tmp_path / "conda-bld" / "condapkg"))
