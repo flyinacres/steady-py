@@ -18,6 +18,13 @@ CONSTRAINTS = REPO_ROOT / "constraints-dev.txt"
 # ipykernel for the kernel tier.
 TOOLING = ["setuptools>=64", "wheel", "hatchling", "pdm-backend", "editables", "packaging", "resolvelib", "ipython", "ipykernel"]
 OFFLINE = ("--no-index", "--find-links", str(WHEELHOUSE), "-c", str(CONSTRAINTS))
+# The Docker tier installs steady-py offline from the wheelhouse into python:3.11-slim (docker.IMAGE),
+# on x86_64 and on Apple Silicon. A download on Windows evaluates markers for Windows and the host's
+# Python, so it misses ipython's Linux-only pexpect and ptyprocess, and gets no Linux build of psutil
+# or wcwidth: steady-py's own dependencies are also fetched for each container platform.
+DOCKER_TOOLING = ["packaging", "resolvelib", "ipython"]
+DOCKER_TARGETS = [("--only-binary=:all:", "--platform", platform, "--python-version", "3.11", "--implementation", "cp")
+                  for platform in ("manylinux2014_x86_64", "manylinux2014_aarch64")]
 
 
 @dataclass(frozen=True)
@@ -42,13 +49,16 @@ def _pip(python: object, *args: object) -> None:
 def ensure_wheelhouse() -> Optional[str]:
     """None when all of TOOLING resolves from the wheelhouse, downloading it once if not;
     otherwise the reason, for a skip."""
+    downloads = [TOOLING, *([*target, *DOCKER_TOOLING] for target in DOCKER_TARGETS)]
     try:
-        _pip(sys.executable, "download", *OFFLINE, "-d", WHEELHOUSE, *TOOLING)
+        for args in downloads:
+            _pip(sys.executable, "download", *OFFLINE, "-d", WHEELHOUSE, *args)
         return None
     except RuntimeError:
         pass
     try:
-        _pip(sys.executable, "download", "-c", CONSTRAINTS, "-d", WHEELHOUSE, *TOOLING)
+        for args in downloads:
+            _pip(sys.executable, "download", "-c", CONSTRAINTS, "-d", WHEELHOUSE, *args)
         return None
     except RuntimeError as error:
         return f"wheelhouse {WHEELHOUSE} is incomplete and could not be downloaded: {error}"
