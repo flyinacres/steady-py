@@ -3,6 +3,8 @@ packages installed from a URL, a local path or an editable checkout (direct refe
 import importlib.metadata
 import json
 import logging
+import os
+import pathlib
 import re
 import subprocess
 import sys
@@ -154,6 +156,73 @@ def _read_direct_reference_pins() -> Dict[str, str]:
             if vcs_info.get("commit_id"):
                 url = f"{url}@{vcs_info['commit_id']}"
         pins.setdefault(util.canonicalize_pkg_name(name), f"{name} @ {url}")
+    return pins
+
+
+def _direct_reference(info: object, name: str) -> Optional[str]:
+    """'name @ url' for one parsed direct_url.json, written as pip's
+    direct_url_as_pep440_direct_reference writes it (VCS commit, the first archive hash,
+    subdirectory), or None when the record is unusable."""
+    if not isinstance(info, dict) or not isinstance(info.get("url"), str):
+        return None
+    url, fragments = info["url"], []
+    vcs_info, archive_info = info.get("vcs_info"), info.get("archive_info")
+    if isinstance(vcs_info, dict) and vcs_info.get("vcs"):
+        url = f"{vcs_info['vcs']}+{url}@{vcs_info.get('commit_id', '')}"
+    elif isinstance(archive_info, dict):
+        hashes = archive_info.get("hashes")
+        if isinstance(hashes, dict) and hashes:
+            fragments.append("=".join(next(iter(hashes.items()))))
+        elif isinstance(archive_info.get("hash"), str):  # the legacy single-hash field
+            fragments.append(archive_info["hash"])
+    if isinstance(info.get("subdirectory"), str) and info["subdirectory"]:
+        fragments.append("subdirectory=" + info["subdirectory"])
+    return f"{name} @ {url}" + ("#" + "&".join(fragments) if fragments else "")
+
+
+def _egg_link_location(name: str) -> Optional[str]:
+    """The source directory of a legacy `setup.py develop` install, from its .egg-link file."""
+    stems = {name, re.sub(r"[-_.]+", "-", name), re.sub(r"[-_.]+", "_", name)}
+    for entry in sys.path:
+        for stem in stems:
+            link = os.path.join(entry or ".", f"{stem}.egg-link")
+            if os.path.isfile(link):
+                with open(link, encoding="utf-8", errors="replace") as f:
+                    return f.readline().strip() or None
+    return None
+
+
+def read_installed() -> Dict[str, str]:
+    """Every distribution the running interpreter can import, read from importlib.metadata:
+    canonical name -> pin. The first copy on sys.path wins, as at import. Ordinary installs
+    pin 'name==version' ('name===version' when the version isn't PEP 440); direct references
+    pin 'name @ url' from their direct_url.json; legacy develop installs pin their source
+    directory. Replaces get_installed_environment once the two agree (working_rules.md §2.4)."""
+    pins: Dict[str, str] = {}
+    for dist in importlib.metadata.distributions():
+        name, version = dist.metadata["Name"], dist.version
+        if not name or version is None:
+            continue
+        canon = util.canonicalize_pkg_name(name)
+        if canon in pins:
+            continue  # shadowed by an earlier copy
+        pin: Optional[str] = None
+        try:
+            raw = dist.read_text("direct_url.json")
+            pin = _direct_reference(json.loads(raw), name) if raw else None
+        except (OSError, ValueError) as e:  # JSONDecodeError is a ValueError
+            logger.debug(f"Unreadable direct_url.json for {name}: {e}")
+        if pin is None:
+            location = _egg_link_location(name)
+            if location:
+                pin = f"{name} @ {pathlib.Path(location).resolve().as_uri()}"
+        if pin is None:
+            try:
+                Version(version)
+                pin = f"{name}=={version}"
+            except InvalidVersion:
+                pin = f"{name}==={version}"
+        pins[canon] = pin
     return pins
 
 
