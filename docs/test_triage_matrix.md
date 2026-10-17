@@ -76,7 +76,7 @@ Reading test status:
 | P4 | `-e path` vanishes with no warning | Y |  | fixed | U | F1 |  |
 | C2 | mamba, micromamba, `conda env update` give no notice | Y |  | fixed | U | F1 | `--file` handled like `-r` |
 | D5 | Folder scan reports a package named `---` | Y |  | fixed | U | magic_sink |  |
-| G2 | Pip/import name mismatch drops guard; paddle double entry | P |  | 2.2 | V | F4 | Single entry settled; unconditional install vs guarded import precedence, python-dotenv does not double; only paddle doeopen |
+| G2 | Pip/import name mismatch drops guard; paddle double entry | Y |  | 2.2 | V | F4 | One entry per package; an unconditional install wins over a guarded import whatever the names (decision 2). python-dotenv doesn't double; only paddle does |
 | G7 | Non-literal dynamic imports: generic warning | N | not planned | out |  |  | Behavior undefined |
 | G8 | Guard tagging coarse | N | not planned | out |  |  | No agreed guard classes |
 | G9 | Wrapper helper loses guard | Y |  | fixed | U | F1 | An install line in a function body is guarded; call sites aren't traced |
@@ -208,7 +208,7 @@ Foundations and infrastructure:
 ## Decisions that unblock rows
 
 1. Scope cuts for `--universal` and `--full-freeze` (G10, LV3, E4).
-2. Guard precedence when an unconditional install meets a guarded import (G2).
+2. Guard precedence when an unconditional install meets a guarded import (G2). Decided: the install wins, so Cell 2 pins and installs the package. It reproduces the run the author had, and a failed install costs nothing since Cell 2 reports it and continues.
 3. What `generated_at` records (P5).
 4. Build-tag runtime policy and manifest field (LV2, DG6).
 5. Whether the CLI describes its own interpreter or the kernel's (DG5).

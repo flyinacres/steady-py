@@ -86,7 +86,7 @@ Not on the features' path; each is done when convenient, in any step.
 Numbers refer to the matrix's "Decisions that unblock rows", which owns each decision's content.
 
 1. Before step 2.1: none open.
-2. Before step 2.2: decision 2.
+2. Before step 2.2: none open (decision 2 is made).
 3. Before step 3: decisions 9 and 10.
 4. Before step 4: decision 8, and the install-lines spec's open decisions 10.1 to 10.4.
 5. Before step 5: the manifest-updating open items (baseline, GPU record, `custom_sourced` and `local_modules` under the update rule; `generated_at` and the hash when nothing changed; update and rebuild with `--in-place`).
