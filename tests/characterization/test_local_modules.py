@@ -34,12 +34,12 @@ def at_root(tmp_path):
 
 
 def test_a_sibling_module_is_anchored_to_the_notebook_directory(beside):
-    assert manifest(beside)["local_modules"] == [{"name": "helper", "anchor": "notebook_dir"},
-                                                 {"name": "helperpkg", "anchor": "notebook_dir"}]
+    assert [(m["name"], m["anchor"]) for m in manifest(beside)["local_modules"]] == [
+        ("helper", "notebook_dir"), ("helperpkg", "notebook_dir")]
 
 
 def test_a_module_at_the_run_root_is_anchored_to_the_root(at_root):
-    assert manifest(at_root)["local_modules"] == [{"name": "roothelper", "anchor": "root_dir"}]
+    assert [(m["name"], m["anchor"]) for m in manifest(at_root)["local_modules"]] == [("roothelper", "root_dir")]
 
 
 def test_check_reverifies_a_sibling_module(beside, tmp_path):

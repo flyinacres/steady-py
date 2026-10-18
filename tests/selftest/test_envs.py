@@ -16,11 +16,11 @@ def test_run_in_sees_only_the_venv_and_the_given_sites(tmp_path, base_venv, monk
     first.add("demo", "1.0")
     second.add("demo", "0.9")
     path = Notebook(code("import demo")).write(tmp_path)
-    outcome = run_in(base_venv, "scan", path, env=pythonpath(first, second))
+    outcome = run_in(base_venv, "snapshot", path, env=pythonpath(first, second))
     assert outcome.exit_code == 0, outcome.log
     assert outcome.report["environment"]["active_interpreter"].startswith(str(base_venv.path))
     assert outcome.pins()["demo"] == "1.0"
-    assert run_in(base_venv, "scan", path).dependency("demo")["version"] is None  # no leak without sites
+    assert run_in(base_venv, "snapshot", path).dependency("demo")["version"] is None  # no leak without sites
 
 
 @pytest.mark.venv

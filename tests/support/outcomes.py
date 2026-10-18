@@ -30,12 +30,17 @@ class Outcome:
         return self.report
 
     def dependencies(self) -> list:
+        """The analysis report's dependency entries, or a check report's manifest packages."""
         report = self._single()
-        return report["manifest"]["dependencies"] if report["mode"] == "check_drift" else report["dependencies"]
+        return report["manifest"]["packages"] if report["mode"] == "check_drift" else report["dependencies"]
 
     def pins(self) -> dict:
-        """Canonical name to version for entries Cell 2 installs. A commented entry is not installed;
-        the comment is the only discriminator today (status is unreliable, P6)."""
+        """Canonical name to version for entries Cell 2 installs from an index. In an analysis report a
+        commented entry is not installed; the comment is the only discriminator there (status is
+        unreliable, P6). A manifest package says so by its status."""
+        if self._single()["mode"] == "check_drift":
+            return {canonicalize_name(p["name"]): p["version"] for p in self.dependencies()
+                    if p["status"] == "pinned" and p.get("version")}
         return {canonicalize_name(d["name"]): d["version"] for d in self.dependencies()
                 if d.get("version") and d.get("comment") is None}
 
@@ -94,7 +99,7 @@ class Outcome:
         return [Path(n["notebook_path"]) for n in self.report["notebooks"]]
 
     def unreadable(self) -> list:
-        """Paths of the notebooks a directory report could not read, from scan, snapshot or check."""
+        """Paths of the notebooks a directory report could not read, from snapshot or check."""
         if self.report is None or self.report.get("mode") not in _DIRECTORY_MODES:
             raise ValueError("unreadable() needs a directory report")
         if self.report["mode"] == "check_batch":
@@ -115,7 +120,7 @@ class Outcome:
         return self.report["summary"]
 
 
-_DIRECTORY_MODES = ("batch", "check_batch")  # scan and snapshot; check
+_DIRECTORY_MODES = ("batch", "check_batch")  # snapshot; check
 
 
 def _strings(value) -> list:
@@ -129,6 +134,21 @@ def manifest(path: Path) -> dict:
     """The STEADY_PY_MANIFEST literal in a written notebook."""
     _, node = find_manifest(json.loads(Path(path).read_text(encoding="utf-8")))
     return ast.literal_eval(node.value)
+
+
+def pinned(path: Path) -> dict:
+    """Canonical name to package record for each index pin Cell 2 installs, from a written manifest."""
+    return {canonicalize_name(p["name"]): p for p in manifest(path)["packages"] if p["status"] == "pinned"}
+
+
+def sources(path: Path) -> list:
+    """The package records Cell 2 installs from a direct source (a URL, `name @ url` or path)."""
+    return [p for p in manifest(path)["packages"] if p["status"] == "direct_reference"]
+
+
+def options(package: dict) -> list:
+    """A package record's options as pip arguments."""
+    return [arg for name, value in package["options"] for arg in ((name,) if value is None else (name, value))]
 
 
 def find_manifest(notebook: dict):

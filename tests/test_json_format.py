@@ -11,6 +11,8 @@ import pytest
 import steady_py.cli as cli
 from steady_py import constants, installed, models, reporting
 
+pytestmark = pytest.mark.usefixtures("analysis_only")  # these read the analysis report
+
 
 @pytest.fixture
 def mock_json_env(monkeypatch):
@@ -43,7 +45,7 @@ class TestSingleFileJsonOutput:
         nb_path = tmp_path / "sample.ipynb"
         nb_path.write_text(json.dumps(nb_data), encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(nb_path), "--format", "json"])
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(nb_path), "--format", "json"])
         with pytest.raises(SystemExit):
             cli.main()
 
@@ -81,7 +83,7 @@ class TestSingleFileJsonOutput:
         nb_path = tmp_path / "gpu_guarded.ipynb"
         nb_path.write_text(json.dumps(nb_data), encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(nb_path), "--format", "json"])
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(nb_path), "--format", "json"])
         with pytest.raises(SystemExit):
             cli.main()
 
@@ -143,7 +145,7 @@ class TestBatchJsonOutput:
         }
         (tmp_path / "02_r.ipynb").write_text(json.dumps(nb2), encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(tmp_path), "--format", "json"])
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(tmp_path), "--format", "json"])
         with pytest.raises(SystemExit):
             cli.main()
 
@@ -213,7 +215,7 @@ class TestStreamAndErrorHygiene:
         nb_path = tmp_path / "dynamic_test.ipynb"
         nb_path.write_text(json.dumps(nb_data), encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(nb_path), "--format", "json"])
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(nb_path), "--format", "json"])
         with pytest.raises(SystemExit):
             cli.main()
 
@@ -227,7 +229,7 @@ class TestStreamAndErrorHygiene:
         bad_nb = tmp_path / "corrupted.ipynb"
         bad_nb.write_text("{not valid json", encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(tmp_path), "--format", "json"])
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(tmp_path), "--format", "json"])
         with pytest.raises(SystemExit) as excinfo:  # nothing in the directory could be read
             cli.main()
         assert excinfo.value.code == 2
@@ -471,7 +473,7 @@ class TestConsoleJsonParity:
         capsys.readouterr()  # drain stdout from the text-mode run before the json-mode run below
 
         caplog.clear()
-        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(nb_path), "--format", "json"])
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(nb_path), "--format", "json"])
         with pytest.raises(SystemExit):
             cli.main()
         json_payload = json.loads(capsys.readouterr().out)
@@ -495,7 +497,7 @@ class TestConsoleJsonParity:
         nb_path = tmp_path / "hw_tag.ipynb"
         nb_path.write_text(json.dumps(nb_data), encoding="utf-8")
 
-        monkeypatch.setattr(sys, "argv", ["steady-py", "scan", str(nb_path), "--format", "json"])
+        monkeypatch.setattr(sys, "argv", ["steady-py", "snapshot", str(nb_path), "--format", "json"])
         with pytest.raises(SystemExit):
             cli.main()
         payload = json.loads(capsys.readouterr().out)

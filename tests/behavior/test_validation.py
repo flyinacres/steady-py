@@ -6,7 +6,7 @@ import pytest
 from tests.support.manifests import altered, snapshotted
 from tests.support.markers import finding, known_bug
 from tests.support.notebooks import Notebook, code
-from tests.support.outcomes import manifest
+from tests.support.outcomes import manifest, pinned
 from tests.support.runner import run
 
 PACKAGING, RESOLVELIB = version("packaging"), version("resolvelib")
@@ -93,4 +93,59 @@ def test_custom_sourced_only_for_packages_not_on_pypi(tmp_path, pypi, mode):
     pypi.fail("packaging", mode)
     outcome = run("snapshot", Notebook(code("import packaging")).write(tmp_path), "--output")
     assert outcome.exit_code == 0, outcome.log
-    assert ("packaging" in manifest(outcome.written[0])["custom_sourced"]) is (mode == "404")
+    assert pinned(outcome.written[0])["packaging"]["custom_sourced"] is (mode == "404")
+
+
+# Decision 9: the manifest's format version is "major.minor", read as PEP 751 reads lock-version.
+@finding("CH1")
+def test_fields_from_a_newer_minor_version_are_named_and_need_attention(tmp_path, pypi):
+    pypi.add("packaging", {PACKAGING: {}})
+    nb = altered(snapshotted(tmp_path, code("import packaging")), lambda m: (
+        m.update(schema_version="2.9", platform="linux"), m["packages"][0].update(marker="x")))
+    outcome = _check(nb)
+    assert outcome.exit_code == 1, outcome.log
+    unread, = outcome.findings(signal="unread_fields")
+    assert unread["details"]["fields"] == ["packages.marker", "platform"]
+    assert outcome.findings(signal="tampered") == []  # the pins are still checked, and clean
+
+
+@finding("CH1")
+def test_a_missing_optional_field_reads_as_not_recorded(tmp_path, pypi):
+    pypi.add("packaging", {PACKAGING: {}})
+    nb = altered(snapshotted(tmp_path, code("import packaging")), lambda m: [m.pop(k) for k in ("declarations", "gpu")])
+    outcome = _check(nb)
+    assert outcome.exit_code == 0, outcome.log
+
+
+@finding("CH1")
+@pytest.mark.parametrize("edit", [
+    lambda m: m.update(schema_version="3.0"),
+    lambda m: m.update(schema_version="1.0"),
+    lambda m: m.pop("packages"),
+], ids=["newer-major", "older-major", "missing-packages"])
+def test_a_manifest_this_version_cannot_read_is_an_error_saying_why(tmp_path, pypi, edit):
+    pypi.add("packaging", {PACKAGING: {}})
+    nb = altered(snapshotted(tmp_path, code("import packaging")), edit)
+    outcome = run("check", nb)
+    assert outcome.exit_code == 2, outcome.log
+    assert "can't be read" in outcome.report["error"]
+
+
+@finding("CH1")
+def test_snapshot_never_replaces_a_manifest_from_a_newer_steady_py(tmp_path, pypi):
+    pypi.add("packaging", {PACKAGING: {}})
+    nb = altered(snapshotted(tmp_path, code("import packaging")), lambda m: m.update(schema_version="3.0"))
+    before = nb.read_bytes()
+    outcome = run("snapshot", nb, "--in-place")
+    assert outcome.exit_code == 2, outcome.log
+    assert "upgrade steady-py" in outcome.log and nb.read_bytes() == before
+
+
+@finding("CH1")
+def test_snapshot_replaces_an_older_manifest_with_a_warning(tmp_path, pypi):
+    pypi.add("packaging", {PACKAGING: {}})
+    nb = altered(snapshotted(tmp_path, code("import packaging")), lambda m: m.update(schema_version="1.0"))
+    outcome = run("snapshot", nb, "--in-place")
+    assert outcome.exit_code == 0, outcome.log
+    assert outcome.warnings(type="unreadable_manifest", about="older format")
+    assert manifest(nb)["schema_version"] == "2.0"

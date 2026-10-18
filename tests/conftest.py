@@ -81,6 +81,13 @@ def pypi(_pypi_server, monkeypatch):
                     "register them with pypi.add(), or call pypi.allow_unknown()", pytrace=False)
 
 
+@pytest.fixture
+def analysis_only(pypi):
+    """For tests that read snapshot's analysis report: the validation lookups snapshot makes aren't
+    under test, so unregistered projects are allowed. Registered ones are still served as given."""
+    pypi.allow_unknown()
+
+
 @pytest.fixture(scope="session")
 def steady_dist(tmp_path_factory):
     """steady-py's wheel, built once per session. Skips the tier when the wheelhouse is unavailable."""

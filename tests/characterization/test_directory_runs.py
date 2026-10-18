@@ -8,7 +8,7 @@ from tests.support.notebooks import Notebook, code
 from tests.support.runner import run
 
 PACKAGING = version("packaging")
-VERBS = ("scan", "snapshot", "check")
+VERBS = ("snapshot", "check")
 
 
 def _unreadable(directory):
@@ -51,9 +51,9 @@ def test_partial_snapshot_writes_the_rest_and_names_the_failure(partial, tmp_pat
     assert bad.name in outcome.log
 
 
-def test_partial_scan_reports_the_rest_and_names_the_failure(partial, tmp_path):
+def test_partial_unwritten_snapshot_reports_the_rest_and_names_the_failure(partial, tmp_path):
     good, bad = partial
-    outcome = run("scan", tmp_path)
+    outcome = run("snapshot", tmp_path)
     assert outcome.exit_code == 1, outcome.log
     assert outcome.notebooks() == [good]
     assert outcome.unreadable() == [bad]

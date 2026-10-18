@@ -50,7 +50,7 @@ Reading test status:
 
 | ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| K1 | One IPython line breaks manifest extraction; blanking corrupts valid Python | Y |  | fixed | U | F1 | check and scan-delta on a notebook with `x = !ls`, `df?`, a triple-quote ending on a `%` line |
+| K1 | One IPython line breaks manifest extraction; blanking corrupts valid Python | Y |  | fixed | U | F1 | check and the snapshot delta on a notebook with `x = !ls`, `df?`, a triple-quote ending on a `%` line |
 | K2 | Unparseable cell drops its imports silently | Y |  | fixed | U | F1 | Expect imports found or a diagnostic naming the cell, never silence; a cell using syntax newer than the running interpreter (`lazy import`) gets a diagnostic naming both versions |
 | G1 | Guarded install line erases the cell's imports | Y |  | fixed | U | F1 |  |
 | G13 | `%%writefile` with leading blank lines scanned as code | Y |  | fixed | U | F1 |  |
@@ -140,7 +140,7 @@ Reading test status:
 | LV1 | Local-version pins skip every PyPI check | Y |  | pf2 | U | F3 | Include an old baseline: not_checked_at_generation, not new |
 | CI1 | Custom-index project on PyPI reported removed; graph abandoned | Y |  | pf2 | U | F3 | Index lookup through the simple API deferred until a fake index exists. A removed pin also gets a duplicate `conflict` on itself |
 | LV2 | `custom_sourced` decided by the wrong rule | P |  | pf2 | U | F3 | Network-error case settled; build-tag field and runtime message open (DG6) |
-| CH1 | A manifest with an unknown or missing required field can't be read (exit 2) | N | not planned | 3 |  |  | Found in the characterization pass: an older steady-py can't read a newer manifest; see decision 9 |
+| CH1 | A manifest with an unknown or missing required field can't be read (exit 2) | Y |  | fixed | U | F1 | Decision 9: unknown fields of the same major version are named by check (exit 1) |
 
 ## Cell 2 runtime
 
@@ -162,10 +162,10 @@ Reading test status:
 | DR1 | Venvs not named venv are scanned and rewritten | Y |  | fixed | U | F1 | Dirs with `pyvenv.cfg`, `conda-meta/`, `site-packages` |
 | DR2 | One notebook's unexpected error ends a directory run with no output | Y |  | fixed | U | F1 | The notebook is reported unreadable and named in the log, and the run continues |
 | K7 | Prior-setup-cell match discards user code | Y |  | pf4 | U | F1 | Warning expected |
-| P3 | Delta ignores flags, raw installs, local modules | Y |  | 3 | U | F1 | Per manifest-updating item 6 |
-| CH2 | Delta matches package names without normalizing them | N | not planned | 3 |  |  | Found in the characterization pass: `Packaging` vs `packaging` at one version is removed plus added; classify (decision 10) |
-| D4 | Single-file text scan fails | Y |  | 3 | U | F1 |  |
-| P5 | Unchanged notebook rewritten | P |  | 3 | U | F1 | Cell ID reuse settled; `generated_at` open |
+| P3 | Delta ignores flags, raw installs, local modules | Y |  | fixed | U | F1 |  |
+| CH2 | Delta matches package names without normalizing them | Y |  | fixed | U | F1 | Decision 10: a bug; names compare and are stored normalized |
+| D4 | Single-file text scan fails | Y |  | fixed | U | F1 | The `scan` verb is removed; snapshot is the read-only analysis |
+| P5 | Unchanged notebook rewritten | Y |  | fixed | U | F1 | Decision 3; cell IDs reused |
 | K11 | Setup markdown matched by heading text | N | not planned | pf4 |  |  | No fix agreed |
 
 ## Code health
@@ -185,7 +185,7 @@ All N, blocked on feature design, except DG8, which is fixed. DG5 is under Envir
 | DG1 | Optional-dependency candidates | N | not planned | out | See decision 7 |
 | DG2 | Guarded-alternative reporting | N | not planned | 4 | |
 | DG3 | Platform baseline | N | not planned | out | Needed only by DG1 |
-| DG4 | Guard status in the manifest | N | not planned | 3 | |
+| DG4 | Guard status in the manifest | Y |  | fixed | U | F1 | Guard group and branch fill `packages.guard` in step 4 |
 | DG6 | Build-tag runtime policy | N | not planned | pf1 | Decision 4 |
 | DG7 | Creator install lines undoing Cell 2 | N | not planned | 4 | |
 | DG8 | Offline `/kaggle/input` wheel installs | Y |  | fixed | Decision 11 |
@@ -207,12 +207,12 @@ Foundations and infrastructure:
 
 1. Scope cuts for `--universal` and `--full-freeze` (G10, LV3, E4).
 2. Guard precedence when an unconditional install meets a guarded import (G2). Decided: the install wins, so Cell 2 pins and installs the package. It reproduces the run the author had, and a failed install costs nothing since Cell 2 reports it and continues.
-3. What `generated_at` records (P5).
+3. What `generated_at` records (P5). Decided: when the manifest's content last changed; each entry also records its own `changed_at`. A snapshot that changes nothing writes nothing.
 4. Build-tag runtime policy and manifest field (LV2, DG6).
 5. Whether the CLI describes its own interpreter or the kernel's (DG5).
 6. Whether the manifest records the target platform (K5). The manifest has no platform field, so check can't know it; a field adds complexity for a case that arises only when check runs on a different OS than snapshot (a Colab repository checked from a laptop, say). Revisit if that becomes a supported workflow.
 7. Whether DG1 (undeclared optional dependencies) becomes a settled row. Where the trigger appears, the dependency is undeclared in nearly every notebook (review_findings.md, Corpus evidence). The platform image hides it, so the notebook fails only once it leaves Kaggle or Colab. Open: report as candidates, or pin what's installed.
 8. The exit code for a heuristic finding classified `not_checked_at_generation`. Today it exits 1 (only `known` heuristics are exempt), and the characterization tests pin that; the comment in LV1's test says a newly visible finding on an old notebook must not start exiting 1. If the comment is the rule, this is a finding and the characterization test flips with the fix.
-9. Manifest schema compatibility (CH1): whether a reader tolerates unknown fields, and what a missing field means.
-10. Classify CH2. CH3 is decided: `name @ url` is stored as written.
+9. Manifest schema compatibility (CH1). Decided: PEP 751's `lock-version` rule (fix_plan.md, section 3.2, item 7).
+10. Classify CH2. Decided: a bug. The manifest stores the normalized name and the installed display name, and matches on the normalized one. CH3 is decided: `name @ url` is stored as written.
 11. Offline `/kaggle/input/...whl` installs (DG8). Decided: handled as any local path install, with no version recorded from the wheel. For a `/kaggle/input/<dataset>/...` path, the notice names the dataset and says the notebook needs it attached as an input and fails outside Kaggle.

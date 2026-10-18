@@ -469,7 +469,7 @@ def classify_against_baseline(findings: List[DriftFinding], manifest: SteadyPyMa
     known = set(manifest.baseline.findings)
     errored = {util.canonicalize_pkg_name(e) if e else "" for e in manifest.baseline.errors}
     direct = {
-        util.canonicalize_pkg_name(installed.split_pin_name(d.name)[0]) for d in manifest.dependencies if d.name
+        util.canonicalize_pkg_name(installed.split_pin_name(d.name)[0]) for d in manifest.pins() if d.name
     }
     graph_check_failed = "" in errored
     for f in findings:

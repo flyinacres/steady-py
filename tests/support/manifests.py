@@ -3,11 +3,11 @@ set of cells runs once per session; each caller gets a copy with its own cells a
 creator's later edits would be. `altered` is the one place tests change a manifest's content."""
 import ast
 import copy
+import hashlib
 import json
 from pathlib import Path
 from typing import Callable, Iterable
 
-from steady_py.models import SteadyPyManifest
 from tests.support.notebooks import Cell, Notebook, write_json
 from tests.support.outcomes import find_manifest
 from tests.support.runner import run
@@ -36,16 +36,24 @@ def snapshotted(directory: Path, *cells: Cell, extra: Iterable[Cell] = ()) -> Pa
 def altered(path: Path, edit: Callable[[dict], None], rehash: bool = True) -> Path:
     """The notebook at `path`, rewritten in place with `edit` applied to its manifest literal and
     the hash recomputed through models, as a manifest another tool version wrote would be.
-    rehash=False keeps the stored hash, as a hand edit would."""
+    rehash=False keeps the stored hash, as a hand edit would. The hash is computed here, as the
+    manifest format defines it, so an edit that steady-py can't read still gets a valid hash."""
     path = Path(path)
     data = json.loads(path.read_text(encoding="utf-8"))
     cell, node = find_manifest(data)
     literal = ast.literal_eval(node.value)
     edit(literal)
     if rehash:
-        literal["dependency_hash"] = SteadyPyManifest.from_literal(literal).verified_hash
+        literal["dependency_hash"] = manifest_hash(literal)
     lines = "".join(cell["source"]).splitlines(keepends=True)
     lines[node.lineno - 1:node.end_lineno] = [f"STEADY_PY_MANIFEST = {literal!r}\n"]
     cell["source"] = lines
     path.write_text(json.dumps(data, indent=1), encoding="utf-8")
     return path
+
+
+def manifest_hash(literal: dict) -> str:
+    """The integrity hash of a manifest literal: SHA-256 of its canonical (sorted-key, compact) JSON
+    without the dependency_hash field."""
+    body = {k: v for k, v in literal.items() if k != "dependency_hash"}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()

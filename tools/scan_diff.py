@@ -1,4 +1,5 @@
-"""Compare two `steady-py scan --format json` runs per notebook, and copy a fixed corpus sample.
+"""Compare two `steady-py snapshot --format json` runs (no write flag) per notebook, and copy a fixed
+corpus sample. Only the analysis report is compared; snapshot's validation output is not.
 
   python tools/scan_diff.py diff OLD.json NEW.json
   python tools/scan_diff.py sample SRC_DIR DST_DIR --every 10

@@ -1,5 +1,5 @@
-"""What scan reports against the manifest a notebook already carries: packages added, removed, and at a
-new version. Delta for flags, raw installs and local modules is P3 (tests/behavior/test_writing.py)."""
+"""What snapshot reports against the manifest a notebook already carries: packages added, removed, and at
+a new version. Delta for every other field is P3 (tests/behavior/test_writing.py)."""
 from importlib.metadata import version
 
 import pytest
@@ -9,20 +9,20 @@ from tests.support.notebooks import Notebook, code
 from tests.support.runner import run
 
 PACKAGING, RESOLVELIB = version("packaging"), version("resolvelib")
-EMPTY = {"added": [], "removed": [], "version_changes": []}
+EMPTY = {"added": [], "removed": [], "version_changes": [], "field_changes": []}
 
 CHANGES = {  # (cells after the snapshot, manifest edit, the delta list that records it)
     "added": (["import resolvelib"], None,
               ("added", {"name": "resolvelib", "old_version": None, "new_version": RESOLVELIB})),
-    "removed": ([], lambda m: m["dependencies"].append({"name": "resolvelib", "version": RESOLVELIB, "flags": []}),
+    "removed": ([], lambda m: m["packages"].append({"name": "resolvelib", "status": "pinned", "version": RESOLVELIB}),
                 ("removed", {"name": "resolvelib", "old_version": RESOLVELIB, "new_version": None})),
-    "version-changed": ([], lambda m: m["dependencies"][0].update(version="1.0"),
+    "version-changed": ([], lambda m: m["packages"][0].update(version="1.0"),
                         ("version_changes", {"name": "packaging", "old_version": "1.0", "new_version": PACKAGING})),
 }
 
 
 def _delta(path):
-    outcome = run("scan", path)
+    outcome = run("snapshot", path)
     assert outcome.exit_code == 0, outcome.log
     return outcome.delta()
 

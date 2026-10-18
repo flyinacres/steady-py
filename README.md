@@ -12,10 +12,9 @@ If you received a notebook that someone else set up with steady-py, and somethin
 
 Notebooks break over time because the packages they use keep changing. steady-py records the exact versions your notebook works with today, and gives the notebook two cells that install exactly those versions for whoever runs it next.
 
-It has three commands:
+It has two commands:
 
-- **`scan`** — looks at a notebook and reports what it needs. Changes nothing.
-- **`snapshot`** — does the same analysis, then produces the two setup cells (and can write them into the notebook for you).
+- **`snapshot`** — looks at a notebook, reports what it needs, and produces the two setup cells. It changes nothing unless you ask it to write them into the notebook for you.
 - **`check`** — looks at a notebook that already has setup cells and asks PyPI (the public index where Python packages live) whether any of its recorded versions have become a problem since.
 
 ---
@@ -100,43 +99,31 @@ Cell 2 may also contain comment lines (starting with `#`) listing things it noti
 
 ## Commands
 
-Every command takes a notebook file or a folder. Options common to all three: `--quiet` (show errors only), `--verbose` (show extra detail) and `--format json` (machine-readable output, for scripts and other tools; see [Using it from Python](#using-it-from-python-or-other-tools)).
-
-### scan
-
-```bash
-steady-py scan my_notebook.ipynb --format json
-steady-py scan course_materials/
-```
-
-Reports each notebook's packages, warnings and notices, and the GPU situation. Never contacts PyPI and never writes anything. For a single file, only `--format json` works today; for a folder you get a readable summary.
-
-If the notebook already has setup cells, scan also shows what would change if you ran snapshot again.
-
-| Option | What it does |
-| --- | --- |
-| `--suffix SUFFIX` | For a folder: skip files whose names end in this suffix (default `_merged`, so steady-py doesn't re-scan its own output). |
+Every command takes a notebook file or a folder. Options common to both: `--quiet` (show errors only), `--verbose` (show extra detail) and `--format json` (machine-readable output, for scripts and other tools; see [Using it from Python](#using-it-from-python-or-other-tools)).
 
 ### snapshot
 
 ```bash
+steady-py snapshot my_notebook.ipynb
 steady-py snapshot my_notebook.ipynb --output
 steady-py snapshot course_materials/ --output-dir locked/
 ```
 
-Produces the two setup cells and checks the recorded versions against PyPI right away (see [What check reports](#what-check-reports)). With none of the write options it just prints the cells.
+Reports each notebook's packages, warnings and notices, and the GPU situation, produces the two setup cells, and checks the recorded versions against PyPI right away (see [What check reports](#what-check-reports)). With none of the write options it writes nothing and just prints the cells; for a folder you get a readable summary.
 
 | Option | What it does |
 | --- | --- |
 | `--output` | Write a copy of each notebook with the setup cells added, next to the original, named with a suffix (default `_merged`). |
 | `--output-dir DIR` | Write the copies into `DIR` instead, mirroring the folder structure so same-named notebooks in different folders don't collide. No suffix unless you give one. |
 | `--in-place` | Replace the setup cells in the original notebook itself. |
-| `--suffix SUFFIX` | The name suffix for `--output` / `--output-dir` copies. |
+| `--suffix SUFFIX` | The name suffix for `--output` / `--output-dir` copies. For a folder, files already ending in it are skipped, so steady-py doesn't read its own copies (default `_merged`). |
 | `--universal [FILENAME]` | Folders only: also write one combined requirements file for every notebook (default name `requirements-all.txt`). |
 | `--timeout SECONDS` | How long Cell 2 lets each package install run before giving up (default 120). |
 | `--full-freeze` | Also store the complete list of everything installed in your environment in Cell 2, as a record. It isn't installed automatically. |
 
-Running snapshot on a notebook that already has setup cells replaces them completely, and it shows what changed since the old ones. To fix a flagged package, change your own environment first (install the version you want), then run snapshot again with `--in-place`.
+Running snapshot on a notebook that already has setup cells shows what would change since the old ones, field by field, and with `--in-place` replaces them. If nothing changed, the notebook is left exactly as it was. The setup cell records when each package's entry last changed, and the date at the top of Cell 2 is when anything in it last changed, not when snapshot last ran. To fix a flagged package, change your own environment first (install the version you want), then run snapshot again with `--in-place`.
+
+If the setup cells were written by a newer steady-py, snapshot won't replace them; upgrade steady-py first. Setup cells from an older format are replaced, with a warning.
 
 ### check
 
@@ -168,7 +155,7 @@ For `check`, a "worth reviewing" item that was already present when the notebook
 Point any command at a folder instead of a file. steady-py finds every notebook in it, however deeply nested, and skips hidden folders, virtual environments, non-Python notebooks and its own `_merged` copies.
 
 ```bash
-steady-py scan course_materials/                 # a summary across every notebook
+steady-py snapshot course_materials/             # a summary across every notebook
 steady-py snapshot course_materials/ --output    # add setup cells to a copy of each
 steady-py check course_materials/                # re-check them all later
 ```
@@ -214,6 +201,7 @@ Each finding is marked **[new]** or **[known]** (already present when the notebo
 | `conflict` | Confirmed | Two recorded packages need incompatible versions of something, directly or several levels down. | Adjust versions in your environment and snapshot again. |
 | `unsupported_python` | Confirmed | The recorded release says it doesn't support the notebook's Python version. | Choose a release that does. |
 | `tampered` | Confirmed | The manifest was changed by hand after it was made. | Regenerate with snapshot. |
+| `unread_fields` | Confirmed | A newer steady-py wrote the manifest with fields this one can't check, so a clean result would claim too much. | Upgrade steady-py. |
 | `local_module_missing` | Confirmed | One of your own helper files, recorded next to the notebook, is gone. | Restore it, or snapshot again if the project changed. |
 | `stale` | Worth reviewing | The package has had no release in about two years. | Consider whether it's still maintained. |
 | `major_bump` | Worth reviewing | A newer major version exists. Not a problem by itself. | Nothing unless you want to upgrade. |
@@ -223,7 +211,7 @@ Each finding is marked **[new]** or **[known]** (already present when the notebo
 
 ## Messages you might see
 
-### While scan or snapshot runs
+### While snapshot runs
 
 | Message | What it means |
 | --- | --- |
@@ -274,12 +262,12 @@ Everything the commands do is available as functions. They return results and ne
 ```python
 import steady_py
 
-scan_result = steady_py.scan("my_notebook.ipynb")
+needs = steady_py.snapshot("my_notebook.ipynb")
 snap = steady_py.snapshot("course_materials", steady_py.SnapshotOptions(write_mode="companion"))
 checked = steady_py.check("my_notebook_merged.ipynb")
 ```
 
-Called with no target, `scan()` and `snapshot()` analyze the running notebook session. Options are small classes (`ScanOptions`, `SnapshotOptions`, `CheckOptions`); results (`ScanResult`, `SnapshotResult`, `CheckResult`) hold one entry per notebook plus an overall section. `steady_py.install(manifest)` is what Cell 2 calls; it returns what installed and what failed.
+Called with no target, `snapshot()` analyzes the running notebook session. Options are small classes (`SnapshotOptions`, `CheckOptions`); results (`SnapshotResult`, `CheckResult`) hold one entry per notebook plus an overall section. `steady_py.install(manifest)` is what Cell 2 calls; it returns what installed and what failed.
 
 For other tools, `--format json` prints the same information as JSON, with a `schema_version` field that changes if the structure does. The structures are defined in `src/steady_py/results.py`.
 

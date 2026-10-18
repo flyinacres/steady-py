@@ -69,11 +69,8 @@ What is wrong and why, one entry per finding, by matrix ID. Each entry carries i
 ### Pinning, delta and output stability
 
 - **P1. Version operators are stripped into invalid or untested pins.** `resolution.build_unified_timeline` computes `v_clean = occ.version_spec.lstrip("=<>!~")` and the manifest writes `==`. `%pip install torch>=2.0,<3` becomes `torch==2.0,<3` (an invalid specifier), and `numpy~=1.26` becomes `numpy==1.26` although 1.26.4 is installed (confirmed). Preserving the author's bounds would defeat reproducibility. Pin the installed version when it satisfies the author's spec (`packaging.specifiers.SpecifierSet`), report when it doesn't, and keep an explicit `==` as written.
-- **P3. Delta ignores everything but name and version.** `delta.compute_delta` compares name to version, Python, GPU and baseline only, so changes to flags (`--extra-index-url`, `--find-links`), `raw_installs`, `custom_sourced` and `local_modules` report "no changes" while the manifest is rewritten (read from code).
 - **P4. Editable installs vanish without a warning.** `-e`/`--editable` is in `PIP_VALUE_FLAGS`, so pass 2 skips the flag and its path before the VCS/path check; `%pip install -e ./mypkg` yields no occurrence, no raw install and no diagnostic (confirmed). `-r` at least emits an `external_requirement` warning.
-- **P5. Snapshot rewrites an unchanged notebook.** `create_managed_cells` assigns random cell IDs (`uuid.uuid4()`), and `generated_at`, and therefore `dependency_hash`, change on every run, so an in-place snapshot of an unchanged notebook always produces a diff. Fix: reuse existing managed cell IDs, and either skip the write when the delta is empty or carry `generated_at` forward. Which depends on what `generated_at` is meant to record.
-- **P6. Imports not found in the environment are labeled `pinned`.** `resolve_pypi_package_and_extras` returns status `pinned` for a not-found import rendered as a comment (confirmed: `baz` → `pinned`, `is_comment=True`), so scan JSON consumers see a missing package as pinned.
-- **D4. `steady-py scan` on a single file fails by default.** Plain-text output isn't implemented for a single-file scan, so `steady-py scan my_notebook.ipynb` exits 2 with an error unless `--format json` is given. The most obvious first command a user tries shouldn't fail. Removing the `scan` verb resolves it.
+- **P6. Imports not found in the environment are labeled `pinned`.** `resolve_pypi_package_and_extras` returns status `pinned` for a not-found import rendered as a comment (confirmed: `baz` → `pinned`, `is_comment=True`), so JSON report consumers see a missing package as pinned.
 
 ### Code health
 
@@ -85,7 +82,6 @@ What is wrong and why, one entry per finding, by matrix ID. Each entry carries i
 - DG1. Optional dependencies that are never imported (openpyxl, gcsfs, spaCy models) are seen only if the notebook has an install line. There is no candidate detection. Package metadata can supply candidates without a hardcoded list: pandas declares openpyxl and gcsfs in its extras, so an imported package plus an installed package named in one of its extras is a candidate. spaCy models are declared in no metadata and need a different signal.
 - DG2. There is no creator warning about guarded alternatives, and no runtime report of which alternatives are present. A clean run cannot verify the untaken branch. Partly addressed by Proposed features, "Install lines, creator declarations and manifest updating".
 - DG3. It is unknown whether a platform baseline (Kaggle or Colab preinstalled packages) exists; candidate lists need one.
-- DG4. Guard, unresolved and install-only status exist only as Cell 2 comments; the manifest has no protected record of them. `check` and the planned report of which guarded alternatives are present need them as manifest fields. Partly addressed by Proposed features, "Install lines, creator declarations and manifest updating".
 - DG5. Pins come from the interpreter running the CLI. If a creator installs steady-py with pipx or `uv tool`, or runs it from conda base while the kernel uses another env, every pin describes the wrong environment, and nothing warns (unverified lead; the natural next review boundary).
 - DG6. No runtime policy for a pin whose public release matches the platform's but whose build tag differs (manifest `torch==2.8.0+cu121`, platform `2.8.0+cu126`). Accepting risks a CUDA mismatch; reinstalling means a multi-GB download over the platform build. The runtime counterpart of "pin what's installed"; needs an explicit decision.
 - DG8. Offline installs of local wheels (`!pip install --no-index --no-deps /kaggle/input/<dataset>/<pkg>.whl`, the competition pattern for internet-off notebooks) get only a `raw_install` notice. The path exists only on Kaggle with that dataset attached, so the manifest records something another environment can't reproduce, and the package's version isn't tied to the pin. About 10% of Kaggle install lines in both eras of the corpus. Decided as matrix decision 11.
@@ -178,7 +174,7 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
 8. Ownership:
    1. Resolution decides what Cell 2 covers.
    2. One parser reads the declarations from every source.
-   3. One pure function classifies install lines, shared by scan, snapshot and check.
+   3. One pure function classifies install lines, shared by snapshot and check.
    4. The entry points differ only in how they gather input.
 9. Prerequisites:
    1. "Single pip flags and raw-install index flags are dropped" and "Parse pip arguments the way pip does".
@@ -187,7 +183,7 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
    4. Cell positions by notebook order: "Batch reports lose each notice's notebook, and cell numbers match nothing the user sees", plus execution-order scanning, which discards each cell's position (`scanning.get_ordered_code_cells`).
    5. Guard detection, so guarded lines never get delete advice: done (G3, G6, G9), apart from one-line shell conditionals (G5).
 10. Open decisions:
-    1. Whether conflicting lines make scan and snapshot exit 1.
+    1. Whether conflicting lines make snapshot exit 1.
     2. Whether check also classifies install lines added after snapshot.
     3. Whether Cell 2 warns the runner about conflicting lines the creator left in place.
     4. With `--output`, Cell 2 exists only in the `_merged` copy, so deleting install lines from the source leaves a source that installs nothing. Should the advice target the companion, or accept that the source depends on steady-py?
@@ -215,5 +211,4 @@ Proposed behavior:
 Still open:
 
 1. How the baseline, GPU record, `custom_sourced` and `local_modules` behave under the rule. The baseline is probably always regenerated, since it records the latest validation.
-2. How `generated_at` and the hash behave when nothing changed.
-3. How update and rebuild interact with `--in-place`.
+2. How update and rebuild interact with `--in-place`.

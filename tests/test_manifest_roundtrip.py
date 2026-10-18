@@ -58,7 +58,7 @@ class TestManifestRoundTrip:
 
         original = result["drift_report"].manifest
         assert extracted.python_version == original.python_version
-        assert extracted.dependencies == original.dependencies
+        assert extracted.pins() == original.pins()
         assert extracted.dependency_hash == original.dependency_hash
         assert extracted.tool_version == original.tool_version
         assert extracted.schema_version == original.schema_version
@@ -78,7 +78,8 @@ class TestManifestRoundTrip:
 
         extracted, error = generate.extract_manifest_from_file(str(path))
         assert error is None
-        assert extracted.raw_installs == [RawInstall("git+https://github.com/foo/bar.git@v1.2.0", ("--no-deps",))]
+        assert [(p.status, p.url, p.options) for p in extracted.packages] == [
+            ("direct_reference", "git+https://github.com/foo/bar.git@v1.2.0", (("--no-deps", None),))]
         assert extracted.dependency_hash == result["drift_report"].manifest.dependency_hash
 
     def test_no_manifest_present_on_real_pre_feature_fixture(self):
@@ -113,7 +114,7 @@ class TestManifestRoundTrip:
         manifest, error = generate.extract_manifest_from_file(str(path))
         assert error is None
         assert manifest is not None
-        assert manifest.dependencies == deps
+        assert manifest.pins() == deps
 
 
 class TestBaselineE2E:
@@ -214,8 +215,8 @@ class TestLocalModulePersistence:
         written_path, drift_report = _write_and_generate_real_notebook(tmp_path, "import cookbook\n")
 
         manifest = drift_report.manifest
-        assert manifest.local_modules == [{"name": "cookbook", "anchor": "notebook_dir"}]
-        assert manifest.dependencies == []
+        assert [(m.name, m.anchor) for m in manifest.local_modules] == [("cookbook", "notebook_dir")]
+        assert manifest.pins() == []
 
     def test_local_module_survives_write_then_extract_round_trip(self, tmp_path):
         (tmp_path / "cookbook.py").write_text("# local helper", encoding="utf-8")
@@ -223,7 +224,7 @@ class TestLocalModulePersistence:
 
         extracted, error = generate.extract_manifest_from_file(str(written_path))
         assert error is None
-        assert extracted.local_modules == [{"name": "cookbook", "anchor": "notebook_dir"}]
+        assert [(m.name, m.anchor) for m in extracted.local_modules] == [("cookbook", "notebook_dir")]
 
     def test_root_dir_anchor_recorded_without_any_path(self, tmp_path):
         """A module found only via root_dir must record just the anchor tag --
@@ -248,7 +249,7 @@ class TestLocalModulePersistence:
         )
         _, drift_report = generate.apply_output_to_notebook(scan_res, {}, {}, None, in_place=True, root_dir=str(tmp_path))
 
-        assert drift_report.manifest.local_modules == [{"name": "shared_utils", "anchor": "root_dir"}]
+        assert [(m.name, m.anchor) for m in drift_report.manifest.local_modules] == [("shared_utils", "root_dir")]
 
     def test_local_modules_covered_by_tamper_hash(self, tmp_path):
         (tmp_path / "cookbook.py").write_text("# local helper", encoding="utf-8")
@@ -256,68 +257,58 @@ class TestLocalModulePersistence:
 
         manifest = drift_report.manifest
         stored_hash = manifest.dependency_hash
-        manifest.local_modules.append({"name": "injected", "anchor": "notebook_dir"})
+        manifest.local_modules.append(models.LocalModule("injected", "notebook_dir"))
         recomputed = manifest.compute_and_set_hash()
 
         assert recomputed != stored_hash, "mutating local_modules must invalidate the tamper hash like any other field"
 
     def test_manifest_without_local_modules_key_still_parses(self):
-        """A notebook generated before this field existed has no 'local_modules'
-        key in its persisted STEADY_PY_MANIFEST literal at all -- must still
-        parse cleanly and default to an empty list, not crash."""
-        pre_existing_shape = {
-            "python_version": {"major": 3, "minor": 11},
-            "dependencies": [models.PinnedDependency("requests", "2.32.1")],
-            "gpu": None,
-            "generated_at": "2025-01-01 00:00:00",
-            "tool_version": "40",
-            "dependency_hash": "irrelevant_for_this_test",
-            "raw_installs": [],
-            "custom_sourced": [],
-        }
-        manifest = models.SteadyPyManifest(**pre_existing_shape)
-        assert manifest.local_modules == []
+        """A manifest of the same format written before this field existed has no 'local_modules' key at
+        all; it must still parse, reading the field as not recorded (decision 9)."""
+        manifest = models.SteadyPyManifest.from_literal({
+            "schema_version": "2.0", "python_version": {"major": 3, "minor": 11},
+            "packages": [{"name": "requests", "status": "pinned", "version": "2.32.1"}],
+        })
+        assert manifest.local_modules == [] and manifest.declarations == []
 
-class TestPinnedDependencyType:
-    """Manifest pins are typed objects in memory and plain dicts only in the persisted literal."""
 
-    def test_to_dict_is_the_persisted_shape(self):
-        pin = models.PinnedDependency("pandas[test]", "2.2.1", ("--extra-index-url", "https://idx"))
-        assert pin.to_dict() == {"name": "pandas[test]", "version": "2.2.1", "flags": ["--extra-index-url", "https://idx"]}
+class TestManifestPackageType:
+    """Manifest packages are typed objects in memory and plain dicts only in the persisted literal."""
 
-    def test_flags_default_to_empty(self):
-        assert models.PinnedDependency("requests", "2.32.3").to_dict()["flags"] == []
+    def test_to_dict_and_from_dict_round_trip(self):
+        package = models.ManifestPackage("pandas", "pinned", display_name="Pandas", version="2.2.1", extras=("test",),
+                                         options=(("--extra-index-url", "https://idx"),), provenance={"version": "notebook"})
+        assert models.ManifestPackage.from_dict(package.to_dict(), set()) == package
 
-    def test_from_dict_round_trips(self):
-        pin = models.PinnedDependency("numpy", "1.26.4", ("--pre",))
-        assert models.PinnedDependency.from_dict(pin.to_dict()) == pin
+    def test_a_pin_carries_extras_and_options_as_pip_arguments(self):
+        package = models.ManifestPackage("pandas", "pinned", display_name="pandas", version="2.2.1", extras=("test",),
+                                         options=(("--pre", None), ("--index-url", "https://idx")))
+        assert package.to_pin() == models.PinnedDependency("pandas[test]", "2.2.1", ("--pre", "--index-url", "https://idx"))
+        assert package.requirement() == "pandas[test]==2.2.1"
 
-    @pytest.mark.parametrize("bad", ["numpy==1", None, {"version": "1"}, {"name": "x"}, {"name": 3, "version": "1"}])
+    @pytest.mark.parametrize("bad", ["numpy==1", None, {"status": "pinned"}, {"name": "x"}, {"name": 3, "status": "pinned"},
+                                     {"name": "x", "status": "pinned", "options": ["--pre"]}])
     def test_from_dict_rejects_malformed_entries(self, bad):
-        with pytest.raises(TypeError):
-            models.PinnedDependency.from_dict(bad)
-
-    def test_dependency_entry_converts_to_a_pin(self):
-        entry = models.DependencyEntry(name="requests", version="2.32.3", flags=["--pre"])
-        assert entry.to_pin() == models.PinnedDependency("requests", "2.32.3", ("--pre",))
+        with pytest.raises(models.ManifestError):
+            models.ManifestPackage.from_dict(bad, set())
 
     def test_generation_records_typed_pins(self):
         result = generate.generate_production_blueprint([models.PinnedDependency("core-dep", "1.0.0"), "plain==2.0"])
-        assert result["drift_report"].manifest.dependencies == [
+        assert result["drift_report"].manifest.pins() == [
             models.PinnedDependency("core-dep", "1.0.0"), models.PinnedDependency("plain", "2.0"),
         ]
 
     def test_from_literal_builds_typed_pins_and_keeps_the_hash_over_the_stored_dicts(self):
         manifest = generate.generate_production_blueprint([models.PinnedDependency("core-dep", "1.0.0")])["drift_report"].manifest
         loaded = models.SteadyPyManifest.from_literal(manifest.to_dict())
-        assert loaded.dependencies == [models.PinnedDependency("core-dep", "1.0.0")]
+        assert loaded.pins() == [models.PinnedDependency("core-dep", "1.0.0")]
         assert loaded.verified_hash == loaded.dependency_hash
 
-    @pytest.mark.parametrize("bad_deps", ["core-dep==1.0.0", [{"name": "core-dep"}], ["core-dep==1.0.0"]])
-    def test_extraction_reports_a_malformed_dependency_list(self, tmp_path, bad_deps):
+    @pytest.mark.parametrize("bad_packages", ["core-dep==1.0.0", [{"name": "core-dep"}], ["core-dep==1.0.0"]])
+    def test_extraction_reports_a_malformed_package_list(self, tmp_path, bad_packages):
         literal = generate.generate_production_blueprint([models.PinnedDependency("core-dep", "1.0.0")])["drift_report"].manifest.to_dict()
-        literal["dependencies"] = bad_deps
+        literal["packages"] = bad_packages
         path = tmp_path / "nb.py"
         path.write_text(f"STEADY_PY_MANIFEST = {literal!r}\n", encoding="utf-8")
         manifest, error = generate.extract_manifest_from_file(str(path))
-        assert manifest is None and "unexpected shape" in error
+        assert manifest is None and "can't be read" in error

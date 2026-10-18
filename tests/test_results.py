@@ -7,8 +7,8 @@ import pytest
 import steady_py
 from steady_py import constants, drift, models
 from steady_py.results import (
-    CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookScan, NotebookSnapshot,
-    PackageChange, ScanResult, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
+    CheckOptions, CheckResult, Delta, Environment, FieldChange, NotebookCheck, NotebookSnapshot,
+    PackageChange, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
 )
 
 
@@ -18,7 +18,7 @@ def _report(path="a.ipynb"):
 
 
 def _drift_report():
-    manifest = models.SteadyPyManifest(python_version={"major": 3, "minor": 12}, dependencies=[], gpu=None, generated_at="t")
+    manifest = models.SteadyPyManifest(python_version={"major": 3, "minor": 12}, generated_at="t")
     return drift.build_drift_check_report("a.ipynb", manifest, [], kind=constants.ReportKind.VALIDATION)
 
 
@@ -60,6 +60,9 @@ class TestDelta:
         ("gpu", (None, {"has_gpu": True})),
         ("findings_appeared", [("yanked", "numpy", "1.0")]),
         ("findings_resolved", [("yanked", "numpy", "1.0")]),
+        ("field_changes", [FieldChange("packages", "numpy", "options", [], [["--pre", None]])]),
+        ("unchecked_appeared", ["numpy"]),
+        ("unchecked_resolved", ["numpy"]),
     ])
     def test_any_field_counts_as_a_change(self, field_name, value):
         assert Delta(**{field_name: value}).has_changes is True
@@ -72,14 +75,14 @@ class TestDelta:
 
 class TestTargetResults:
     def test_defaults_describe_a_file_with_no_notebooks(self):
-        for cls in (ScanResult, SnapshotResult, CheckResult):
+        for cls in (SnapshotResult, CheckResult):
             result = cls(target="a.ipynb")
             assert result.kind == TargetKind.FILE and result.notebooks == [] and result.failed == []
 
     def test_failed_lists_only_notebooks_with_an_error(self):
-        good = NotebookScan(path="good.ipynb", report=_report("good.ipynb"))
-        bad = NotebookScan(path="bad.ipynb", report=_report("bad.ipynb"), error="corrupt JSON")
-        result = ScanResult(target="repo", kind=TargetKind.DIRECTORY, notebooks=[good, bad])
+        good = NotebookSnapshot(path="good.ipynb", report=_report("good.ipynb"))
+        bad = NotebookSnapshot(path="bad.ipynb", report=_report("bad.ipynb"), error="corrupt JSON")
+        result = SnapshotResult(target="repo", kind=TargetKind.DIRECTORY, notebooks=[good, bad])
         assert result.failed == [bad]
 
     def test_check_failed_ignores_a_missing_manifest(self):

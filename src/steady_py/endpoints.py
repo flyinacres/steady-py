@@ -1,4 +1,4 @@
-"""The endpoints: scan, snapshot and check.
+"""The endpoints: snapshot and check.
 
 Each one computes and returns a typed result (see results.py). None of them prints or exits;
 that is the CLI's job. Each call is one run: it starts by clearing the per-run caches, so a second
@@ -14,12 +14,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-import sys
-
 from steady_py import accelerator, analyze, constants, delta, drift, generate, installed, localmodules, models, scanning, util
 from steady_py.results import (
-    CheckOptions, CheckResult, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
-    ScanResult, SetupCells, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
+    CheckOptions, CheckResult, Environment, NotebookCheck, NotebookSnapshot, SetupCells, SnapshotOptions, SnapshotResult,
+    TargetKind, WriteMode,
 )
 
 DEFAULT_COMPANION_SUFFIX = "_merged"
@@ -33,43 +31,16 @@ def detect_environment() -> Environment:
                        raw_full_freeze=sorted(frozen_env.values(), key=str.lower), editables=installed.read_editables())
 
 
-def _read_manifest(path: object) -> Tuple[Optional[models.SteadyPyManifest], Optional[str]]:
-    """The manifest a notebook file already carries: (manifest, None), (None, None) when it has
-    none or is not a file, and (None, reason) when it has one that cannot be read."""
+def _read_manifest(path: object) -> generate.ManifestRead:
+    """The manifest a notebook file already carries; an empty read when it has none or is not a file."""
     if not os.path.isfile(str(path)):
-        return None, None
-    manifest, error = generate.extract_manifest_from_file(str(path))
-    return manifest, error or None
-
-
-def _provisional_manifest(
-    scan_result: analyze.NotebookScanResult, report: models.NotebookAnalysisReport, hardware: Optional[models.GpuInfo],
-) -> models.SteadyPyManifest:
-    """What a snapshot would record, as far as it can be known without contacting PyPI: the pins,
-    the Python version and the accelerator. It has no baseline, custom-sourced list or hash."""
-    gpu = accelerator.resolve_notebook_gpu_info(scan_result.imports, hardware)
-    return models.SteadyPyManifest(
-        python_version={"major": sys.version_info.major, "minor": sys.version_info.minor},
-        dependencies=[dep.to_pin() for dep in report.dependencies if not dep.is_comment],
-        gpu=gpu.to_dict() if gpu else None,
-        generated_at="",
-    )
-
-
-def _scan_notebook(
-    scan_result: analyze.NotebookScanResult, report: models.NotebookAnalysisReport, hardware: Optional[models.GpuInfo],
-) -> NotebookScan:
-    """One analyzed notebook, compared with the manifest it already carries, if any."""
-    manifest, manifest_error = _read_manifest(scan_result.path)
-    manifest_delta = delta.compute_delta(manifest, _provisional_manifest(scan_result, report, hardware)) if manifest else None
-    return NotebookScan(
-        path=str(scan_result.path), report=report, manifest=manifest, manifest_error=manifest_error, delta=manifest_delta,
-    )
+        return generate.ManifestRead()
+    return generate.read_manifest_file(str(path))
 
 
 @dataclass
 class _Analysis:
-    """The one analysis of a notebook that scan and snapshot both build on."""
+    """The one analysis of a notebook that snapshot builds on."""
     path: str
     kind: str
     report: models.NotebookAnalysisReport
@@ -119,28 +90,6 @@ def _analyze(target: Optional[str], environment: Optional[Environment]) -> _Anal
     )
 
 
-def scan(
-    target: Optional[str] = None,
-    options: Optional[ScanOptions] = None,
-    environment: Optional[Environment] = None,
-) -> ScanResult:
-    """Analyzes a notebook file, a directory of notebooks, or the live IPython session when `target`
-    is None, and reports what it needs: its dependencies, warnings, notices and detected hardware.
-
-    Read-only, and it never contacts PyPI.
-    """
-    options = options or ScanOptions()
-    util.reset_run_caches()
-    if target is not None and os.path.isdir(target):
-        return _scan_directory(target, options, environment)
-    analysis = _analyze(target, environment)
-    if analysis.scan_result is None:
-        notebook = NotebookScan(path=analysis.path, report=analysis.report, error=analysis.error)
-    else:
-        notebook = _scan_notebook(analysis.scan_result, analysis.report, analysis.hardware)
-    return ScanResult(target=target if target is not None else analysis.path, kind=analysis.kind, notebooks=[notebook])
-
-
 def snapshot(
     target: Optional[str] = None,
     options: Optional[SnapshotOptions] = None,
@@ -182,10 +131,23 @@ def _snapshot_notebook(
     full_freeze_lines: Optional[List[str]],
     root_dir: str,
 ) -> NotebookSnapshot:
-    """The cells and manifest for one analyzed notebook, written as the options say."""
-    previous, _ = _read_manifest(scan_result.path)   # before any write: an in-place snapshot replaces it
+    """The cells and manifest for one analyzed notebook, written as the options say.
+
+    The manifest the notebook already carries dates the new one (delta.settle) and is what the delta
+    compares against. One a newer steady-py wrote is never replaced: the notebook fails with the
+    reason. One that can't be read otherwise is replaced, with a warning naming why.
+    """
+    read = _read_manifest(scan_result.path)   # before any write: an in-place snapshot replaces it
+    if read.newer:
+        return NotebookSnapshot(path=str(scan_result.path), report=report, error=read.error)
+    if read.error is not None:
+        report.warnings.append(models.DiagnosticEvent(
+            type="unreadable_manifest", notebook=str(scan_result.path),
+            detail=f"{read.error} Snapshot builds a new manifest in its place; nothing from the old one is carried forward."))
+    previous = read.manifest
     blueprint = generate.build_blueprint_for_notebook(
         scan_result, report, hardware, install_timeout=options.install_timeout, full_freeze_lines=full_freeze_lines,
+        previous=previous,
     )
     notebook = NotebookSnapshot(
         path=str(scan_result.path),
@@ -203,7 +165,10 @@ def _snapshot_notebook(
                 root_dir=root_dir,
                 output_dir=options.output_dir,
             )
-            notebook.written_path = str(written)
+            if written is None:
+                notebook.unchanged = True
+            else:
+                notebook.written_path = str(written)
         except OSError as exc:
             notebook.error = f"could not write the locked notebook: {exc}"
     return notebook
@@ -213,7 +178,7 @@ def _snapshot_notebook(
 
 @dataclass
 class _DirectoryAnalysis:
-    """The one analysis of a directory of notebooks that scan and snapshot both build on."""
+    """The one analysis of a directory of notebooks that snapshot builds on."""
     repo_map: analyze.RepoEnvironmentMap
     summary: models.BatchAnalysisSummary
     environment: Environment
@@ -249,16 +214,6 @@ def _unreadable(repo_map: analyze.RepoEnvironmentMap) -> List[Tuple[str, models.
         )
         out.append((str(err.path), report, cause))
     return out
-
-
-def _scan_directory(target: str, options: ScanOptions, environment: Optional[Environment]) -> ScanResult:
-    analysis = _analyze_directory(target, environment, _skip_suffix(options.suffix, in_place=False))
-    notebooks = [
-        _scan_notebook(res, report, analysis.hardware)
-        for res, report in zip(analysis.repo_map.scan_results, analysis.summary.notebooks)
-    ]
-    notebooks += [NotebookScan(path=path, report=report, error=cause) for path, report, cause in _unreadable(analysis.repo_map)]
-    return ScanResult(target=target, kind=TargetKind.DIRECTORY, notebooks=notebooks, batch_summary=analysis.summary)
 
 
 def _snapshot_directory(target: str, options: SnapshotOptions, environment: Optional[Environment]) -> SnapshotResult:
@@ -322,13 +277,25 @@ def _check_directory(target: str, options: CheckOptions) -> CheckResult:
 
 
 def _check_file(path: str, options: CheckOptions, root_fallback: Optional[str] = None) -> NotebookCheck:
-    manifest, error = generate.extract_manifest_from_file(path)
-    if error:
-        return NotebookCheck(path=path, error=error)
+    read = generate.read_manifest_file(path)
+    if read.error:
+        return NotebookCheck(path=path, error=read.error)
+    manifest = read.manifest
     if manifest is None:
         return NotebookCheck(path=path)
 
     findings: List[models.DriftFinding] = []
+
+    # Fields a newer steady-py added: this one can't check them, so a clean result would claim more
+    # than it knows (decision 9).
+    if manifest.unknown_fields:
+        findings.append(models.DriftFinding(
+            package="", version="", signal=constants.Signal.UNREAD_FIELDS, severity=constants.Severity.CONFIRMED,
+            message=f"The manifest in {path} was written by steady-py {manifest.tool_version or '(unknown version)'}, "
+                    f"which records fields this steady-py ({constants.TOOL_VERSION}) can't check: "
+                    f"{', '.join(manifest.unknown_fields)}. Upgrade steady-py to check them.",
+            details={"fields": list(manifest.unknown_fields)},
+        ))
 
     # Verify the manifest hasn't been hand-edited since it was generated. Only meaningful here:
     # generation is writing dependency_hash for the first time, not verifying a prior one. The
@@ -345,7 +312,7 @@ def _check_file(path: str, options: CheckOptions, root_fallback: Optional[str] =
     notebook_dir = str(Path(path).parent)
     root_dir = options.root_dir or localmodules.project_root(notebook_dir, root_fallback)  # as snapshot derived it
     findings.extend(localmodules.check_local_modules(manifest, notebook_dir=notebook_dir, root_dir=root_dir))
-    findings.extend(drift.run_pin_checks(manifest.dependencies, manifest.python_version))
+    findings.extend(drift.run_pin_checks(manifest.pins(), manifest.python_version))
 
     report = drift.build_drift_check_report(path, manifest, findings)
     return NotebookCheck(path=path, manifest_found=True, report=report)

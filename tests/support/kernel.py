@@ -15,7 +15,6 @@ _MARK = "STEADY_PY_TEST_LIVE_REPORT "
 # The call a user makes in a cell, run with store_history=False so it isn't part of the session
 # it scans. The JSON is the CLI's own, so the Outcome accessors apply unchanged.
 _CALLS = {
-    "scan": "_r = _endpoints.scan()\n_code, _json = _cli.scan_exit_code(_r), _cli.format_scan_result(_r)",
     "snapshot": "_r = _endpoints.snapshot()\n_code, _json = _cli.snapshot_exit_code(_r), _cli.format_snapshot_result(_r, 'json')",
 }
 _IMPORTS = "import json as _json_mod\nfrom steady_py import cli as _cli, endpoints as _endpoints\n"
@@ -72,8 +71,8 @@ def kernel(venv: Venv, cwd: Path, env: Optional[dict] = None) -> Iterator[Kernel
         manager.shutdown_kernel(now=True)
 
 
-def run_live(venv: Venv, cwd: Path, cells: Iterable[Cell], verb: str = "scan", env: Optional[dict] = None) -> Outcome:
-    """Runs `cells` in a fresh kernel, then the live `verb` (scan or snapshot of the session), and
+def run_live(venv: Venv, cwd: Path, cells: Iterable[Cell], verb: str = "snapshot", env: Optional[dict] = None) -> Outcome:
+    """Runs `cells` in a fresh kernel, then the live `verb` (snapshot of the session), and
     returns the same Outcome the CLI would. Everything the kernel printed to stderr, including
     cell errors, is the log."""
     with kernel(venv, cwd, env) as k:

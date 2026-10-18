@@ -9,7 +9,7 @@ import pytest
 from tests.support.envs import WHEELHOUSE, create_venv, installed_version, pip_install
 from tests.support.manifests import altered, snapshotted
 from tests.support.notebooks import Notebook, code
-from tests.support.outcomes import manifest
+from tests.support.outcomes import manifest, options, pinned, sources
 from tests.support.runner import install_in, run, run_cell2
 from tests.support.wheels import write_wheel
 
@@ -25,9 +25,8 @@ def test_a_vcs_install_line_is_carried_verbatim(tmp_path, pypi, line, spec):
     pypi.add("packaging", {PACKAGING: {}})
     outcome = run("snapshot", Notebook(code(line), code("import packaging")).write(tmp_path), "--output")
     assert outcome.exit_code == 0, outcome.log
-    written = manifest(outcome.written[0])
-    assert written["raw_installs"] == [{"spec": spec, "flags": []}]
-    assert [d["name"] for d in written["dependencies"]] == ["packaging"]
+    assert [(s["url"], options(s)) for s in sources(outcome.written[0])] == [(spec, [])]
+    assert list(pinned(outcome.written[0])) == ["packaging"]
 
 
 @pytest.fixture
@@ -85,7 +84,7 @@ def test_cell2_runs_unmodified_from_local_wheels(tmp_path, pypi, steady_dist, wh
         shutil.copy2(wheel, wheels)
     pypi.add("packaging", {PACKAGING: {}})
     nb = altered(snapshotted(tmp_path, code("import packaging")),
-                 lambda m: m.update(dependencies=[{"name": "demo-a", "version": "1.0", "flags": []}]))
+                 lambda m: m.update(packages=[{"name": "demo-a", "status": "pinned", "version": "1.0"}]))
     venv = create_venv(tmp_path / "venv")  # no steady-py: Cell 2 installs its own helper
     outcome = run_cell2(venv, nb, wheels)
     assert outcome.exit_code == 0, outcome.stdout + outcome.log

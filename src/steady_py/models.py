@@ -5,11 +5,15 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
+from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
-from steady_py.constants import MANIFEST_SCHEMA_VERSION, TOOL_VERSION, DependencyStatus, Invocation, Readability, Signal
+from steady_py.constants import (
+    INSTALLABLE_STATUSES, MANIFEST_SCHEMA_VERSION, PIP_OPTIONS, TOOL_VERSION, DependencyStatus, Invocation, Provenance, Readability,
+    Signal,
+)
 
 
 @dataclass(frozen=True)
@@ -241,19 +245,11 @@ class InstallLine:
 
 @dataclass(frozen=True)
 class RawInstall:
-    """A manifest install that isn't a PyPI pin (a URL, `name @ url` or local path), with the options
-    from its line that change what gets installed (G14)."""
+    """An install line target that isn't a PyPI pin (a URL, `name @ url` or local path), with the
+    options from its line that change what gets installed (G14). The manifest records it as a
+    direct_reference package."""
     spec: str
     flags: Tuple[str, ...] = ()
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {"spec": self.spec, "flags": list(self.flags)}
-
-    @classmethod
-    def from_dict(cls, data: Any) -> "RawInstall":
-        if not isinstance(data, dict) or not isinstance(data.get("spec"), str):
-            raise TypeError(f"a raw install needs a string 'spec', got {data!r}")
-        return cls(spec=data["spec"], flags=tuple(data.get("flags") or ()))
 
 
 @dataclass
@@ -273,7 +269,7 @@ class DependencyEntry:
         anchor: Which directory a 'local_module' status entry resolved against
             ('notebook_dir' or 'root_dir'); empty for every other status. Never
             carries a path -- only the anchor name -- so a shared notebook never
-            bakes in the creator's directory structure (see SteadyPyManifest.local_modules).
+            bakes in the creator's directory structure (see LocalModule).
         direct_url: For a 'direct_reference' entry (installed from a remote git/archive URL,
             not PyPI): the source spec to carry into the manifest's raw_installs. Always empty
             for a 'system_path' entry -- a local path is never stored anywhere.
@@ -287,6 +283,7 @@ class DependencyEntry:
     comment_text: str = ""
     anchor: str = ""
     direct_url: str = ""
+    version_source: str = Provenance.ENVIRONMENT  # Provenance.NOTEBOOK when the install line's version won
 
     @property
     def specifier(self) -> str:
@@ -302,10 +299,6 @@ class DependencyEntry:
             "version": self.version,
             "flags": self.flags
         }
-
-    def to_pin(self) -> "PinnedDependency":
-        """This entry as a manifest pin (only meaningful for an installable, non-comment entry)."""
-        return PinnedDependency(name=self.name, version=self.version, flags=tuple(self.flags))
 
     def to_report_dict(self) -> Dict[str, Any]:
         """Converts to full JSON report representation."""
@@ -411,26 +404,258 @@ class Baseline:
 
 @dataclass(frozen=True)
 class PinnedDependency:
-    """One pinned direct dependency as recorded in the manifest and consumed by the drift checks.
+    """One pin as the drift checks consume it: a manifest package Cell 2 installs from an index.
 
-    `name` may carry an extras tag ("pandas[test]"). Only the persisted manifest literal uses the
-    dict form (to_dict / from_dict); everything in memory uses this type.
+    `name` may carry an extras tag ("pandas[test]"); `flags` are the pip arguments of its options.
+    Built from the manifest (SteadyPyManifest.pins), never persisted.
     """
     name: str
     version: str
     flags: Tuple[str, ...] = ()
 
+
+class ManifestError(ValueError):
+    """A manifest this steady-py can't read. The message says why and what to do. `newer` is True
+    when a newer steady-py wrote it (a format this one doesn't know), `older` when it predates the
+    format this one reads."""
+
+    def __init__(self, message: str, newer: bool = False, older: bool = False):
+        super().__init__(message)
+        self.newer = newer
+        self.older = older
+
+
+# One install option: its canonical name and value (None for a switch), as the install-line record
+# stores options (fix_plan.md, section 3.1.9).
+Option = Tuple[str, Optional[str]]
+
+
+def option_pairs(args: Sequence[str]) -> Tuple[Option, ...]:
+    """Canonical (name, value) pairs from the pip arguments a carried option list holds. The names are
+    already canonical (InstallOption.as_args), so the option table only says which take a value."""
+    pairs: List[Option] = []
+    i = 0
+    while i < len(args):
+        name, takes_value = PIP_OPTIONS.get(args[i], (args[i], False))
+        value = args[i + 1] if takes_value and i + 1 < len(args) else None
+        pairs.append((name, value))
+        i += 2 if takes_value else 1
+    return tuple(pairs)
+
+
+def option_args(options: Sequence[Option]) -> List[str]:
+    """The pip arguments for a list of options."""
+    return [arg for name, value in options for arg in ((name,) if value is None else (name, value))]
+
+
+def canonical_extras(extras: Sequence[str]) -> Tuple[str, ...]:
+    """Extras as they compare (PEP 685): normalized, sorted, without duplicates."""
+    return tuple(sorted({canonicalize_name(e) for e in extras}))
+
+
+def _str_or_none(value: Any, what: str) -> Optional[str]:
+    if value is not None and not isinstance(value, str):
+        raise ManifestError(f"the manifest's {what} must be a string, got {value!r}")
+    return value
+
+
+def _str_list(value: Any, what: str) -> Tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ManifestError(f"the manifest's {what} must be a list of strings, got {value!r}")
+    return tuple(value)
+
+
+def _options(value: Any, what: str) -> Tuple[Option, ...]:
+    if value is None:
+        return ()
+    ok = isinstance(value, list) and all(
+        isinstance(p, (list, tuple)) and len(p) == 2 and isinstance(p[0], str) and (p[1] is None or isinstance(p[1], str))
+        for p in value)
+    if not ok:
+        raise ManifestError(f"the manifest's {what} must be a list of [name, value] pairs, got {value!r}")
+    return tuple((p[0], p[1]) for p in value)
+
+
+def _provenance(value: Any, what: str) -> Dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+        raise ManifestError(f"the manifest's {what} must map field names to sources, got {value!r}")
+    return dict(value)
+
+
+def _entry_dict(value: Any, what: str, required: Tuple[str, ...], known: Set[str], unknown: Set[str]) -> Dict[str, Any]:
+    """A manifest entry dict with its required string fields present; its unknown keys are added to
+    `unknown` as `<what>.<key>`."""
+    if not isinstance(value, dict):
+        raise ManifestError(f"each of the manifest's {what} must be a dict, got {value!r}")
+    for key in required:
+        if not isinstance(value.get(key), str):
+            raise ManifestError(f"each of the manifest's {what} needs a string '{key}', got {value!r}")
+    unknown.update(f"{what}.{k}" for k in value if k not in known)
+    return value
+
+
+@dataclass
+class ManifestPackage:
+    """One package the notebook needs, as the manifest records it.
+
+    `name` is the normalized distribution name, or the import name for a module no installed
+    distribution owns (custom_path, ambiguous); "" for a direct source whose name isn't known.
+    `display_name` is the name as installed (the metadata Name), for messages; it is carried forward
+    while `name` is unchanged. `status` is a DependencyStatus value: Cell 2 installs only
+    INSTALLABLE_STATUSES, and the rest are records for check and the creator (DG4). `extras` are as
+    written; they compare normalized. `provenance` maps each sourced field (version, url, options) to
+    a Provenance value. `guard` is reserved for the install-line guard (kind, group, branch), filled
+    once install lines are reconciled (fix_plan.md, step 4). `changed_at` is when this entry's content
+    last changed.
+    """
+    name: str
+    status: str
+    display_name: str = ""
+    version: Optional[str] = None
+    extras: Tuple[str, ...] = ()
+    url: Optional[str] = None
+    options: Tuple[Option, ...] = ()
+    custom_sourced: bool = False
+    guard: Optional[Dict[str, Any]] = None
+    provenance: Dict[str, str] = field(default_factory=dict)
+    changed_at: str = ""
+
+    _FIELDS = ("name", "display_name", "status", "version", "extras", "url", "options", "custom_sourced",
+               "guard", "provenance", "changed_at")
+
+    @property
+    def key(self) -> Tuple[str, Tuple[str, ...]]:
+        """What matches this entry across manifests: the normalized name (the URL for a nameless
+        direct source) and the normalized extras."""
+        return (self.name or (self.url or ""), canonical_extras(self.extras))
+
+    @property
+    def label(self) -> str:
+        """The entry as messages name it: display name and extras, or its URL."""
+        base = self.display_name or self.name or (self.url or "")
+        return f"{base}[{','.join(self.extras)}]" if self.extras else base
+
+    @property
+    def installable(self) -> bool:
+        return self.status in INSTALLABLE_STATUSES and bool(self.version or self.url)
+
+    def requirement(self) -> str:
+        """What Cell 2 passes pip: `name[extras]==version`, or the direct source as written."""
+        if self.status == DependencyStatus.DIRECT_REFERENCE and self.url:
+            return self.url
+        return f"{self.label}=={self.version}" if self.version else self.label
+
+    def content(self) -> Dict[str, Any]:
+        """The fields that make a change: everything but the display name and the change date."""
+        out = self.to_dict()
+        del out["display_name"], out["changed_at"]
+        return out
+
     def to_dict(self) -> Dict[str, Any]:
-        return {"name": self.name, "version": self.version, "flags": list(self.flags)}
+        return {
+            "name": self.name, "display_name": self.display_name, "status": self.status, "version": self.version,
+            "extras": list(self.extras), "url": self.url, "options": [list(o) for o in self.options],
+            "custom_sourced": self.custom_sourced, "guard": self.guard, "provenance": dict(self.provenance),
+            "changed_at": self.changed_at,
+        }
 
     @classmethod
-    def from_dict(cls, data: Any) -> "PinnedDependency":
-        if not isinstance(data, dict):
-            raise TypeError(f"a pinned dependency must be a dict, not {type(data).__name__}")
-        name, version = data.get("name"), data.get("version")
-        if not isinstance(name, str) or not isinstance(version, str):
-            raise TypeError(f"a pinned dependency needs a string 'name' and 'version', got {data!r}")
-        return cls(name=name, version=version, flags=tuple(data.get("flags") or ()))
+    def from_dict(cls, data: Any, unknown: Set[str]) -> "ManifestPackage":
+        d = _entry_dict(data, "packages", ("name", "status"), set(cls._FIELDS), unknown)
+        guard = d.get("guard")
+        if guard is not None and not isinstance(guard, dict):
+            raise ManifestError(f"a package's 'guard' must be a dict, got {guard!r}")
+        return cls(  # the name is the key, so it is read normalized whatever spelling was stored (CH2)
+            name=canonicalize_name(d["name"]) if d["name"] else "", status=d["status"],
+            display_name=_str_or_none(d.get("display_name"), "display_name") or d["name"],
+            version=_str_or_none(d.get("version"), "version"), extras=_str_list(d.get("extras"), "extras"),
+            url=_str_or_none(d.get("url"), "url"), options=_options(d.get("options"), "options"),
+            custom_sourced=bool(d.get("custom_sourced")), guard=guard,
+            provenance=_provenance(d.get("provenance"), "provenance"), changed_at=_str_or_none(d.get("changed_at"), "changed_at") or "",
+        )
+
+    def to_pin(self) -> PinnedDependency:
+        return PinnedDependency(name=self.label, version=self.version or "", flags=tuple(option_args(self.options)))
+
+
+@dataclass
+class LocalModule:
+    """A local module found at generation time, for check to re-verify by existence (never a PyPI
+    check: these were never installable). `anchor` is "notebook_dir" or "root_dir", never a path, so
+    a shared notebook never bakes in the creator's directory structure."""
+    name: str
+    anchor: str
+    provenance: Dict[str, str] = field(default_factory=dict)
+    changed_at: str = ""
+
+    _FIELDS = ("name", "anchor", "provenance", "changed_at")
+
+    @property
+    def key(self) -> Tuple[str, Tuple[str, ...]]:
+        return (self.name, ())
+
+    @property
+    def label(self) -> str:
+        return self.name
+
+    def content(self) -> Dict[str, Any]:
+        out = self.to_dict()
+        del out["changed_at"]
+        return out
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"name": self.name, "anchor": self.anchor, "provenance": dict(self.provenance), "changed_at": self.changed_at}
+
+    @classmethod
+    def from_dict(cls, data: Any, unknown: Set[str]) -> "LocalModule":
+        d = _entry_dict(data, "local_modules", ("name", "anchor"), set(cls._FIELDS), unknown)
+        return cls(name=d["name"], anchor=d["anchor"], provenance=_provenance(d.get("provenance"), "provenance"),
+                   changed_at=_str_or_none(d.get("changed_at"), "changed_at") or "")
+
+
+@dataclass
+class Declaration:
+    """A creator declaration as recorded (review_findings.md, Proposed features): `kind` is "install"
+    or "ignore"; `origin` is "cell" or the declarations file's label. Recorded from step 4 on."""
+    kind: str
+    name: str
+    version: Optional[str] = None
+    options: Tuple[Option, ...] = ()
+    group: Optional[str] = None
+    reason: str = ""
+    origin: str = ""
+    changed_at: str = ""
+
+    _FIELDS = ("kind", "name", "version", "options", "group", "reason", "origin", "changed_at")
+
+    @property
+    def key(self) -> Tuple[str, Tuple[str, ...]]:
+        return (canonicalize_name(self.name), ())
+
+    @property
+    def label(self) -> str:
+        return self.name
+
+    def content(self) -> Dict[str, Any]:
+        out = self.to_dict()
+        del out["changed_at"]
+        return out
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"kind": self.kind, "name": self.name, "version": self.version, "options": [list(o) for o in self.options],
+                "group": self.group, "reason": self.reason, "origin": self.origin, "changed_at": self.changed_at}
+
+    @classmethod
+    def from_dict(cls, data: Any, unknown: Set[str]) -> "Declaration":
+        d = _entry_dict(data, "declarations", ("kind", "name"), set(cls._FIELDS), unknown)
+        return cls(kind=d["kind"], name=d["name"], version=_str_or_none(d.get("version"), "version"),
+                   options=_options(d.get("options"), "options"), group=_str_or_none(d.get("group"), "group"),
+                   reason=_str_or_none(d.get("reason"), "reason") or "", origin=_str_or_none(d.get("origin"), "origin") or "",
+                   changed_at=_str_or_none(d.get("changed_at"), "changed_at") or "")
 
 
 def _manifest_payload_hash(payload: Dict[str, Any]) -> str:
@@ -440,81 +665,127 @@ def _manifest_payload_hash(payload: Dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _format_version(value: Any) -> Tuple[int, int]:
+    """(major, minor) of a "major.minor" schema version; ManifestError when it isn't one."""
+    if isinstance(value, str):
+        parts = value.split(".")
+        if len(parts) == 2 and all(p.isdigit() for p in parts):
+            return int(parts[0]), int(parts[1])
+    raise ManifestError(f"the manifest's schema_version {value!r} is not a format version steady-py knows")
+
+
+_MANIFEST_FIELDS = ("schema_version", "tool_version", "generated_at", "dependency_hash", "python_version", "gpu",
+                    "baseline", "packages", "local_modules", "declarations")
+
+
 @dataclass
 class SteadyPyManifest:
-    """Reproducibility manifest embedded in generated Cell 2 as STEADY_PY_MANIFEST.
+    """The reproducibility manifest embedded in generated Cell 2 as STEADY_PY_MANIFEST, and what check
+    parses back out of a notebook or .py file (fix_plan.md, section 3.2).
 
-    Also the payload drift-check parses back out of a notebook/.py file to
-    evaluate pins against live PyPI metadata (no execution, no installs).
-
-    baseline records what generation-time validation found, as compact keys (see
-    build_baseline), so a later check can tell findings that were already present from
-    ones that are new. None means no baseline was recorded.
-
-    local_modules records local sibling modules found at generation time, for
-    drift-check to re-verify by existence (not a PyPI check -- these were never
-    pip-installable). Each entry is {"name": ..., "anchor": "notebook_dir" |
-    "root_dir"} -- never a path, so a shared notebook never bakes in the
-    creator's directory structure.
+    It records state with its history: each entry's provenance and last change date, and
+    `generated_at`, when the manifest's content last changed. `baseline` records what
+    generation-time validation found, as compact keys (see build_baseline), so a later check can tell
+    findings that were already present from new ones; None means none was recorded.
     """
     python_version: Dict[str, int]
-    dependencies: List[PinnedDependency]
-    gpu: Optional[Dict[str, Any]]
-    generated_at: str
+    packages: List[ManifestPackage] = field(default_factory=list)
+    gpu: Optional[Dict[str, Any]] = None
+    generated_at: str = ""
     tool_version: str = TOOL_VERSION
     schema_version: str = MANIFEST_SCHEMA_VERSION
     dependency_hash: str = ""
-    raw_installs: List[RawInstall] = field(default_factory=list)
-    custom_sourced: List[str] = field(default_factory=list)
-    local_modules: List[Dict[str, str]] = field(default_factory=list)
+    local_modules: List[LocalModule] = field(default_factory=list)
+    declarations: List[Declaration] = field(default_factory=list)
     baseline: Optional[Baseline] = None
-    # Set only by from_literal: the hash recomputed over the fields exactly as they were
-    # persisted. Never serialized, hashed or compared; it is not part of the manifest.
+    # Set only by from_literal, and never serialized, hashed or compared: the hash recomputed over the
+    # fields exactly as they were persisted, and the fields this steady-py doesn't know.
     verified_hash: Optional[str] = field(default=None, init=False, repr=False, compare=False)
+    unknown_fields: Tuple[str, ...] = field(default=(), init=False, repr=False, compare=False)
+
+    def pins(self) -> List[PinnedDependency]:
+        """The packages Cell 2 installs from an index, as the drift checks consume them."""
+        return [p.to_pin() for p in self.packages if p.installable and p.status == DependencyStatus.PINNED]
+
+    def installs(self) -> List[ManifestPackage]:
+        """What Cell 2 installs, index pins first and then direct sources, each in manifest order."""
+        pinned = [p for p in self.packages if p.installable and p.status == DependencyStatus.PINNED]
+        return pinned + [p for p in self.packages if p.installable and p.status != DependencyStatus.PINNED]
 
     @classmethod
-    def from_literal(cls, data: Dict[str, Any]) -> "SteadyPyManifest":
-        """Builds a manifest from a persisted STEADY_PY_MANIFEST literal.
+    def from_literal(cls, data: Any) -> "SteadyPyManifest":
+        """Reads a persisted STEADY_PY_MANIFEST literal, or raises ManifestError saying why it can't.
 
-        The integrity hash is recomputed over `data` as found, not over this class's
-        current field set. Adding a field to the manifest therefore never makes an older
-        manifest look hand-edited, and deleting a field from a newer one is still caught.
+        Same major format version: fields this steady-py doesn't know are ignored and listed in
+        unknown_fields, and a missing optional field reads as not recorded. A missing python_version
+        or packages, or a different major version, can't be read. The integrity hash is recomputed
+        over `data` as found, so an added field never makes an older manifest look hand-edited, and a
+        deleted one is still caught.
         """
         if not isinstance(data, dict):
-            raise TypeError(f"the manifest literal must be a dict, not {type(data).__name__}")
-        deps = data.get("dependencies")
-        if not isinstance(deps, list):
-            raise TypeError("the manifest's 'dependencies' must be a list")
-        manifest = cls(**{
-            **data,
-            "dependencies": [PinnedDependency.from_dict(d) for d in deps],
-            "raw_installs": [RawInstall.from_dict(r) for r in data.get("raw_installs") or []],
-            "baseline": Baseline.from_dict(data.get("baseline")),
-        })
+            raise ManifestError(f"the manifest literal must be a dict, not {type(data).__name__}")
+        recorded_tool = data.get("tool_version")
+        tool_version = recorded_tool if isinstance(recorded_tool, str) else ""
+        writer = tool_version or "an unknown version"
+        major, _minor = _format_version(data.get("schema_version"))
+        ours = _format_version(MANIFEST_SCHEMA_VERSION)[0]
+        if major > ours:
+            raise ManifestError(
+                f"it was written by steady-py {writer} in a newer format ({data['schema_version']}); "
+                f"upgrade steady-py to read it", newer=True)
+        if major < ours:
+            raise ManifestError(
+                f"it was written by steady-py {writer} in an older format ({data['schema_version']}); "
+                f"run snapshot again to replace it", older=True)
+        python_version, packages = data.get("python_version"), data.get("packages")
+        if not isinstance(python_version, dict) or not all(isinstance(v, int) for v in python_version.values()):
+            raise ManifestError("the manifest has no readable 'python_version'")
+        if not isinstance(packages, list):
+            raise ManifestError("the manifest has no readable 'packages' list")
+        gpu = data.get("gpu")
+        if gpu is not None and not isinstance(gpu, dict):
+            raise ManifestError(f"the manifest's 'gpu' must be a dict or None, got {gpu!r}")
+        lists: Dict[str, List[Any]] = {}
+        for name in ("local_modules", "declarations"):
+            value = data.get(name)
+            if value is not None and not isinstance(value, list):
+                raise ManifestError(f"the manifest's '{name}' must be a list, got {value!r}")
+            lists[name] = value or []
+
+        unknown: Set[str] = {k for k in data if k not in _MANIFEST_FIELDS}
+        manifest = cls(
+            python_version=dict(python_version),
+            packages=[ManifestPackage.from_dict(p, unknown) for p in packages],
+            gpu=gpu,
+            generated_at=_str_or_none(data.get("generated_at"), "generated_at") or "",
+            tool_version=tool_version,
+            schema_version=data["schema_version"],
+            dependency_hash=_str_or_none(data.get("dependency_hash"), "dependency_hash") or "",
+            local_modules=[LocalModule.from_dict(m, unknown) for m in lists["local_modules"]],
+            declarations=[Declaration.from_dict(d, unknown) for d in lists["declarations"]],
+            baseline=Baseline.from_dict(data.get("baseline")),
+        )
         manifest.verified_hash = _manifest_payload_hash(data)
+        manifest.unknown_fields = tuple(sorted(unknown))
         return manifest
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "python_version": self.python_version,
-            "dependencies": [d.to_dict() for d in self.dependencies],
-            "gpu": self.gpu,
-            "generated_at": self.generated_at,
-            "tool_version": self.tool_version,
             "schema_version": self.schema_version,
+            "tool_version": self.tool_version,
+            "generated_at": self.generated_at,
             "dependency_hash": self.dependency_hash,
-            "raw_installs": [r.to_dict() for r in self.raw_installs],
-            "custom_sourced": self.custom_sourced,
-            "local_modules": self.local_modules,
+            "python_version": self.python_version,
+            "gpu": self.gpu,
             "baseline": self.baseline.to_dict() if self.baseline is not None else None,
+            "packages": [p.to_dict() for p in self.packages],
+            "local_modules": [m.to_dict() for m in self.local_modules],
+            "declarations": [d.to_dict() for d in self.declarations],
         }
 
     def compute_and_set_hash(self) -> str:
-        """Hashes canonical (sorted-key) JSON of every field except dependency_hash itself.
-
-        Covers content and provenance fields alike, so hand-editing anything in
-        the manifest -- including generated_at, to hide age -- invalidates the hash.
-        """
+        """Hashes canonical (sorted-key) JSON of every field except dependency_hash itself, so
+        hand-editing anything in the manifest, generated_at included, invalidates the hash."""
         self.dependency_hash = _manifest_payload_hash(self.to_dict())
         return self.dependency_hash
 

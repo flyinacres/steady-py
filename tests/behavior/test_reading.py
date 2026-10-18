@@ -10,6 +10,8 @@ from tests.support.markers import finding
 from tests.support.notebooks import PYTHON_METADATA, Notebook, code, md
 from tests.support.runner import run
 
+pytestmark = pytest.mark.usefixtures("analysis_only")  # these read the analysis report
+
 # Valid in IPython. The first three fail a plain ast.parse; the last three parse, but not after
 # the tool blanks every line starting with % or !.
 IPYTHON_CELLS = {
@@ -42,7 +44,7 @@ def test_check_reads_the_manifest(tmp_path, pypi, source):
 
 @pytest.mark.parametrize("source", _cases("K1"))
 def test_scan_reports_the_delta_against_the_manifest(tmp_path, pypi, source):
-    outcome = run("scan", _snapshot(tmp_path, pypi, code(source)))
+    outcome = run("snapshot", _snapshot(tmp_path, pypi, code(source)))
     assert outcome.exit_code == 0, outcome.log
     assert outcome.delta() is not None, "manifest not read"
     assert outcome.delta()["has_changes"] is False
@@ -50,7 +52,7 @@ def test_scan_reports_the_delta_against_the_manifest(tmp_path, pypi, source):
 
 @pytest.mark.parametrize("source", _cases("K2"))
 def test_imports_in_a_cell_with_ipython_syntax_are_found_or_reported(tmp_path, source):
-    outcome = run("scan", Notebook(code(f"import packaging\n{source}")).write(tmp_path))
+    outcome = run("snapshot", Notebook(code(f"import packaging\n{source}")).write(tmp_path))
     assert outcome.exit_code in (0, 1)
     assert "packaging" in outcome.pins() or outcome.warnings()
 
@@ -58,13 +60,13 @@ def test_imports_in_a_cell_with_ipython_syntax_are_found_or_reported(tmp_path, s
 @finding("G1")
 def test_guarded_install_line_keeps_the_cells_imports(tmp_path):
     cell = code("import packaging\nIN_COLAB = False\nif IN_COLAB:\n    %pip install xyz")
-    outcome = run("scan", Notebook(cell).write(tmp_path))
+    outcome = run("snapshot", Notebook(cell).write(tmp_path))
     assert outcome.exit_code in (0, 1), outcome.log
     assert "packaging" in outcome.pins()
 
 
 def test_a_guarded_import_is_optional_not_pinned(tmp_path):
-    outcome = run("scan", Notebook(code("try:\n    import packaging\nexcept ImportError:\n    pass")).write(tmp_path))
+    outcome = run("snapshot", Notebook(code("try:\n    import packaging\nexcept ImportError:\n    pass")).write(tmp_path))
     assert outcome.exit_code in (0, 1), outcome.log
     assert outcome.dependency("packaging")["status"] == "guarded"
     assert "packaging" not in outcome.pins()
@@ -72,7 +74,7 @@ def test_a_guarded_import_is_optional_not_pinned(tmp_path):
 
 def test_dynamic_imports_are_read_when_literal_and_flagged_when_not(tmp_path):
     source = "import importlib\nimportlib.import_module('packaging')\nname = 'x'\nimportlib.import_module(name)"
-    outcome = run("scan", Notebook(code(source)).write(tmp_path))
+    outcome = run("snapshot", Notebook(code(source)).write(tmp_path))
     assert outcome.exit_code in (0, 1), outcome.log
     assert "packaging" in outcome.pins()
     assert outcome.warnings(type="dynamic_import")
@@ -81,7 +83,7 @@ def test_dynamic_imports_are_read_when_literal_and_flagged_when_not(tmp_path):
 @finding("G20")
 def test_an_unconditional_import_outweighs_an_earlier_guarded_one(tmp_path):
     guarded = code("try:\n    import packaging\nexcept ImportError:\n    %pip install packaging")
-    outcome = run("scan", Notebook(guarded, code("import packaging")).write(tmp_path))
+    outcome = run("snapshot", Notebook(guarded, code("import packaging")).write(tmp_path))
     assert outcome.exit_code in (0, 1), outcome.log
     assert outcome.dependency("packaging")["status"] != "guarded"
 
@@ -93,7 +95,7 @@ def test_an_unconditional_import_outweighs_an_earlier_guarded_one(tmp_path):
 ])
 def test_writefile_imports_are_not_notebook_dependencies(tmp_path, source):
     # IPython strips leading blank lines and runs the cell as run_cell_magic('writefile', ...).
-    outcome = run("scan", Notebook(code(source)).write(tmp_path))
+    outcome = run("snapshot", Notebook(code(source)).write(tmp_path))
     assert outcome.exit_code in (0, 1), outcome.log
     assert outcome.dependency("torch")["status"] == "writefile_script"
 
@@ -101,8 +103,8 @@ def test_writefile_imports_are_not_notebook_dependencies(tmp_path, source):
 @finding("P7")
 def test_diagnostics_number_cells_by_notebook_position(tmp_path):
     cell = code("%pip install -r req.txt\n!conda install numpy")
-    plain = run("scan", Notebook(cell).write(tmp_path / "plain"))
-    after_markdown = run("scan", Notebook(md("# A"), md("# B"), md("# C"), cell).write(tmp_path / "md"))
+    plain = run("snapshot", Notebook(cell).write(tmp_path / "plain"))
+    after_markdown = run("snapshot", Notebook(md("# A"), md("# B"), md("# C"), cell).write(tmp_path / "md"))
     positions = [{d["cell_idx"] for d in (*o.warnings(), *o.notices())} for o in (plain, after_markdown)]
     assert len(positions[0]) == 1  # the pip warning and the conda notice name the same cell
     assert positions[1] == {positions[0].pop() + 3}
@@ -112,7 +114,7 @@ def test_diagnostics_number_cells_by_notebook_position(tmp_path):
 def test_directory_report_names_each_notebook_with_a_notice(tmp_path):
     for name in ("alpha", "beta"):
         Notebook(code("!conda install numpy")).write(tmp_path, f"{name}.ipynb")
-    outcome = run("scan", tmp_path, "--format", "text")
+    outcome = run("snapshot", tmp_path, "--format", "text")
     assert outcome.exit_code in (0, 1), outcome.log
     # Text is the contract: the console report is where the creator reads which notebook to fix.
     assert "alpha.ipynb" in outcome.stdout and "beta.ipynb" in outcome.stdout
@@ -121,7 +123,7 @@ def test_directory_report_names_each_notebook_with_a_notice(tmp_path):
 @finding("P7")
 def test_install_lines_are_located_where_the_user_sees_them(tmp_path):
     notebook = Notebook(md("# Setup"), md("Installs follow."), code("x = 1\n%pip install packaging"))
-    line, = run("scan", notebook.write(tmp_path)).install_lines()
+    line, = run("snapshot", notebook.write(tmp_path)).install_lines()
     assert (line["text"], line["tool"], line["cell_idx"], line["line_idx"], line["heading"]) == (
         "%pip install packaging", "pip", 2, 1, "Setup")
 
@@ -129,7 +131,7 @@ def test_install_lines_are_located_where_the_user_sees_them(tmp_path):
 @finding("K14")
 def test_lines_after_a_continued_magic_keep_their_cell_line(tmp_path):
     source = "!pip install \\\n    packaging\nif IN_COLAB:\n    %pip install resolvelib"
-    outcome = run("scan", Notebook(code(source)).write(tmp_path))
+    outcome = run("snapshot", Notebook(code(source)).write(tmp_path))
     assert [line["line_idx"] for line in outcome.install_lines()] == [0, 3]
     warning, = outcome.warnings(type="guarded_install")
     assert warning["line_idx"] == 3
@@ -137,7 +139,7 @@ def test_lines_after_a_continued_magic_keep_their_cell_line(tmp_path):
 
 @finding("D1")
 def test_scan_of_a_snapshotted_notebook_ignores_the_setup_cells_import(tmp_path, pypi):
-    outcome = run("scan", _snapshot(tmp_path, pypi))
+    outcome = run("snapshot", _snapshot(tmp_path, pypi))
     assert outcome.exit_code == 0, outcome.log
     assert outcome.dependency("steady_py") is None
 
@@ -148,7 +150,7 @@ DEEP = "x = 1" + " + 1" * 3000
 
 
 @finding("DR2")
-@pytest.mark.parametrize("verb", ("scan", "snapshot"))
+@pytest.mark.parametrize("verb", (["snapshot"], ["snapshot", "--output"]), ids=["unwritten", "written"])
 def test_one_notebooks_internal_error_does_not_end_a_directory_run(tmp_path, pypi, verb):
     """Exit 1, not a crash, shows the good notebook was processed; the failure is named."""
     pypi.add("packaging", {version("packaging"): {}})
@@ -156,7 +158,7 @@ def test_one_notebooks_internal_error_does_not_end_a_directory_run(tmp_path, pyp
     # language_info must be a mapping; a string is an internal error today, and the only trigger
     # that needs no monkeypatching. Replace it when malformed metadata becomes a reported error.
     bad = Notebook(code("import json"), metadata={"language_info": "python"}).write(tmp_path, "bad.ipynb")
-    outcome = run(verb, tmp_path)
+    outcome = run(*verb, tmp_path)
     assert outcome.exit_code == 1, outcome.log
     assert outcome.unreadable() == [bad]
     assert f"Could not scan {bad}" in outcome.log
@@ -166,7 +168,7 @@ def test_one_notebooks_internal_error_does_not_end_a_directory_run(tmp_path, pyp
 @pytest.mark.parametrize("target", ("file", "directory"))
 def test_deeply_nested_expression_keeps_the_notebooks_imports(tmp_path, target):
     path = Notebook(code("import packaging"), code(DEEP)).write(tmp_path, "deep.ipynb")
-    outcome = run("scan", path if target == "file" else tmp_path)
+    outcome = run("snapshot", path if target == "file" else tmp_path)
     assert outcome.exit_code in (0, 1), outcome.log
     if target == "directory":
         assert outcome.unreadable() == []
@@ -183,7 +185,7 @@ def test_deeply_nested_expression_keeps_the_notebooks_imports(tmp_path, target):
 def test_unparseable_cell_is_named_with_both_python_versions(tmp_path):
     # `lazy import` is Python 3.15 syntax (PEP 810).
     metadata = {**PYTHON_METADATA, "language_info": {"name": "python", "version": "3.15.0"}}
-    outcome = run("scan", Notebook(code("import packaging"), code("lazy import json"), metadata=metadata).write(tmp_path))
+    outcome = run("snapshot", Notebook(code("import packaging"), code("lazy import json"), metadata=metadata).write(tmp_path))
     assert outcome.exit_code in (0, 1), outcome.log
     warning, = outcome.warnings("unparseable_cell")
     assert warning["cell_idx"] == 1
@@ -198,7 +200,7 @@ def test_unparseable_cell_is_named_with_both_python_versions(tmp_path):
 ])
 @finding("K2")
 def test_cell_magic_bodies_are_read_as_python_only_where_ipython_runs_them_so(tmp_path, source, found):
-    outcome = run("scan", Notebook(code(source)).write(tmp_path))
+    outcome = run("snapshot", Notebook(code(source)).write(tmp_path))
     assert outcome.exit_code in (0, 1), outcome.log
     assert ("packaging" in outcome.pins()) is found
     assert outcome.warnings("unparseable_cell") == []

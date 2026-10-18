@@ -12,9 +12,9 @@ def test_run_captures_the_report_and_log_and_restores_the_logger(tmp_path):
     logger = logging.getLogger("steady_py")
     before = logger.level, list(logger.handlers)
     path = Notebook(code("import packaging")).write(tmp_path)
-    run("scan", path, "--quiet")
+    run("snapshot", path, "--quiet")
     assert (logger.level, logger.handlers) == before
-    outcome = run("scan", path)
+    outcome = run("snapshot", path)
     assert outcome.exit_code == 0
     assert "packaging" in outcome.pins()
     assert "Analyzing" in outcome.log

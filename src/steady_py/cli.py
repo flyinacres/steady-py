@@ -11,13 +11,13 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 from steady_py import constants, endpoints, models, reporting, util
 from steady_py.constants import ATTENTION_DIAGNOSTICS
 from steady_py.results import (
-    CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookScan, NotebookSnapshot, ScanOptions,
-    ScanResult, SnapshotOptions, SnapshotResult, TargetKind, WriteMode,
+    CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookSnapshot, SnapshotOptions, SnapshotResult,
+    TargetKind, WriteMode,
 )
 
 logger = logging.getLogger("steady_py")
@@ -142,31 +142,19 @@ def run_check(target: str, output_format: str = "text", root_dir: Optional[str] 
     return check_exit_code(result)
 
 
-# --- scan and snapshot, for one notebook file or a directory ------------------------------------
+# --- snapshot, for one notebook file or a directory ------------------------------------------
 
-def _run_exit_code(result: Union[ScanResult, SnapshotResult]) -> int:
+def snapshot_exit_code(result: SnapshotResult) -> int:
     """0 when everything was processed; 1 when some of it was and some was not (an unreadable
-    notebook, a failed write), or when a notebook needs a dependency no runner can install or
-    steady-py can't pin (ATTENTION_DIAGNOSTICS, ED3); 2 when nothing could be processed."""
+    notebook, a failed write, a failure of the run as a whole such as the universal file), or when
+    a notebook needs a dependency no runner can install or steady-py can't pin
+    (ATTENTION_DIAGNOSTICS, ED3); 2 when nothing could be processed. One unreadable file is 2."""
     failed = len(result.failed)
     processed = len(result.notebooks) - failed
-    run_error = getattr(result, "error", None) is not None
-    if failed or run_error:
+    if failed or result.error is not None:
         return EXIT_ATTENTION if processed else EXIT_FAILED
     attention = any(w.type in ATTENTION_DIAGNOSTICS for n in result.notebooks if n.report for w in n.report.warnings)
     return EXIT_ATTENTION if attention else EXIT_OK
-
-
-def scan_exit_code(result: ScanResult) -> int:
-    """0, 1 or 2 by how much of the target could be read. One unreadable file is 2, as is a
-    directory where nothing could be read; a directory where only some could be is 1."""
-    return _run_exit_code(result)
-
-
-def snapshot_exit_code(result: SnapshotResult) -> int:
-    """0, 1 or 2 by how much of the target could be processed and written; see scan_exit_code.
-    A failure of the run as a whole, such as the universal file, counts like a failed notebook."""
-    return _run_exit_code(result)
 
 
 def _gpu_label(setting: Optional[Dict[str, Any]]) -> str:
@@ -180,8 +168,8 @@ def format_delta(delta: Delta, label: str) -> str:
     if not delta.has_changes:
         return f"No changes since the existing manifest in {label}."
     lines = [f"Changes since the existing manifest in {label}:"]
-    lines += [f"  + {c.name}=={c.new_version} (added)" for c in delta.added]
-    lines += [f"  - {c.name}=={c.old_version} (removed)" for c in delta.removed]
+    lines += [f"  + {c.name}{f'=={c.new_version}' if c.new_version else ''} (added)" for c in delta.added]
+    lines += [f"  - {c.name}{f'=={c.old_version}' if c.old_version else ''} (removed)" for c in delta.removed]
     lines += [f"  ~ {c.name} {c.old_version} -> {c.new_version}" for c in delta.version_changes]
     if delta.python_version:
         lines.append(f"  Python {delta.python_version[0]} -> {delta.python_version[1]}")
@@ -191,12 +179,32 @@ def format_delta(delta: Delta, label: str) -> str:
         lines.append("  New findings: " + ", ".join(":".join(key) for key in delta.findings_appeared))
     if delta.findings_resolved:
         lines.append("  Resolved findings: " + ", ".join(":".join(key) for key in delta.findings_resolved))
+    for change in delta.field_changes:
+        where = f"{change.name} " if change.name else ""
+        if change.field == "entry":
+            sign = "+" if change.before is None else "-"
+            lines.append(f"  {sign} {change.section.replace('_', ' ')[:-1]} {change.name}")
+        else:
+            lines.append(f"  * {where}{change.field}: {_value(change.before)} -> {_value(change.after)}")
+    if delta.unchecked_appeared:
+        lines.append("  Could not be checked: " + ", ".join(p or "(dependency graph)" for p in delta.unchecked_appeared))
+    if delta.unchecked_resolved:
+        lines.append("  Checked again: " + ", ".join(p or "(dependency graph)" for p in delta.unchecked_resolved))
     if delta.version_changes:
         lines.append("  Versions come from the environment this ran in, so a different machine can show version changes the code did not cause.")
     return "\n".join(lines)
 
 
-def _directory_deltas(result: Union[ScanResult, SnapshotResult]) -> Dict[str, Delta]:
+def _value(value: Any) -> str:
+    """A changed field's value, compactly."""
+    if value is None or value == [] or value == {}:
+        return "none"
+    if isinstance(value, list) and all(isinstance(v, list) for v in value):
+        return " ".join(" ".join(str(p) for p in pair if p is not None) for pair in value)  # options
+    return json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else str(value)
+
+
+def _directory_deltas(result: SnapshotResult) -> Dict[str, Delta]:
     """The delta of each notebook that already had a manifest, keyed by path relative to the target."""
     return {
         util.relative_notebook_path(Path(n.path), result.target): n.delta
@@ -204,14 +212,8 @@ def _directory_deltas(result: Union[ScanResult, SnapshotResult]) -> Dict[str, De
     }
 
 
-def format_directory_deltas(result: Union[ScanResult, SnapshotResult]) -> str:
+def format_directory_deltas(result: SnapshotResult) -> str:
     return "\n\n".join(format_delta(delta, rel) for rel, delta in _directory_deltas(result).items())
-
-
-def format_scan_result(result: ScanResult) -> str:
-    """The JSON report for a scanned notebook."""
-    notebook = result.notebooks[0]
-    return reporting.format_json_single_report(notebook.report, delta=notebook.delta.to_dict() if notebook.delta else None)
 
 
 def format_snapshot_result(result: SnapshotResult, output_format: str = "text") -> str:
@@ -231,7 +233,7 @@ def format_snapshot_result(result: SnapshotResult, output_format: str = "text") 
     if notebook.cells is None or notebook.drift_report is None:
         return ""
     delta_text = format_delta(notebook.delta, notebook.path) if notebook.delta else ""
-    has_pins = bool(notebook.drift_report.manifest.dependencies)
+    has_pins = bool(notebook.drift_report.manifest.pins())
     if written:
         report_text = reporting.format_console_drift_report(notebook.drift_report) if has_pins else ""
         return "\n\n".join(part for part in (delta_text, report_text) if part)
@@ -299,7 +301,7 @@ def _destination_description(args: argparse.Namespace) -> str:
     return f"suffix: '{suffix}'"
 
 
-def _log_failures(result: Union[ScanResult, SnapshotResult]) -> None:
+def _log_failures(result: SnapshotResult) -> None:
     """Names every notebook that could not be processed, and why."""
     failed = result.failed
     if not failed:
@@ -309,29 +311,10 @@ def _log_failures(result: Union[ScanResult, SnapshotResult]) -> None:
         logger.warning(f"  • {util.relative_notebook_path(Path(notebook.path), result.target)}: {notebook.error}")
 
 
-def _report_unreadable(notebook: Union[NotebookScan, NotebookSnapshot], is_json: bool) -> None:
+def _report_unreadable(notebook: NotebookSnapshot, is_json: bool) -> None:
     logger.error(f"❌ Error: {notebook.error}")
     if is_json:
         print(reporting.format_json_single_report(notebook.report))
-
-
-def run_scan_file(args: argparse.Namespace, environment: Optional[Environment] = None) -> int:
-    """One notebook file: runs scan (read-only, never contacts PyPI), prints the report and
-    returns the exit code. Text formatting for a single file is not yet implemented."""
-    if args.format == "text":
-        logger.error("❌ Error: --format text is not yet supported for scanning a single file; use --format json.")
-        return EXIT_FAILED
-    target = args.target
-    logger.info(f"🔍 Analyzing saved notebook file '{target}' via AST...")
-    logger.info(f"📌 Active Python Interpreter: {sys.executable}\n")
-
-    scan_result = endpoints.scan(target, environment=environment)
-    scanned = scan_result.notebooks[0]
-    if scanned.report.parse_error is not None:
-        _report_unreadable(scanned, is_json=True)
-    else:
-        print(format_scan_result(scan_result))
-    return scan_exit_code(scan_result)
 
 
 def run_snapshot_file(args: argparse.Namespace, environment: Optional[Environment] = None) -> int:
@@ -354,12 +337,17 @@ def run_snapshot_file(args: argparse.Namespace, environment: Optional[Environmen
 
     if not is_json:
         _log_diagnostics(snapped.report)
+    if snapped.error is not None:  # a failed write, or an existing manifest it must not replace
+        logger.error(f"❌ Error: {snapped.error}")
+        if is_json:
+            print(format_snapshot_result(snapshot_result, args.format))
+        return snapshot_exit_code(snapshot_result)
     if write_mode != WriteMode.NONE:
         logger.info(f"🚀 Writing updated notebook ({_destination_description(args)})...")
-        if snapped.error is not None:
-            logger.error(f"❌ Error: {snapped.error}")
-            return snapshot_exit_code(snapshot_result)
-        logger.info(f"✅ Updated '{snapped.written_path}'")
+        if snapped.unchanged:
+            logger.info(f"✅ Nothing changed; '{snapped.path}' was left as it was.")
+        else:
+            logger.info(f"✅ Updated '{snapped.written_path}'")
 
     out = format_snapshot_result(snapshot_result, args.format)
     if out:
@@ -368,27 +356,6 @@ def run_snapshot_file(args: argparse.Namespace, environment: Optional[Environmen
 
 
 # --- a directory of notebooks ---------------------------------------------------------------------
-
-def run_scan_directory(args: argparse.Namespace, environment: Optional[Environment] = None) -> int:
-    """A directory of notebooks: read-only scan. Prints the result and returns the exit code."""
-    target = args.target
-    if not os.path.isdir(target):
-        logger.error(f"❌ Error: '{target}' is not a directory.")
-        return EXIT_FAILED
-
-    is_json = args.format == "json"
-    scanned = endpoints.scan(target, ScanOptions(suffix=args.suffix), environment)
-    assert scanned.batch_summary is not None
-    deltas = {rel: d.to_dict() for rel, d in _directory_deltas(scanned).items()} or None
-    if is_json:
-        print(reporting.format_json_batch_report(scanned.batch_summary, deltas=deltas))
-    else:
-        print(reporting.format_console_report(scanned.batch_summary))
-        if deltas:
-            print("\n" + format_directory_deltas(scanned))
-        _log_failures(scanned)
-    return scan_exit_code(scanned)
-
 
 def run_snapshot_directory(args: argparse.Namespace, environment: Optional[Environment] = None) -> int:
     """A directory of notebooks: runs snapshot across all of them. Whatever could be read is
@@ -430,6 +397,9 @@ def run_snapshot_directory(args: argparse.Namespace, environment: Optional[Envir
         written = [n.written_path for n in result.notebooks if n.written_path is not None]
         for path in written:
             logger.info(f"  • Updated '{path}'")
+        unchanged = sum(1 for n in result.notebooks if n.unchanged)
+        if unchanged:
+            logger.info(f"  • {unchanged} notebook(s) had nothing to change and were left as they were.")
         artifacts_written["locked_notebooks"] = written
         if written:
             logger.info("✅ Batch output complete.")
@@ -454,17 +424,6 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--quiet", action="store_true", help="Suppress diagnostic and status logging outputs.")
     common.add_argument("--verbose", action="store_true", help="Enable verbose debug output.")
-
-    scan_parser = subparsers.add_parser(
-        "scan", parents=[common],
-        help="Read-only: report a notebook's or directory's dependencies without writing anything.",
-    )
-    scan_parser.add_argument("target", help="Path to a .ipynb file or a directory.")
-    scan_parser.add_argument(
-        "--format", choices=["text", "json"], default="text",
-        help="Output report format (default: 'text'). A single-file target currently supports 'json' only.",
-    )
-    scan_parser.add_argument("--suffix", default=None, help="Skip files already carrying this suffix when scanning a directory.")
 
     snapshot_parser = subparsers.add_parser(
         "snapshot", parents=[common],
@@ -510,8 +469,6 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     if args.command == "check":
         exit_code = run_check(args.target, output_format=args.format, root_dir=args.root_dir)
-    elif args.command == "scan":
-        exit_code = run_scan_directory(args) if os.path.isdir(args.target) else run_scan_file(args)
     else:  # "snapshot"
         exit_code = run_snapshot_directory(args) if os.path.isdir(args.target) else run_snapshot_file(args)
 

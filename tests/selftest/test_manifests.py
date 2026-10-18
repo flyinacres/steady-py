@@ -21,7 +21,7 @@ def test_snapshot_is_shared_and_extra_cells_are_appended(tmp_path, pypi):
 def test_altered_manifest_passes_the_integrity_check(tmp_path, pypi):
     pypi.add("packaging", {version("packaging"): {}})
     path = altered(snapshotted(tmp_path, code("import packaging  # selftest")),
-                   lambda m: m.update(custom_sourced=["packaging"]))
-    assert manifest(path)["custom_sourced"] == ["packaging"]
+                   lambda m: m["packages"][0].update(custom_sourced=True))
+    assert manifest(path)["packages"][0]["custom_sourced"] is True
     outcome = run("check", path)
     assert outcome.findings(signal="tampered") == [], outcome.log

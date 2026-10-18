@@ -9,7 +9,7 @@ from tests.support.markers import finding
 from tests.support.notebooks import Notebook, code
 from tests.support.runner import run_in
 
-pytestmark = pytest.mark.kernel
+pytestmark = [pytest.mark.kernel, pytest.mark.usefixtures("analysis_only")]  # these read the analysis report
 
 
 def _run(mode, venv, directory, cells):
@@ -18,7 +18,7 @@ def _run(mode, venv, directory, cells):
     if mode == "live":
         outcome = run_live(venv, directory, cells)
     else:
-        outcome = run_in(venv, "scan", Notebook(*cells).write(directory))
+        outcome = run_in(venv, "snapshot", Notebook(*cells).write(directory))
     assert outcome.exit_code in (0, 1), outcome.log
     return outcome
 

@@ -15,7 +15,6 @@ In scope:
 1. Every matrix row with a step or point fix in its Step column; N rows among them once their decision is made (section 7).
 2. S rows (Step `touched`) only on code a step touches, not as a sweep.
 3. Two items from development.md's open design questions: atomic `--in-place` writes, and removing only cells the tool can prove it owns (the managed tag, or a manifest whose hash still validates). The second also resolves K11.
-4. Removing the `scan` verb (section 5, step 3).
 
 Out of scope (Step `out` in the matrix), with the reasons:
 
@@ -29,7 +28,7 @@ Out of scope (Step `out` in the matrix), with the reasons:
 
 ## 3. Contracts
 
-Standards for everything else are in working_rules.md, section 1. Two structures are defined before the step that builds them, because they are expensive to change later. The install-line record's fields are settled; the manifest's are set at the start of step 3 and must carry at least the following.
+Standards for everything else are in working_rules.md, section 1. Two structures are defined before the step that builds them, because they are expensive to change later. Both are settled.
 
 1. The install-line record (step 1), one per install command, produced once and consumed by snapshot, check and reconciliation:
    1. Text: the logical line as written, continuations joined; for a Python call form, the call as `ast.unparse` renders it (normalized quoting and spacing).
@@ -41,11 +40,14 @@ Standards for everything else are in working_rules.md, section 1. Two structures
    7. Readability: literal, computed (`$pkg`, `{var}`, non-literal call arguments) or unreadable, each with its diagnostic.
    8. Targets, each with its kind: a requirement parsed as pip parses it (name as typed and canonical, extras, specifier, marker; `name @ url` stored as written), a bare direct or VCS URL, a local path or wheel, an editable, or a requirements or constraints file (recorded, not read).
    9. Options: canonical name and value pairs (`-i x` and `--index-url=x` give the same pair), unknown options kept as written. A pip command line's options apply to every requirement on it, so they are stored once per line and each target inherits its line's options.
-2. The manifest (step 3):
-   1. Every field reported in the delta (P3).
-   2. Provenance for each value: declaration, notebook text, environment, or carried forward from the previous manifest.
-   3. Declarations with their provenance, and guard status as a protected field (DG4).
-   4. A compatibility policy (decision 9) before the first release, since the release fixes the format. No manifest exists outside development yet, so the format can change freely until then.
+2. The manifest (step 3), the `STEADY_PY_MANIFEST` literal in Cell 2: a record of state and of how it came to be, which explains earlier changes, warns about problems and guides later updates. Cell 2, check and snapshot all read it through one reader (`SteadyPyManifest.from_literal`).
+   1. Top level: `schema_version`, `tool_version`, `generated_at` (when the content last changed, decision 3), `dependency_hash` (sha256 over the sorted-key JSON of every other field, as persisted), `python_version`, `gpu`, `baseline`, `packages`, `local_modules`, `declarations`.
+   2. `packages`: one entry per package, matched across manifests by normalized name (the URL for a nameless direct source) and normalized extras. Fields: `name` (normalized), `display_name` (the installed metadata Name, carried forward while `name` is unchanged), `status`, `version`, `extras` (as written), `url` (a direct source as written, CH3), `options` (canonical name and value pairs, as in section 3.1.9), `custom_sourced`, `guard` (the install-line guard's kind, group and branch, filled from step 4), `provenance` (a map from `version`, `url` and `options` to declaration, notebook, environment or carried), `changed_at`.
+   3. `status` is a DependencyStatus value. Cell 2 installs `pinned` and `direct_reference` only; the rest (`guarded`, `not_installed`, `auxiliary_tool`, `writefile_script`, `editable`, `system_path`, `custom_path`, `ambiguous`) are the protected record of what Cell 2 leaves alone (DG4). Build tools, platform modules and local modules are not packages.
+   4. `local_modules`: `name`, `anchor` (`notebook_dir` or `root_dir`, never a path), `provenance`, `changed_at`.
+   5. `declarations` (filled from step 4): `kind` (install or ignore), `name`, `version`, `options`, `group`, `reason`, `origin` ("cell" or the declarations file's label), `changed_at`.
+   6. The delta compares every field (P3); a display name or a change date never makes a change.
+   7. Compatibility (decision 9), as PEP 751 reads `lock-version`: `schema_version` is "major.minor". A minor bump adds fields, a major bump changes or removes them. A reader of the same major version ignores fields it doesn't know, and check reports them as `unread_fields` (exit 1); a missing optional field reads as not recorded; a missing `python_version` or `packages`, or another major version, can't be read (exit 2). Snapshot never replaces a manifest of a newer major version, and replaces an older one with a warning. Until the first release the format can change freely; after it, a major bump ships with a reader for the previous major version.
 
 ## 4. Risks and how they are resolved
 
@@ -68,8 +70,8 @@ Each step runs in its own context, ends with a handoff, and is reviewed before t
    1. A dev lock: a committed `constraints-dev.txt` at the repository root replaces `docs/requirements.txt`, covering pip, mypy and every test dependency, and the unit, venv and kernel tiers run against it. The Docker tiers stay unpinned, since they stand in for users' environments. `pyproject.toml` keeps its ranges.
    1. Capture from `importlib.metadata`, run side by side with `pip freeze` first: one source, first match on `sys.path` wins, versions always carried (including for direct references), PEP 610 data read directly. The differential test covers the Docker tiers (plain 3.11, Kaggle, Colab), a conda env and a uv env, and direct references (VCS with subdirectory, archives with hashes, conda-built `file://`, editables), since the reader reimplements pip's `direct_url_as_pep440_direct_reference`. Editable divergences to cover: PEP 660 editables agree apart from `direct_url.json` key order; legacy `setup.py develop` is detected through `.egg-link`/`easy-install.pth`; a VCS editable freezes as `-e git+...@<HEAD>` while `direct_url.json` holds a local `file://` URL; `conda develop` is visible only to `find_spec`; `packages_distributions()` returns duplicates, so dedupe before diffing. Freeze stays afterward as a test oracle only. Snapshot warns when most of a notebook's third-party imports aren't installed in the CLI's interpreter (section 4, item 5).
    2. One `root_dir` derivation for every entry point, and one import-to-distribution join (`join.py`) for every import (normal cell, `%%writefile`). The root is the nearest folder at or above the notebook's holding `.git`, `pyproject.toml`, `setup.py` or `setup.cfg` (`localmodules.project_root`), else the directory a run was given; snapshot and check derive it the same way. The join follows how the notebook's kernel resolves the import: a regular module beside the notebook first, unless the environment loads that same file (an in-tree editable); then `packages_distributions()`, with `RECORD` files deciding between several providers (P2); then `IMPORT_TO_PYPI_MAP`; then the `find_spec` origin matched against editable source folders; then a namespace-only folder beside the notebook (ED6), a module under the root, a custom path, and not found. Install lines and imports meet on the distribution, so guards and submodules carry across pip-name and import-name differences. Auxiliary tools are install-line names, looked up by name. check's missing-root-module message gains a `--root-dir` hint.
-3. Manifest model. Removes the `scan` verb, whose delta becomes snapshot's (snapshot without a write flag already writes nothing); the scan-specific tests go with it, and README and HELP drop it.
-4. Declarations and install-line reconciliation, per review_findings.md, Proposed features.
+3. Manifest model: the contract of section 3.2. The `scan` verb is removed; snapshot without a write flag is the read-only analysis, and the corpus before/after check runs it (working_rules.md §2.3).
+4. Declarations and install-line reconciliation, per review_findings.md, Proposed features. Fills the manifest's `declarations` and `packages.guard`.
 5. Snapshot manifest updating, per review_findings.md, Proposed features.
 
 ## 6. Point fixes
@@ -85,16 +87,14 @@ Not on the features' path; each is done when convenient, in any step.
 
 Numbers refer to the matrix's "Decisions that unblock rows", which owns each decision's content.
 
-1. Before step 2.1: none open.
-2. Before step 2.2: none open (decision 2 is made).
-3. Before step 3: decisions 9 and 10.
-4. Before step 4: decision 8, and the install-lines spec's open decisions 10.1 to 10.4.
-5. Before step 5: the manifest-updating open items (baseline, GPU record, `custom_sourced` and `local_modules` under the update rule; `generated_at` and the hash when nothing changed; update and rebuild with `--in-place`).
-6. With the runtime point fixes: decision 4.
-7. Any time: decision 1.
+1. Before step 4: decision 8, and the install-lines spec's open decisions 10.1 to 10.4.
+2. Before step 5: the manifest-updating open items (baseline, GPU record, `custom_sourced` and `local_modules` under the update rule; update and rebuild with `--in-place`).
+3. With the runtime point fixes: decision 4.
+4. Any time: decision 1.
 
 ## 8. After the plan, before release
 
 1. development.md tasks 22 (review user messaging), 23 (hand-test every mode) and 25 (license).
 2. A FAQ: steady-py beside Kaggle's "Pin to original environment" and beside `pip freeze`, what steady-py pins and what it doesn't (transitive dependencies), and the workflow: snapshot where the notebook runs, check from anywhere.
 3. Bring development.md's Testing section up to date, or point it to working_rules.md and test_foundations_design.md.
+4. Manifest format review, once step 5 has exercised every field: each field has a reader that uses it or is dropped, and `schema_version` is then frozen for the release.

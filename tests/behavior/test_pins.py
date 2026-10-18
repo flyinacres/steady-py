@@ -11,11 +11,13 @@ from tests.support.outcomes import setup_markdown
 from tests.support.runner import run, run_in
 from tests.support.sites import SiteDir, pythonpath
 
+pytestmark = pytest.mark.usefixtures("analysis_only")  # these read the analysis report
+
 INSTALLED = version("packaging")
 
 
 def _scan(tmp_path, *sources):
-    outcome = run("scan", Notebook(*map(code, sources)).write(tmp_path))
+    outcome = run("snapshot", Notebook(*map(code, sources)).write(tmp_path))
     assert outcome.exit_code in (0, 1), outcome.log
     return outcome
 
@@ -25,7 +27,7 @@ def _scan(tmp_path, *sources):
     pytest.param("steady_py_absent_mod", False, marks=known_bug("P6", "not-found imports are labeled pinned")),
 ])
 def test_status_pinned_only_for_installed_imports(tmp_path, module, installed):
-    outcome = run("scan", Notebook(code(f"import {module}")).write(tmp_path))
+    outcome = run("snapshot", Notebook(code(f"import {module}")).write(tmp_path))
     assert outcome.exit_code in (0, 1)
     assert (outcome.dependency(module)["status"] == "pinned") is installed
 
@@ -44,7 +46,7 @@ def test_loose_spec_pins_the_installed_version(tmp_path, spec, warns):
 
 
 def _scan_in(venv, tmp_path, site, source):
-    outcome = run_in(venv, "scan", Notebook(code(source)).write(tmp_path), env=pythonpath(site))
+    outcome = run_in(venv, "snapshot", Notebook(code(source)).write(tmp_path), env=pythonpath(site))
     assert outcome.exit_code in (0, 1), outcome.log
     return outcome
 
@@ -79,7 +81,7 @@ def test_extras_promotion_is_deterministic(tmp_path, base_venv):
     nb = Notebook(code("\n".join(f"import demo_x.{t}" for t in tails))).write(tmp_path)
     names = set()
     for seed in "1234":  # with four matching extras, four seeds agreeing by chance is unlikely
-        outcome = run_in(base_venv, "scan", nb, env={**pythonpath(site), "PYTHONHASHSEED": seed})
+        outcome = run_in(base_venv, "snapshot", nb, env={**pythonpath(site), "PYTHONHASHSEED": seed})
         assert outcome.exit_code in (0, 1), outcome.log
         names.add(tuple(sorted(d["name"] for d in outcome.dependencies())))
     assert len(names) == 1, names

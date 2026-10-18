@@ -1,4 +1,4 @@
-"""Option and result types for the steady-py endpoints: scan, snapshot and check.
+"""Option and result types for the steady-py endpoints: snapshot and check.
 
 Pure data: no I/O, no printing, no exiting. The endpoints (`steady_py.endpoints`) build these,
 the CLI (`steady_py.cli`) formats them and maps them to exit codes, and tests assert on them
@@ -57,16 +57,11 @@ class Environment:
 
 
 @dataclass(frozen=True)
-class ScanOptions:
-    """Options for scan."""
-    suffix: Optional[str] = None  # marks generated companion files, which a directory scan skips; None means "_merged"
-
-
-@dataclass(frozen=True)
 class SnapshotOptions:
     """How snapshot delivers its output. The defaults return the cells and write nothing."""
     write_mode: str = WriteMode.NONE
-    suffix: Optional[str] = None      # None means "_merged" for COMPANION and "" for DIRECTORY
+    suffix: Optional[str] = None      # None means "_merged" for COMPANION and "" for DIRECTORY; a directory run
+                                      # skips files carrying the companion suffix, since they are its own output
     output_dir: Optional[str] = None  # required for, and only valid with, DIRECTORY
     universal: Optional[str] = None   # directory targets only: file name of the combined requirements file
     full_freeze: bool = False         # append the full environment freeze after the targeted pins
@@ -103,10 +98,26 @@ class PackageChange:
         return {"name": self.name, "old_version": self.old_version, "new_version": self.new_version}
 
 
+@dataclass(frozen=True)
+class FieldChange:
+    """One manifest field that differs. `section` is "packages", "local_modules", "declarations" or
+    "manifest" (a top-level field); `name` labels the entry ("" for a top-level field); `field` is
+    the field, or "entry" for a local module or declaration added (before None) or removed (after
+    None)."""
+    section: str
+    name: str
+    field: str
+    before: Any
+    after: Any
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"section": self.section, "name": self.name, "field": self.field, "before": self.before, "after": self.after}
+
+
 @dataclass
 class Delta:
     """What a snapshot would change in a notebook that already carries a manifest: the existing
-    manifest (before) against a freshly computed one (after).
+    manifest (before) against a freshly computed one (after), covering every manifest field (P3).
 
     Version changes are kept apart from added and removed packages because pins come from the
     environment the tool runs in. Run elsewhere, they show differences that reflect the machine,
@@ -115,18 +126,21 @@ class Delta:
     added: List[PackageChange] = field(default_factory=list)
     removed: List[PackageChange] = field(default_factory=list)
     version_changes: List[PackageChange] = field(default_factory=list)
+    field_changes: List[FieldChange] = field(default_factory=list)  # every other change, field by field
     python_version: Optional[Tuple[str, str]] = None     # (before, after), None when unchanged
     gpu: Optional[Tuple[GpuSetting, GpuSetting]] = None  # (before, after), None when unchanged
-    baseline_compared: bool = False  # False when the fresh manifest has no baseline, as in scan, which never contacts PyPI
-    findings_appeared: List[models.FindingKey] = field(default_factory=list)  # baseline findings; empty unless baseline_compared
+    baseline_compared: bool = False  # False when the fresh manifest has no baseline
+    findings_appeared: List[models.FindingKey] = field(default_factory=list)  # baseline findings
     findings_resolved: List[models.FindingKey] = field(default_factory=list)
+    unchecked_appeared: List[str] = field(default_factory=list)  # packages validation could not check
+    unchecked_resolved: List[str] = field(default_factory=list)
 
     @property
     def has_changes(self) -> bool:
         return bool(
-            self.added or self.removed or self.version_changes
+            self.added or self.removed or self.version_changes or self.field_changes
             or self.python_version or self.gpu
-            or self.findings_appeared or self.findings_resolved
+            or self.findings_appeared or self.findings_resolved or self.unchecked_appeared or self.unchecked_resolved
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -135,11 +149,14 @@ class Delta:
             "added": [c.to_dict() for c in self.added],
             "removed": [c.to_dict() for c in self.removed],
             "version_changes": [c.to_dict() for c in self.version_changes],
+            "field_changes": [c.to_dict() for c in self.field_changes],
             "python_version": {"before": self.python_version[0], "after": self.python_version[1]} if self.python_version else None,
             "gpu": {"before": self.gpu[0], "after": self.gpu[1]} if self.gpu else None,
             "baseline_compared": self.baseline_compared,
             "findings_appeared": [list(k) for k in self.findings_appeared],
             "findings_resolved": [list(k) for k in self.findings_resolved],
+            "unchecked_appeared": list(self.unchecked_appeared),
+            "unchecked_resolved": list(self.unchecked_resolved),
         }
 
 
@@ -148,17 +165,6 @@ class Delta:
 # =====================================================================
 # `error` means the tool could not do its job for that notebook (unparseable file, a write that
 # failed). It is None on success, including when there is nothing to report.
-
-@dataclass
-class NotebookScan:
-    """scan of one notebook: what it needs."""
-    path: str
-    report: models.NotebookAnalysisReport
-    manifest: Optional[models.SteadyPyManifest] = None  # the manifest the file already carries, if any
-    manifest_error: Optional[str] = None              # the file has a manifest that could not be read
-    delta: Optional[Delta] = None                     # set when `manifest` is present
-    error: Optional[str] = None
-
 
 @dataclass
 class SetupCells:
@@ -176,6 +182,7 @@ class NotebookSnapshot:
     drift_report: Optional[drift.DriftCheckReport] = None  # generation-time validation of the new pins
     delta: Optional[Delta] = None                         # set when the file already had a manifest
     written_path: Optional[str] = None                    # None when nothing was written
+    unchanged: bool = False                               # an in-place write found nothing to change and wrote nothing
     error: Optional[str] = None
 
     @property
@@ -200,18 +207,6 @@ class NotebookCheck:
 # =====================================================================
 # A file is a target with one notebook; a directory is a target with many. `notebooks` holds
 # every notebook attempted, so a partial run is visible as some entries having an `error`.
-
-@dataclass
-class ScanResult:
-    target: str
-    kind: str = TargetKind.FILE
-    notebooks: List[NotebookScan] = field(default_factory=list)
-    batch_summary: Optional[models.BatchAnalysisSummary] = None  # directories only
-
-    @property
-    def failed(self) -> List[NotebookScan]:
-        return [n for n in self.notebooks if n.error is not None]
-
 
 @dataclass
 class SnapshotResult:

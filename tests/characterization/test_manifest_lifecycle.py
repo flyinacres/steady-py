@@ -5,7 +5,7 @@ import pytest
 
 from tests.support.manifests import altered, snapshotted
 from tests.support.notebooks import Notebook, code
-from tests.support.outcomes import managed_cells, manifest
+from tests.support.outcomes import managed_cells, manifest, pinned
 from tests.support.runner import run
 
 PACKAGING = version("packaging")
@@ -28,7 +28,7 @@ def test_companion_modes_write_a_new_notebook_and_leave_the_source(plain, tmp_pa
     assert outcome.exit_code == 0, outcome.log
     assert [p.relative_to(tmp_path).as_posix() for p in outcome.written] == [written]
     assert set(managed_cells(tmp_path / written)) == {"setup_markdown", "setup_code"}
-    assert manifest(tmp_path / written)["dependencies"][0]["version"] == PACKAGING
+    assert pinned(tmp_path / written)["packaging"]["version"] == PACKAGING
     assert plain.read_bytes() == before
 
 
@@ -36,7 +36,7 @@ def test_in_place_rewrites_the_source(plain):
     outcome = run("snapshot", plain, "--in-place")
     assert outcome.exit_code == 0, outcome.log
     assert outcome.written == [plain]
-    assert manifest(plain)["dependencies"][0]["version"] == PACKAGING
+    assert pinned(plain)["packaging"]["version"] == PACKAGING
 
 
 def test_without_a_write_flag_nothing_is_written(plain):
@@ -74,16 +74,19 @@ def test_check_of_a_fresh_snapshot_is_clean(tmp_path, pypi):
 
 HAND_EDITS = {
     "python_version": lambda m: m["python_version"].update(minor=m["python_version"]["minor"] - 1),
-    "dependencies": lambda m: m["dependencies"][0].update(version="0.1"),
+    "packages": lambda m: m["packages"][0].update(version="0.1"),
     "gpu": lambda m: m.update(gpu={"has_gpu": True}),
     "generated_at": lambda m: m.update(generated_at="2020-01-01 00:00:00"),
     "tool_version": lambda m: m.update(tool_version="0.0.1"),
-    "schema_version": lambda m: m.update(schema_version="0.9"),
-    "raw_installs": lambda m: m["raw_installs"].append({"spec": "extra", "flags": []}),
-    "custom_sourced": lambda m: m["custom_sourced"].append("packaging"),
+    "schema_version": lambda m: m.update(schema_version="2.9"),  # a minor version: still read, so checked
+    "direct-source": lambda m: m["packages"].append({"name": "", "status": "direct_reference", "url": "extra"}),
+    "custom_sourced": lambda m: m["packages"][0].update(custom_sourced=True),
+    "changed_at": lambda m: m["packages"][0].update(changed_at="2020-01-01 00:00:00"),
+    "provenance": lambda m: m["packages"][0].update(provenance={"version": "declaration"}),
     "local_modules": lambda m: m["local_modules"].append({"name": "helper", "anchor": "notebook_dir"}),
     "baseline": lambda m: m.update(baseline=None),
-    "custom_sourced-deleted": lambda m: m.pop("custom_sourced"),
+    "declarations": lambda m: m["declarations"].append({"kind": "ignore", "name": "torch"}),
+    "declarations-deleted": lambda m: m.pop("declarations"),
 }
 
 

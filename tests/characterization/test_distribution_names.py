@@ -4,7 +4,7 @@ from steady-py's alias table for well-known names."""
 import pytest
 
 from tests.support.notebooks import Notebook, code
-from tests.support.outcomes import manifest
+from tests.support.outcomes import pinned
 from tests.support.runner import run_in
 from tests.support.sites import CONDA_STUB, SiteDir, pythonpath
 
@@ -25,4 +25,4 @@ def test_import_is_pinned_as_its_distribution(tmp_path, base_venv, pypi, case):
     nb = Notebook(code(f"import {module}")).write(tmp_path / "nb")
     outcome = run_in(base_venv, "snapshot", nb, "--output", env=pythonpath(site))
     assert outcome.exit_code == 0, outcome.log
-    assert manifest(outcome.written[0])["dependencies"] == [{"name": dist, "version": "1.2.0", "flags": []}]
+    assert [(p["display_name"], p["version"]) for p in pinned(outcome.written[0]).values()] == [(dist, "1.2.0")]

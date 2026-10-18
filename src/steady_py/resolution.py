@@ -11,7 +11,7 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
 
 from steady_py import installed, join, magics, pypi, scanning, util
-from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DependencyStatus, PLATFORM_PSEUDO_MODULES, STD_LIB
+from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DependencyStatus, PLATFORM_PSEUDO_MODULES, Provenance, STD_LIB
 from steady_py.models import DependencyEntry, DiagnosticEvent, ImportOccurrence, PromotionDetail, TimelineResult
 
 logger = logging.getLogger("steady_py.resolution")
@@ -109,6 +109,7 @@ def build_unified_timeline(
             entry.source = "pip_command"
             if pip.version_spec and not entry.is_comment:
                 entry.version = pip.version_spec.lstrip("=<>!~")
+                entry.version_source = Provenance.NOTEBOOK
             if pip.extras and not entry.is_comment:
                 base, _extra = installed.split_pin_name(entry.name)
                 entry.name = f"{base}[{','.join(pip.extras)}]"  # G16: the install line's extras, as written

@@ -8,15 +8,17 @@ from packaging.utils import canonicalize_name
 
 from tests.support.markers import finding
 from tests.support.notebooks import Notebook, code
-from tests.support.outcomes import manifest
+from tests.support.outcomes import options, pinned, sources
 from tests.support.runner import pip_option_table, run, run_in
 from tests.support.sites import SiteDir, pythonpath
+
+pytestmark = pytest.mark.usefixtures("analysis_only")  # these read the analysis report
 
 SAVED = Path(__file__).resolve().parents[1] / "fixtures" / "unit"
 
 
 def _scan(tmp_path, *sources):
-    outcome = run("scan", Notebook(*map(code, sources)).write(tmp_path))
+    outcome = run("snapshot", Notebook(*map(code, sources)).write(tmp_path))
     assert outcome.exit_code in (0, 1), outcome.log
     return outcome
 
@@ -113,24 +115,24 @@ def test_flags_that_change_what_gets_installed_reach_the_manifest(tmp_path, pypi
               "%pip install git+https://example.com/demo.git --index-url https://x.test/simple")
     outcome = run("snapshot", Notebook(code(source)).write(tmp_path), "--output")
     assert outcome.exit_code == 0, outcome.log
-    written = manifest(outcome.written[0])
-    assert "--no-deps" in next(d for d in written["dependencies"] if d["name"] == "packaging")["flags"]
-    assert any("https://x.test/simple" in str(raw) for raw in written["raw_installs"])
+    assert "--no-deps" in options(pinned(outcome.written[0])["packaging"])
+    assert [options(s) for s in sources(outcome.written[0])] == [["--index-url", "https://x.test/simple"]]
 
 
-def _snapshot_manifest(tmp_path, pypi, *sources):
+def _snapshot_written(tmp_path, pypi, *cells):
+    """`cells` snapshotted with --output; the outcome and the written notebook."""
     pypi.add("packaging", {version("packaging"): {}})
-    outcome = run("snapshot", Notebook(*map(code, sources)).write(tmp_path), "--output")
+    outcome = run("snapshot", Notebook(*map(code, cells)).write(tmp_path), "--output")
     assert outcome.exit_code in (0, 1), outcome.log
-    return outcome, manifest(outcome.written[0])
+    return outcome, outcome.written[0]
 
 
 @finding("G18")
 def test_trailing_comment_is_not_harvested(tmp_path, pypi):
-    outcome, written = _snapshot_manifest(tmp_path, pypi, "!pip install packaging # kaggle doesnt have it",
+    _outcome, written = _snapshot_written(tmp_path, pypi, "!pip install packaging # kaggle doesnt have it",
                                           "!pip install git+https://example.com/demo.git#egg=demo")
-    assert [d["name"] for d in written["dependencies"]] == ["packaging"]
-    assert [r["spec"] for r in written["raw_installs"]] == ["git+https://example.com/demo.git#egg=demo"]  # control
+    assert list(pinned(written)) == ["packaging"]
+    assert [s["url"] for s in sources(written)] == ["git+https://example.com/demo.git#egg=demo"]  # control
 
 
 @finding("G19")
@@ -143,17 +145,17 @@ def test_clustered_short_flags_are_read_as_pip_reads_them(tmp_path):
 @finding("CH3")
 def test_named_direct_reference_is_stored_as_written(tmp_path, pypi):
     spec = "demo @ git+https://example.com/demo.git"
-    _outcome, written = _snapshot_manifest(tmp_path, pypi, f'%pip install "{spec}"')
-    assert [r["spec"] for r in written["raw_installs"]] == [spec]
+    _outcome, written = _snapshot_written(tmp_path, pypi, f'%pip install "{spec}"')
+    assert [s["url"] for s in sources(written)] == [spec]
 
 
 @finding("DG8")
 def test_kaggle_input_wheel_names_its_dataset(tmp_path, pypi):
     wheel = "/kaggle/input/offline-wheels/demo-1.0-py3-none-any.whl"
-    outcome, written = _snapshot_manifest(tmp_path, pypi, f"!pip install --no-deps {wheel}")
+    outcome, written = _snapshot_written(tmp_path, pypi, f"!pip install --no-deps {wheel}")
     assert outcome.notices(type="kaggle_input_install", about="offline-wheels")
-    assert [r["spec"] for r in written["raw_installs"]] == [wheel]
-    assert [d for d in written["dependencies"] if canonicalize_name(d["name"]) == "demo"] == []
+    assert [s["url"] for s in sources(written)] == [wheel]
+    assert "demo" not in pinned(written)
 
 
 @finding("DG8")
@@ -171,9 +173,9 @@ def test_kaggle_input_forms_give_one_notice_per_dataset(tmp_path, lines):
 @finding("G4")
 def test_wildcard_wheel_path_is_computed_not_a_raw_install(tmp_path, pypi):
     # The shell expands `*` when the notebook runs; Cell 2 runs pip without a shell.
-    outcome, written = _snapshot_manifest(tmp_path, pypi, "!pip install /tmp/wheels/demo*.whl")
+    outcome, written = _snapshot_written(tmp_path, pypi, "!pip install /tmp/wheels/demo*.whl")
     assert outcome.warnings(type="computed_install")
-    assert written["raw_installs"] == []
+    assert sources(written) == []
 
 
 def test_non_pep440_pin_is_kept_for_cell2_to_attempt(tmp_path):
@@ -222,7 +224,7 @@ def test_each_install_line_package_is_listed_once(tmp_path, name):
 @finding("D5")
 def test_directory_scan_reports_no_package_named_from_display_text(tmp_path):
     shutil.copy(SAVED / "magic_sink.ipynb", tmp_path)
-    outcome = run("scan", tmp_path)
+    outcome = run("snapshot", tmp_path)
     assert outcome.exit_code in (0, 1), outcome.log
     assert "---" not in outcome.summary()["missing_packages"]
 
@@ -237,7 +239,7 @@ def test_directory_scan_reports_no_package_named_from_display_text(tmp_path):
 def test_install_line_and_import_of_one_distribution_give_one_entry(tmp_path, base_venv, dist, module):
     site = SiteDir(tmp_path / "site")
     site.add(dist, "3.0.0", modules=[f"{module}/__init__.py"])
-    outcome = run_in(base_venv, "scan", Notebook(code(f"%pip install {dist}\nimport {module}")).write(tmp_path / "nb"),
+    outcome = run_in(base_venv, "snapshot", Notebook(code(f"%pip install {dist}\nimport {module}")).write(tmp_path / "nb"),
                      env=pythonpath(site))
     assert outcome.exit_code in (0, 1), outcome.log
     assert [canonicalize_name(d["name"]) for d in outcome.dependencies()] == [dist]
@@ -245,7 +247,7 @@ def test_install_line_and_import_of_one_distribution_give_one_entry(tmp_path, ba
 
 @pytest.mark.parametrize("tool", ["pip", "setuptools"])
 def test_an_install_line_for_a_packaging_tool_is_not_pinned(tmp_path, tool):
-    outcome = run("scan", Notebook(code(f"%pip install --upgrade {tool}")).write(tmp_path))
+    outcome = run("snapshot", Notebook(code(f"%pip install --upgrade {tool}")).write(tmp_path))
     assert outcome.exit_code in (0, 1), outcome.log
     assert outcome.dependency(tool)["status"] == "build_tool"
     assert tool not in outcome.pins()
@@ -258,7 +260,7 @@ def test_unconditional_install_wins_over_a_guarded_import_of_another_name(tmp_pa
     site = SiteDir(tmp_path / "site")
     site.add("python-dotenv", "1.0.1", modules=["dotenv/__init__.py"])
     source = "%pip install python-dotenv\ntry:\n    import dotenv\nexcept ImportError:\n    pass"
-    outcome = run_in(base_venv, "scan", Notebook(code(source)).write(tmp_path / "nb"), env=pythonpath(site))
+    outcome = run_in(base_venv, "snapshot", Notebook(code(source)).write(tmp_path / "nb"), env=pythonpath(site))
     assert outcome.exit_code in (0, 1), outcome.log
     assert outcome.pins() == {"python-dotenv": "1.0.1"}
 
@@ -270,7 +272,7 @@ def test_submodules_reach_an_install_line_of_another_name(tmp_path, base_venv):
     site = SiteDir(tmp_path / "site")
     site.add("demo-dist", "1.0", extras=["fast"], modules=["demomod/__init__.py", "demomod/fast.py"])
     source = "%pip install demo-dist\nimport demomod.fast"
-    outcome = run_in(base_venv, "scan", Notebook(code(source)).write(tmp_path / "nb"), env=pythonpath(site))
+    outcome = run_in(base_venv, "snapshot", Notebook(code(source)).write(tmp_path / "nb"), env=pythonpath(site))
     assert outcome.exit_code in (0, 1), outcome.log
     assert [d["name"] for d in outcome.dependencies()] == ["demo-dist[fast]"]
 
@@ -281,7 +283,7 @@ def test_extras_install_line_pins_the_installed_version(tmp_path, base_venv):
     site = SiteDir(tmp_path / "site")
     site.add("tabulate", "0.9.0", extras=["widechars"], requires=["wcwidth; extra == 'widechars'"])
     source = '%pip install "tabulate[widechars]"\nimport tabulate'
-    outcome = run_in(base_venv, "scan", Notebook(code(source)).write(tmp_path / "nb"), env=pythonpath(site))
+    outcome = run_in(base_venv, "snapshot", Notebook(code(source)).write(tmp_path / "nb"), env=pythonpath(site))
     assert outcome.exit_code in (0, 1), outcome.log
     entry = outcome.dependency("tabulate") or outcome.dependency("tabulate[widechars]")
     assert entry["version"] == "0.9.0"

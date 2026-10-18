@@ -47,14 +47,13 @@ Module names avoid names the code uses for locals and parameters (`environment`,
 
 ## Verbs, results and exit codes
 
-- `scan`: read-only. Reports what a notebook needs, with warnings and notices; never contacts PyPI. With an existing manifest, also reports the delta against what a snapshot would produce now.
-- `snapshot`: the same analysis, producing the manifest and the two setup cells, validated against PyPI. It returns the cells, or writes them: `--output` (companion file), `--output-dir`, `--in-place`. An existing manifest is replaced only with `--in-place`. Shows the same delta as scan.
+- `snapshot`: reports what a notebook needs, with warnings and notices, and produces the manifest and the two setup cells, validated against PyPI. It returns the cells, or writes them: `--output` (companion file), `--output-dir`, `--in-place`. An existing manifest is replaced only with `--in-place`. With an existing manifest, it also reports the delta.
 - `check`: read-only. Compares a manifest's pins with live PyPI. No manifest means nothing to check (exit 0).
 - `install` (runtime): what generated Cell 2 calls. Needs internet; internet-off runs are unsupported.
 
 Each verb takes a file or a directory; the live IPython session is the target when the API is called with none. A directory is a larger target, not a separate mode: results hold a list of per-notebook results plus an aggregate. `--universal` (the combined requirements file) is the one directory-only option. The endpoints return typed results (`results.py`) and never print or exit; options are small dataclasses; the environment is injectable for tests; the CLI formats a result and maps it to an exit code.
 
-**Delta**: packages added and removed, pin versions changed (reported separately, since pins come from the machine the tool runs on), Python version and GPU changes, and baseline findings that appeared or were resolved.
+**Delta**: every manifest field (P3). Packages added and removed, pin versions changed (reported separately, since pins come from the machine the tool runs on), every other field change of a package, local module, declaration or top-level field, Python version and GPU changes, and baseline findings and unchecked packages that appeared or were resolved. Packages match by normalized name and extras (CH2); the display name and change dates never count as changes.
 
 **Write rule**: partial writes, loud failure. A directory run writes every notebook that parsed, lists the others with the reason, and exits 1. The universal file begins with a comment naming skipped notebooks.
 
@@ -66,11 +65,11 @@ Each verb takes a file or a directory; the live IPython session is the target wh
 
 ## Manifest and drift checking
 
-**Manifest** (`SteadyPyManifest`, the `STEADY_PY_MANIFEST` literal in Cell 2): `schema_version`, `python_version`, `dependencies` (direct pins), `gpu`, `generated_at`, `tool_version`, `raw_installs`, `custom_sourced` (pins not found on PyPI), `local_modules`, `baseline`, `dependency_hash`. No external file, which avoids path ambiguity on Kaggle, Colab and multi-notebook directories.
+**Manifest** (`SteadyPyManifest`, the `STEADY_PY_MANIFEST` literal in Cell 2): fields, provenance and the compatibility rule are in fix_plan.md, section 3.2. No external file, which avoids path ambiguity on Kaggle, Colab and multi-notebook directories.
 
 **`dependency_hash`** covers the whole manifest, content and provenance, as sha256 over sorted-key JSON. It detects hand-editing, including an edited timestamp or a deleted finding. Verification hashes the fields as persisted, so adding a field never makes an older manifest look edited.
 
-**Replacement is unconditional**: snapshot always produces a new manifest (new timestamp, version, hash and baseline). Writing replaces every prior setup block: cells tagged `metadata.steady_py.managed`, plus untagged cells that assign `STEADY_PY_MANIFEST` or begin with the setup heading, since pasted cells lose the tag. Pins come from the environment the tool runs in, so fixing a flagged pin means changing that environment and regenerating; hand edits are what the hash catches.
+**Replacement**: snapshot builds the manifest fresh and dates it against the one it replaces: an entry keeps its `changed_at` while its content is unchanged, and `generated_at` is when anything last changed (decision 3), so an in-place snapshot that changes nothing writes nothing (P5). Managed cells keep their IDs. Writing replaces every prior setup block: cells tagged `metadata.steady_py.managed`, plus untagged cells that assign `STEADY_PY_MANIFEST` or begin with the setup heading, since pasted cells lose the tag. Pins come from the environment the tool runs in, so fixing a flagged pin means changing that environment and regenerating; hand edits are what the hash catches.
 
 **Check's signals**, per pin and through the transitive graph (resolvelib, with environment markers evaluated and extras modeled as their own nodes, as pip does): yanked release, project removed from PyPI, pin-to-pin conflict, no support for the notebook's Python (all confirmed); no release in about two years, a newer major version (heuristic); plus local modules missing (see below). Confirmed and heuristic findings are reported separately so heuristics don't erode trust in the confirmed ones. `run_pin_checks` is the single implementation behind generation-time validation and check.
 
@@ -139,7 +138,7 @@ The corpus (`test_notebooks/`, gitignored) has 147 notebooks: Kaggle notebooks w
 
 ## Task list
 
-Tasks 1–18 are done: the rename and `src` layout, typed results, the `scan`/`snapshot`/`check` endpoints and subcommands, directory targets, the delta, partial writes and the exit-code rule, the runtime installer and slim Cell 2, real base dependencies, the manifest schema version, and the split into modules.
+Tasks 1–18 are done: the rename and `src` layout, typed results, the `snapshot`/`check` endpoints and subcommands, directory targets, the delta, partial writes and the exit-code rule, the runtime installer and slim Cell 2, real base dependencies, the manifest schema version, and the split into modules.
 
 19. TODO. Handle guarded imports and installs better (gaps collected in an earlier chat thread).
 20. DONE. `HELP_URL` and the README point at `github.com/flyinacres/steady-py`.

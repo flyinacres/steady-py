@@ -59,8 +59,7 @@ def check_local_modules(
     findings: List[DriftFinding] = []
 
     for entry in manifest.local_modules:
-        name = entry.get("name")
-        anchor = entry.get("anchor")
+        name, anchor = entry.name, entry.anchor
         if not name:
             continue
 

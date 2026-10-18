@@ -23,6 +23,8 @@ import pytest
 import steady_py.cli as cli
 from steady_py import installed, resolution
 
+pytestmark = pytest.mark.usefixtures("analysis_only")  # these read the analysis report
+
 
 KERNEL_META = {
     "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
@@ -182,17 +184,17 @@ def _missing_block(out: str) -> str:
 SCENARIOS = {
     "case1_subdir_helper": (
         build_case1,
-        lambda built, out_dir: ["scan", str(built)],
+        lambda built, out_dir: ["snapshot", str(built)],
         assert_case1,
     ),
     "case2_narrow_batch": (
         build_case2,
-        lambda built, out_dir: ["scan", str(built)],
+        lambda built, out_dir: ["snapshot", str(built)],
         assert_case2_narrow_batch,
     ),
     "case2_repo_batch": (
         build_case2,
-        lambda built, out_dir: ["scan", str(built / "repo")],
+        lambda built, out_dir: ["snapshot", str(built / "repo")],
         assert_case2_repo_batch,
     ),
     "case3_duplicate_stems": (

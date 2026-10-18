@@ -9,7 +9,9 @@ from typing import Any, Dict, List, Tuple
 
 from packaging.requirements import InvalidRequirement, Requirement
 
-from steady_py.constants import HELP_URL
+from steady_py.constants import HELP_URL, DependencyStatus
+from steady_py import models
+from steady_py.models import ManifestError, SteadyPyManifest
 
 
 def _extras_installed(req: Requirement) -> bool:
@@ -71,12 +73,19 @@ class InstallResult:
 
 def install(manifest: Dict[str, Any], timeout: int = 120) -> InstallResult:
     """The runtime installer: the `install` verb, and the only endpoint that runs at
-    notebook run time. Reads a STEADY_PY_MANIFEST dict and installs each pinned
-    dependency sequentially via pip (to avoid index conflicts), printing progress and a
-    final summary. Called from generated Cell 2 as `steady_py.install(STEADY_PY_MANIFEST)`.
-    Needs internet; internet-off runs are unsupported.
+    notebook run time. Reads a STEADY_PY_MANIFEST dict through the same reader check uses
+    (SteadyPyManifest.from_literal) and installs each package Cell 2 installs sequentially via
+    pip (to avoid index conflicts), printing progress and a final summary. Called from
+    generated Cell 2 as `steady_py.install(STEADY_PY_MANIFEST)`. Needs internet; internet-off
+    runs are unsupported.
     """
-    py = manifest.get("python_version") or {}
+    try:
+        record = SteadyPyManifest.from_literal(manifest)
+    except ManifestError as exc:
+        print(f"❌ This setup cell's manifest can't be read: {exc}.")
+        return InstallResult(total=0, installed=0, failed=["STEADY_PY_MANIFEST"])
+
+    py = record.python_version
     required = (py.get("major"), py.get("minor"))
     current = (sys.version_info.major, sys.version_info.minor)
     if None not in required and current != required:
@@ -85,15 +94,16 @@ def install(manifest: Dict[str, Any], timeout: int = 120) -> InstallResult:
         print(f"⚠️ This code was created with Python {req_ver}. You are trying to run it with {curr_ver}.")
         print(f"If installation fails, consider changing your runtime Python version back to {req_ver}.\n")
 
-    print(f"Applying verified environment dependencies [{manifest.get('generated_at', '')}]...")
+    print(f"Applying verified environment dependencies [{record.generated_at}]...")
     print("💡 Note: Dependencies are installed sequentially to prevent index conflicts.\n")
 
     passed_count = 0
     failed_packages: List[Tuple[str, str, List[str], str]] = []
     any_install_performed = False
-    dependencies = manifest.get("dependencies", [])
-    raw_installs = manifest.get("raw_installs", [])
-    total_deps = len(dependencies) + len(raw_installs)
+    installs = record.installs()
+    dependencies = [p for p in installs if p.status == DependencyStatus.PINNED]
+    raw_installs = [p for p in installs if p.status != DependencyStatus.PINNED]
+    total_deps = len(installs)
     installed_baseline: Dict[str, str] = {}
 
     def _run_pip_subprocess(cmd: List[str], to: int) -> Tuple[int, List[str]]:
@@ -122,10 +132,10 @@ def install(manifest: Dict[str, Any], timeout: int = 120) -> InstallResult:
     idx = 0
     for item in dependencies:
         idx += 1
-        name = item["name"]
-        ver = item.get("version", "")
-        flags = item.get("flags", [])
-        specifier = f"{name}=={ver}" if ver else name
+        name = item.label
+        ver = item.version or ""
+        flags = models.option_args(item.options)
+        specifier = item.requirement()
 
         current_ver = _installed_version(name)
         if current_ver and (not ver or current_ver == ver):
@@ -167,7 +177,7 @@ def install(manifest: Dict[str, Any], timeout: int = 120) -> InstallResult:
             err_snippet = captured_output[-1] if captured_output else "Unknown pip error"
             failed_packages.append((specifier, ver, flags, "\n".join(captured_output)))
             print(f"    ❌ {specifier} failed to install (exit code {returncode})")
-            if name in manifest.get("custom_sourced", []):
+            if item.custom_sourced:
                 print("       ⚠️ This package is custom-specified by the notebook's author (not on public PyPI).")
                 print("          If it's unavailable, contact the author for its current location.")
             print(f"       ├─ Author Verified Version: {ver or 'unspecified'}")
@@ -180,7 +190,7 @@ def install(manifest: Dict[str, Any], timeout: int = 120) -> InstallResult:
         print("   These are installed exactly as specified but can't be verified against PyPI.")
         print("   You are responsible for ensuring anyone running this notebook has access to the same resource.\n")
         for raw_idx, raw in enumerate(raw_installs, start=idx + 1):
-            raw_spec, raw_flags = raw["spec"], list(raw.get("flags") or [])
+            raw_spec, raw_flags = raw.requirement(), models.option_args(raw.options)
             print(f"[{raw_idx}/{total_deps}] 📦 Installing (raw): {raw_spec}")
             sys.stdout.flush()
             raw_cmd = [sys.executable, "-m", "pip", "install", "--no-input", "--disable-pip-version-check",

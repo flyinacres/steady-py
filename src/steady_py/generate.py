@@ -2,17 +2,28 @@
 validation, the managed markdown and setup cells, the universal manifest for a directory, and writing
 the locked notebook or reading its manifest back."""
 import ast
+import copy
 import json
 import logging
 import sys
 import uuid
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, TypedDict, Union
 
-from steady_py import accelerator, analyze, drift, installed, pypi, resolution, scanning
-from steady_py.constants import DependencyStatus, FetchStatus, ReportKind, SETUP_MARKDOWN_HEADING, TOOL_VERSION
-from steady_py.models import Cell, DependencyEntry, GpuInfo, NotebookAnalysisReport, PinnedDependency, RawInstall, SteadyPyManifest
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
+
+from steady_py import accelerator, analyze, delta, drift, installed, models, pypi, resolution, scanning
+from steady_py.constants import (
+    INSTALLABLE_STATUSES, UNRECORDED_STATUSES, DependencyStatus, FetchStatus, Provenance, ReportKind, SETUP_MARKDOWN_HEADING,
+    TOOL_VERSION,
+)
+from steady_py.models import (
+    Cell, DependencyEntry, GpuInfo, LocalModule, ManifestError, ManifestPackage, NotebookAnalysisReport, PinnedDependency,
+    RawInstall, SteadyPyManifest,
+)
 
 logger = logging.getLogger("steady_py.generate")
 
@@ -45,18 +56,34 @@ def _manifest_assignment(tree: ast.AST) -> Optional[ast.Assign]:
     return None
 
 
+@dataclass
+class ManifestRead:
+    """What reading a file's manifest found: the manifest, or why there is none. No manifest at all
+    is not an error (a notebook from before manifests is a valid state). `newer` is True when a newer
+    steady-py wrote it, so this one must not replace it."""
+    manifest: Optional[SteadyPyManifest] = None
+    error: Optional[str] = None
+    newer: bool = False
+
+
 def extract_manifest_from_file(path: str) -> Tuple[Optional[SteadyPyManifest], Optional[str]]:
-    """Returns (manifest, error). No manifest found -> (None, None), not an error.
-    A real problem (unreadable file, corrupted embedded literal) -> (None, "message").
-    In a notebook the manifest is read from the first code cell that defines it, so IPython syntax
-    or a broken cell elsewhere can't hide it (K1).
+    """(manifest, error): read_manifest_file's result as a pair."""
+    read = read_manifest_file(path)
+    return read.manifest, read.error
+
+
+def read_manifest_file(path: str) -> ManifestRead:
+    """The manifest a notebook or .py file carries. A real problem (an unreadable file, a corrupted
+    embedded literal, a manifest this steady-py can't read) is an error naming the file. In a
+    notebook the manifest is read from the first code cell that defines it, so IPython syntax or a
+    broken cell elsewhere can't hide it (K1).
     """
     try:
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()
         nb_data = json.loads(text) if path.endswith(".ipynb") else None
     except (OSError, json.JSONDecodeError) as e:
-        return None, f"Could not read {path}: {e}"
+        return ManifestRead(error=f"Could not read {path}: {e}")
 
     assignment: Optional[ast.Assign] = None
     if nb_data is not None:
@@ -74,45 +101,115 @@ def extract_manifest_from_file(path: str) -> Tuple[Optional[SteadyPyManifest], O
             if assignment is not None:
                 break
         if assignment is None and unparsed is not None:
-            return None, f"Could not parse {unparsed} of {path}, which mentions STEADY_PY_MANIFEST, as Python source."
+            return ManifestRead(error=f"Could not parse {unparsed} of {path}, which mentions STEADY_PY_MANIFEST, as Python source.")
     else:
         try:
             assignment = _manifest_assignment(ast.parse(text))
         except SyntaxError as e:
-            return None, f"Could not parse {path} as Python source: {e}"
+            return ManifestRead(error=f"Could not parse {path} as Python source: {e}")
 
     manifest_dict = None
     if assignment is not None:
         try:
             manifest_dict = ast.literal_eval(assignment.value)
         except (ValueError, SyntaxError) as e:
-            return None, f"STEADY_PY_MANIFEST found in {path} but is not a valid literal: {e}"
+            return ManifestRead(error=f"STEADY_PY_MANIFEST found in {path} but is not a valid literal: {e}")
 
     if manifest_dict is None:
-        return None, None  # no manifest present -- not an error
+        return ManifestRead()  # no manifest present -- not an error
 
     try:
-        return SteadyPyManifest.from_literal(manifest_dict), None
-    except TypeError as e:
-        return None, f"STEADY_PY_MANIFEST found in {path} but has an unexpected shape: {e}"
+        return ManifestRead(manifest=SteadyPyManifest.from_literal(manifest_dict))
+    except ManifestError as e:
+        return ManifestRead(error=f"The manifest in {path} can't be read: {e}.", newer=e.newer)
+
+
+def _package(entry: DependencyEntry) -> Optional[ManifestPackage]:
+    """The manifest record of one dependency entry, or None for an entry the manifest doesn't record
+    as a package (UNRECORDED_STATUSES)."""
+    if entry.status in UNRECORDED_STATUSES or not entry.name:
+        return None
+    base, extras = installed.split_pin_extras(entry.name)
+    status = entry.status
+    if status == DependencyStatus.PINNED and entry.is_comment:
+        status = DependencyStatus.NOT_INSTALLED
+    provenance: Dict[str, str] = {}
+    version = entry.version or None
+    url = entry.direct_url or None if status == DependencyStatus.DIRECT_REFERENCE else None
+    if version:
+        provenance["version"] = entry.version_source
+    if url:
+        provenance["url"] = Provenance.ENVIRONMENT
+    options = models.option_pairs(entry.flags)
+    if options:
+        provenance["options"] = Provenance.NOTEBOOK
+    return ManifestPackage(name=canonicalize_name(base), display_name=base, status=status, version=version,
+                           extras=tuple(sorted(extras)), url=url, options=options, provenance=provenance)
+
+
+def _add(packages: Dict[Tuple[str, Tuple[str, ...]], ManifestPackage], package: ManifestPackage) -> None:
+    """Adds `package`, keeping the first entry for a key unless a later one is one Cell 2 installs and
+    the first isn't (a module imported by the notebook and by a %%writefile script, say)."""
+    existing = packages.get(package.key)
+    if existing is None or (package.status in INSTALLABLE_STATUSES and existing.status not in INSTALLABLE_STATUSES):
+        packages[package.key] = package
+
+
+def _direct_source(raw: RawInstall, packages: Dict[Tuple[str, Tuple[str, ...]], ManifestPackage]) -> None:
+    """Records an install line's direct source (a URL, `name @ url` or local path) as written (CH3).
+    It replaces a package the environment records as installed from the same source, so the line's
+    own text and options are what Cell 2 installs."""
+    try:
+        req: Optional[Requirement] = Requirement(raw.spec)
+    except InvalidRequirement:
+        req = None
+    name = canonicalize_name(req.name) if req is not None and req.url else ""
+    provenance = {"url": Provenance.NOTEBOOK}
+    options = models.option_pairs(raw.flags)
+    if options:
+        provenance["options"] = Provenance.NOTEBOOK
+    for key, existing in list(packages.items()):
+        if existing.status == DependencyStatus.DIRECT_REFERENCE and existing.url and (
+                installed.same_direct_source(existing.url, raw.spec) or (name and existing.name == name)):
+            packages[key] = ManifestPackage(
+                name=existing.name, display_name=existing.display_name, status=DependencyStatus.DIRECT_REFERENCE,
+                version=existing.version, extras=existing.extras, url=raw.spec, options=options,
+                provenance={**existing.provenance, **provenance})
+            return
+    _add(packages, ManifestPackage(name=name, display_name=req.name if name and req is not None else "",
+                                   status=DependencyStatus.DIRECT_REFERENCE, url=raw.spec, options=options,
+                                   provenance=provenance))
+
+
+def _is_custom_sourced(package: ManifestPackage) -> bool:
+    """True for an index pin that isn't on public PyPI: a local version identifier, or not found
+    there. pypi.fetch_pypi_package_metadata is memoized, so the later pin checks reuse the lookup."""
+    if package.status != DependencyStatus.PINNED or not package.version:
+        return False
+    return (installed.has_local_version_identifier(package.version)
+            or pypi.fetch_pypi_package_metadata(package.display_name or package.name).status != FetchStatus.FOUND)
 
 
 def generate_production_blueprint(
-    manifest_items: Sequence[Union[DependencyEntry, PinnedDependency, str]], 
-    full_freeze_lines: Optional[List[str]] = None, 
-    local_tagged_info: Optional[List[Tuple[str, List[str]]]] = None, 
+    manifest_items: Sequence[Union[DependencyEntry, PinnedDependency, str]],
+    full_freeze_lines: Optional[List[str]] = None,
+    local_tagged_info: Optional[List[Tuple[str, List[str]]]] = None,
     gpu_info: Optional[GpuInfo] = None,
     install_timeout: int = 120,
-    raw_installs: Optional[List[RawInstall]] = None
+    raw_installs: Optional[List[RawInstall]] = None,
+    previous: Optional[SteadyPyManifest] = None,
 ) -> BlueprintResult:
-    """Assembles Cell 1 Markdown and Cell 2 Python code using structured DependencyEntry objects."""
-    py_major, py_minor = sys.version_info.major, sys.version_info.minor
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    """Assembles Cell 1 Markdown and Cell 2 Python code using structured DependencyEntry objects.
 
-    normalized_items: List[PinnedDependency] = []
+    `previous` is the manifest the notebook already carries: entries and the manifest keep their
+    change dates where nothing changed (delta.settle).
+    """
+    py_major, py_minor = sys.version_info.major, sys.version_info.minor
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    packages: Dict[Tuple[str, Tuple[str, ...]], ManifestPackage] = {}
     comment_lines: List[str] = []
-    local_modules_captured: List[Dict[str, str]] = []
-    direct_reference_specs: List[str] = []
+    local_modules: List[LocalModule] = []
 
     headed: Set[str] = set()
     for item in manifest_items:
@@ -122,23 +219,26 @@ def generate_production_blueprint(
                     headed.add(item.status)
                     comment_lines.append(SECTION_HEADERS[item.status])
                 comment_lines.append(item.comment_text)
-                if item.status == DependencyStatus.DIRECT_REFERENCE and item.direct_url:
-                    direct_reference_specs.append(item.direct_url)
                 if item.status == DependencyStatus.LOCAL_MODULE and item.anchor:
-                    local_modules_captured.append({"name": item.name, "anchor": item.anchor})
-            else:
-                normalized_items.append(item.to_pin())
+                    local_modules.append(LocalModule(item.name, item.anchor, provenance={"anchor": Provenance.ENVIRONMENT}))
+            package = _package(item)
+            if package is not None:
+                _add(packages, package)
         elif isinstance(item, PinnedDependency):
-            normalized_items.append(item)
+            _add(packages, _package(DependencyEntry(name=item.name, version=item.version, flags=list(item.flags))) or
+                 ManifestPackage(item.name, DependencyStatus.PINNED))
         elif isinstance(item, str):
             clean_item = item.strip()
             if clean_item.startswith("#") or clean_item.startswith("--"):
                 comment_lines.append(clean_item)
                 continue
-            parts = clean_item.split("==")
-            name = parts[0]
-            ver = parts[1] if len(parts) > 1 else ""
-            normalized_items.append(PinnedDependency(name=name, version=ver))
+            name, _, ver = clean_item.partition("==")
+            package = _package(DependencyEntry(name=name, version=ver))
+            if package is not None:
+                _add(packages, package)
+    for raw in raw_installs or []:
+        _direct_source(raw, packages)
+    package_list = [replace(p, custom_sourced=_is_custom_sourced(p)) for p in packages.values()]
 
     gpu_markdown_section = ""
     if gpu_info and gpu_info.has_gpu:
@@ -180,46 +280,23 @@ def generate_production_blueprint(
     if comment_lines:
         comments_block = "\n# Informational notes & uninstalled fallbacks:\n" + "\n".join(comment_lines) + "\n"
 
-    # Classify custom-sourced pins (local-version-identifier or not found on PyPI)
-    # up front so the runtime failure path can point to the right guidance if
-    # install ever fails. pypi.fetch_pypi_package_metadata is memoized, so this costs
-    # nothing extra -- drift.run_pin_checks below reaches the same pins.
-    custom_sourced_names: List[str] = []
-    for dep in normalized_items:
-        name, version = dep.name, dep.version
-        if not name or not version:
-            continue
-        bare_name, _extra = installed.split_pin_name(name)
-        if installed.has_local_version_identifier(version) or pypi.fetch_pypi_package_metadata(bare_name).status != FetchStatus.FOUND:
-            custom_sourced_names.append(name)
-
-    # Installed from a remote direct reference with no matching install line in the
-    # notebook itself: carry the recorded source, unless the notebook already names it.
-    merged_raw_installs: List[RawInstall] = list(raw_installs) if raw_installs else []
-    for spec in direct_reference_specs:
-        if not any(installed.same_direct_source(spec, existing.spec) for existing in merged_raw_installs):
-            merged_raw_installs.append(RawInstall(spec))
-
     # Check pins against live PyPI at generation time, not only via a later,
     # separate --check-drift run -- catching a bad pin now is strictly better
     # than freezing it into a "reproducible" cell that never worked. The
     # manifest is still produced either way (this tool never withholds
     # output); findings are surfaced to the caller for a loud warning. Computed
-    # before the manifest exists so they can be recorded inside it.
-    python_version = {"major": py_major, "minor": py_minor}
-    generation_findings = drift.run_pin_checks(normalized_items, python_version)
-
-    manifest = SteadyPyManifest(
-        python_version=python_version,
-        dependencies=normalized_items,
+    # before the manifest is final so they can be recorded inside it.
+    fresh = SteadyPyManifest(
+        python_version={"major": py_major, "minor": py_minor},
+        packages=package_list,
         gpu=gpu_info.to_dict() if gpu_info else None,
-        generated_at=timestamp,
-        raw_installs=merged_raw_installs,
-        custom_sourced=custom_sourced_names,
-        local_modules=local_modules_captured,
-        baseline=drift.build_baseline(generation_findings),
+        local_modules=local_modules,
     )
+    generation_findings = drift.run_pin_checks(fresh.pins(), fresh.python_version)
+    fresh.baseline = drift.build_baseline(generation_findings)
+    manifest = delta.settle(previous, fresh, now)
     manifest.compute_and_set_hash()
+    timestamp = manifest.generated_at
 
     drift_report = drift.build_drift_check_report("", manifest, generation_findings, kind=ReportKind.VALIDATION)
 
@@ -288,11 +365,22 @@ def is_prior_setup_cell(cell: Dict[str, Any]) -> bool:
     return False
 
 
-def create_managed_cells(blueprint: BlueprintResult) -> List[Dict[str, Any]]:
-    """Creates cell dicts stamped with steady_py managed metadata and RFC-compliant IDs."""
+def _managed_role(cell: Dict[str, Any]) -> Optional[str]:
+    """The role a managed cell's metadata tags it with, if any."""
+    meta = cell.get("metadata")
+    tool_meta = meta.get("steady_py") if isinstance(meta, dict) else None
+    role = tool_meta.get("role") if isinstance(tool_meta, dict) and tool_meta.get("managed") is True else None
+    return role if isinstance(role, str) else None
+
+
+def create_managed_cells(blueprint: BlueprintResult, ids: Optional[Mapping[str, str]] = None) -> List[Dict[str, Any]]:
+    """Creates cell dicts stamped with steady_py managed metadata and RFC-compliant IDs. `ids` maps a
+    role to the ID its cell already has, which is kept, so a rewrite that changes nothing changes no
+    ID (P5)."""
+    ids = ids or {}
     cell1 = {
         "cell_type": "markdown",
-        "id": f"spy-{uuid.uuid4().hex[:6]}",
+        "id": ids.get("setup_markdown") or f"spy-{uuid.uuid4().hex[:6]}",
         "metadata": {
             "steady_py": {
                 "managed": True,
@@ -304,7 +392,7 @@ def create_managed_cells(blueprint: BlueprintResult) -> List[Dict[str, Any]]:
     cell2 = {
         "cell_type": "code",
         "execution_count": None,
-        "id": f"spy-{uuid.uuid4().hex[:6]}",
+        "id": ids.get("setup_code") or f"spy-{uuid.uuid4().hex[:6]}",
         "metadata": {
             "steady_py": {
                 "managed": True,
@@ -373,10 +461,12 @@ def build_blueprint_for_notebook(
     hardware: Optional[GpuInfo],
     install_timeout: int = 120,
     full_freeze_lines: Optional[List[str]] = None,
+    previous: Optional[SteadyPyManifest] = None,
 ) -> BlueprintResult:
     """The two setup cells and the generation-time validation for an analyzed notebook.
 
     `hardware` is the probed accelerator; it is narrowed to the frameworks this notebook imports.
+    `previous` is the manifest the notebook already carries, if any.
     """
     return generate_production_blueprint(
         report.dependencies,
@@ -385,6 +475,7 @@ def build_blueprint_for_notebook(
         gpu_info=accelerator.resolve_notebook_gpu_info(scan_res.imports, hardware),
         install_timeout=install_timeout,
         raw_installs=scan_res.raw_installs,
+        previous=previous,
     )
 
 
@@ -395,20 +486,24 @@ def write_locked_notebook(
     in_place: bool = False,
     root_dir: Optional[str] = None,
     output_dir: Optional[str] = None,
-) -> Path:
+) -> Optional[Path]:
     """Writes a notebook with the blueprint's setup cells in place of any prior ones (idempotent),
     either over the source (in_place), into output_dir, or beside the source with a suffix.
-    Returns the path written."""
-    managed_cells = create_managed_cells(blueprint)
-
+    Returns the path written, or None when an in-place write would leave the notebook as it is, in
+    which case nothing is written (P5)."""
     with open(scan_res.path, 'r', encoding='utf-8') as f:
         nb_data = json.load(f)
+    original = copy.deepcopy(nb_data)
 
     cells = nb_data.get("cells", [])
+    prior_ids = {role: c["id"] for c in cells if (role := _managed_role(c)) and isinstance(c.get("id"), str)}
+    managed_cells = create_managed_cells(blueprint, prior_ids)
 
     # Idempotent filter: strip prior setup blocks, tagged or not (see is_prior_setup_cell)
     non_managed_cells = [c for c in cells if not is_prior_setup_cell(c)]
     nb_data["cells"] = managed_cells + non_managed_cells
+    if in_place and nb_data == original:
+        return None
 
     if in_place:
         target_path = scan_res.path
@@ -450,11 +545,14 @@ def apply_output_to_notebook(
     root_dir: Optional[str] = None,
     output_dir: Optional[str] = None,
     install_timeout: int = 120
-) -> Tuple[Path, "drift.DriftCheckReport"]:
+) -> Tuple[Optional[Path], "drift.DriftCheckReport"]:
     """Writes per-notebook locked file or replaces setup cells in-place idempotently.
-    Returns the written path and the generation-time drift-check report."""
+    Returns the written path (None when an in-place write changed nothing) and the
+    generation-time drift-check report."""
     report = analyze.build_single_notebook_report(scan_res, frozen_env, pkg_dist_map, batch_hw_cache, root_dir=root_dir)
-    blueprint = build_blueprint_for_notebook(scan_res, report, batch_hw_cache, install_timeout=install_timeout)
+    previous = read_manifest_file(str(scan_res.path)).manifest
+    blueprint = build_blueprint_for_notebook(scan_res, report, batch_hw_cache, install_timeout=install_timeout,
+                                             previous=previous)
     target_path = write_locked_notebook(
         scan_res, blueprint, suffix=suffix, in_place=in_place, root_dir=root_dir, output_dir=output_dir
     )

@@ -13,12 +13,18 @@ CURRENT = (sys.version_info.major, sys.version_info.minor)
 
 
 def _manifest(deps=(), raw=(), custom=(), python=None):
-    """deps: (name, version, flags) triples."""
-    return {
-        "dependencies": [{"name": n, "version": v, "flags": list(f)} for n, v, f in deps],
-        "raw_installs": [{"spec": r, "flags": []} for r in raw], "custom_sourced": list(custom),
-        "python_version": python or {}, "generated_at": "",
-    }
+    """deps: (name, version, flags) triples; raw: direct sources; custom: custom-sourced names."""
+    def options(flags):
+        pairs, i = [], 0
+        while i < len(flags):
+            takes = i + 1 < len(flags) and not flags[i + 1].startswith("-")
+            pairs.append([flags[i], flags[i + 1] if takes else None])
+            i += 2 if takes else 1
+        return pairs
+    packages = [{"name": n, "status": "pinned", "version": v, "options": options(list(f)), "custom_sourced": n in custom}
+                for n, v, f in deps]
+    packages += [{"name": "", "status": "direct_reference", "url": r} for r in raw]
+    return {"schema_version": "2.0", "packages": packages, "python_version": python or {}, "generated_at": ""}
 
 
 class FakeEnvironment:
@@ -84,11 +90,6 @@ class TestAlreadyInstalled:
         assert result.installed == 1 and result.ok
         assert "numpy (1.26.0) already satisfied" in capsys.readouterr().out
 
-    def test_an_unpinned_package_is_satisfied_by_any_version(self, monkeypatch):
-        env = FakeEnvironment(monkeypatch, versions={"requests": "2.0.0"})
-        assert runtime.install(_manifest([("requests", "", [])])).installed == 1
-        assert env.commands == []
-
     def test_a_different_installed_version_is_reinstalled_at_the_pin(self, monkeypatch):
         env = FakeEnvironment(monkeypatch, versions={"numpy": "2.0.0"})
         runtime.install(_manifest([("numpy", "1.26.0", [])]))
@@ -100,10 +101,7 @@ class TestFailures:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """When a package install fails, install() prints the author-verified version and captures stderr."""
-        manifest = {
-            "dependencies": [{"name": "broken_pkg", "version": "1.0.0", "flags": []}],
-            "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
-        }
+        manifest = _manifest([("broken_pkg", "1.0.0", [])])
 
         def fake_run(*args, **kwargs):
             kwargs["stdout"].write("Mocked pip error: Could not find wheel")
@@ -121,13 +119,7 @@ class TestFailures:
         self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A failure on package 1 does not abort execution for package 2."""
-        manifest = {
-            "dependencies": [
-                {"name": "fail_pkg", "version": "1.0.0", "flags": []},
-                {"name": "pass_pkg", "version": "2.0.0", "flags": []},
-            ],
-            "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
-        }
+        manifest = _manifest([("fail_pkg", "1.0.0", []), ("pass_pkg", "2.0.0", [])])
 
         def mock_run(cmd, *args, **kwargs):
             if "fail_pkg" in " ".join(cmd):
@@ -174,13 +166,7 @@ class TestFailures:
 class TestResult:
     def test_install_returns_a_result_a_caller_can_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """install() returns something a caller can check, instead of always None."""
-        manifest = {
-            "dependencies": [
-                {"name": "fail_pkg", "version": "1.0.0", "flags": []},
-                {"name": "pass_pkg", "version": "2.0.0", "flags": []},
-            ],
-            "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
-        }
+        manifest = _manifest([("fail_pkg", "1.0.0", []), ("pass_pkg", "2.0.0", [])])
 
         def mock_run(cmd, *args, **kwargs):
             if "fail_pkg" in " ".join(cmd):
@@ -196,10 +182,7 @@ class TestResult:
         assert result.ok is False
 
     def test_install_result_ok_when_everything_installs(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        manifest = {
-            "dependencies": [{"name": "pass_pkg", "version": "2.0.0", "flags": []}],
-            "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
-        }
+        manifest = _manifest([("pass_pkg", "2.0.0", [])])
         monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0, stderr="", stdout=""))
         result = runtime.install(manifest)
         assert result.total == 1 and result.installed == 1 and result.failed == [] and result.ok is True
@@ -254,3 +237,9 @@ class TestSummary:
         FakeEnvironment(monkeypatch, versions=versions)
         runtime.install(_manifest([("a", "1.0", [])], raw=raw))
         assert ("restart the kernel" in capsys.readouterr().out) is expect_note
+
+
+def test_a_manifest_this_version_cannot_read_installs_nothing_and_says_why(capsys):
+    result = runtime.install({"schema_version": "9.0", "tool_version": "9.9.9", "packages": [], "python_version": {}})
+    assert (result.total, result.failed) == (0, ["STEADY_PY_MANIFEST"])
+    assert "upgrade steady-py" in capsys.readouterr().out

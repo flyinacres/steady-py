@@ -51,5 +51,5 @@ def test_snapshot_validates_against_the_fake(pypi, tmp_path):
     pypi.add("packaging", {version("packaging"): {}})
     outcome = run("snapshot", Notebook(code("import packaging")).write(tmp_path), "--output")
     assert outcome.exit_code == 0, outcome.log
-    assert manifest(outcome.written[0])["dependencies"] == [
-        {"name": "packaging", "version": version("packaging"), "flags": []}]
+    assert [(p["name"], p["version"]) for p in manifest(outcome.written[0])["packages"]] == [
+        ("packaging", version("packaging"))]

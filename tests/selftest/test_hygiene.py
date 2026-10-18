@@ -36,4 +36,4 @@ def test_checker_catches_each_route_to_internals():
                    "from steady_py import resolution", "import steady_py\nsteady_py.models.X",
                    "mock.patch('steady_py.pypi.fetch')", "from steady_py import *"):
         assert violations(source), source
-    assert violations("import steady_py\nfrom steady_py import scan\nsteady_py.check(1)") == []
+    assert violations("import steady_py\nfrom steady_py import snapshot\nsteady_py.check(1)") == []

@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from steady_py import accelerator, analyze, constants, drift, generate, installed, localmodules, models, scanning, util
-from steady_py.endpoints import check, scan, snapshot
-from steady_py.results import CheckOptions, Environment, PackageChange, ScanOptions, SnapshotOptions, TargetKind, WriteMode
+from steady_py.endpoints import check, snapshot
+from steady_py.results import CheckOptions, Environment, PackageChange, SnapshotOptions, TargetKind, WriteMode
 
 DEPS = [models.PinnedDependency("requests", "2.32.1")]
 
@@ -37,7 +37,7 @@ class TestCheck:
         assert (result.target, result.kind, len(result.notebooks)) == (str(path), TargetKind.FILE, 1)
         notebook = result.notebooks[0]
         assert notebook.manifest_found and notebook.error is None
-        assert notebook.report.manifest.dependencies == DEPS
+        assert notebook.report.manifest.pins() == DEPS
         assert notebook.report.is_clean
 
     def test_no_manifest_is_not_an_error(self, tmp_path, offline):
@@ -151,7 +151,7 @@ class TestCheckDirectory:
 
 
 # ---------------------------------------------------------------------------------------------
-# scan and snapshot
+# snapshot
 
 ENV = Environment(
     frozen_env={"requests": "requests==2.32.3", "torch": "torch==2.1.0+cu118"},
@@ -180,44 +180,33 @@ def _cells_text(path):
     return ["".join(c["source"]) for c in cells]
 
 
-class TestScan:
-    def test_reports_what_the_notebook_needs(self, tmp_path, isolated):
-        result = scan(_source(tmp_path), environment=ENV)
-        notebook, = result.notebooks
-        assert (result.kind, notebook.error) == (TargetKind.FILE, None)
-        assert [d.name for d in notebook.report.dependencies] == ["requests"]
-
-    def test_never_contacts_pypi(self, tmp_path, isolated, monkeypatch):
-        def refuse(*args, **kwargs):
-            raise AssertionError("scan must not check pins")
-        monkeypatch.setattr(drift, "run_pin_checks", refuse)
-        monkeypatch.setattr(generate, "generate_production_blueprint", refuse)
-        scan(_source(tmp_path), environment=ENV)
-
+class TestSnapshotTargets:
     def test_an_unreadable_file_is_an_error_with_a_report_carrying_it(self, tmp_path, isolated):
         bad = tmp_path / "bad.ipynb"
         bad.write_text("{ not json", encoding="utf-8")
-        notebook, = scan(str(bad), environment=ENV).notebooks
+        notebook, = snapshot(str(bad), environment=ENV).notebooks
         assert notebook.error and notebook.report.parse_error == notebook.error
         assert notebook.report.is_python is False
 
     def test_detects_the_environment_when_none_is_given(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [])
         monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
         monkeypatch.setattr(installed, "read_installed", lambda: {"requests": "requests==2.32.3"})
-        notebook, = scan(_source(tmp_path)).notebooks
+        notebook, = snapshot(_source(tmp_path)).notebooks
         assert [d.version for d in notebook.report.dependencies] == ["2.32.3"]
 
     def test_the_live_session_is_a_target_when_none_is_given(self, isolated, monkeypatch):
         monkeypatch.setattr(util, "is_running_in_ipython", lambda: True)
         monkeypatch.setattr(scanning, "extract_from_active_session", lambda: scanning.extract_from_cells(scanning.as_cells(["import requests"])))
-        result = scan(None, environment=ENV)
+        result = snapshot(None, environment=ENV)
         assert (result.kind, result.notebooks[0].path) == (TargetKind.SESSION, "session.ipynb")
         assert [d.name for d in result.notebooks[0].report.dependencies] == ["requests"]
+        assert result.notebooks[0].delta is None
 
     def test_no_target_outside_a_live_session_is_a_usage_error(self, isolated, monkeypatch):
         monkeypatch.setattr(util, "is_running_in_ipython", lambda: False)
         with pytest.raises(ValueError, match="target"):
-            scan(None, environment=ENV)
+            snapshot(None, environment=ENV)
 
 
 class TestSnapshot:
@@ -226,7 +215,7 @@ class TestSnapshot:
         before = sorted(p.name for p in tmp_path.iterdir())
         notebook, = snapshot(path, environment=ENV).notebooks
         assert notebook.cells.markdown and "STEADY_PY_MANIFEST" in notebook.cells.code
-        assert [d.name for d in notebook.manifest.dependencies] == ["requests"]
+        assert [d.name for d in notebook.manifest.pins()] == ["requests"]
         assert (notebook.written_path, notebook.error) == (None, None)
         assert sorted(p.name for p in tmp_path.iterdir()) == before
 
@@ -316,16 +305,9 @@ def _repo(tmp_path, corrupt=()):
     return str(root)
 
 
-class TestDirectoryScan:
-    def test_returns_a_result_per_notebook_and_the_aggregate(self, tmp_path, isolated):
-        result = scan(_repo(tmp_path), environment=ENV)
-        assert result.kind == TargetKind.DIRECTORY
-        assert sorted(Path(n.path).relative_to(tmp_path / "repo").as_posix() for n in result.notebooks) == ["a.ipynb", "sub/b.ipynb"]
-        assert result.batch_summary.total_python_notebooks == 2 and result.failed == []
-        assert "requests" in result.batch_summary.matched_packages
-
-    def test_an_unreadable_notebook_is_a_failed_entry_and_the_rest_are_still_scanned(self, tmp_path, isolated):
-        result = scan(_repo(tmp_path, corrupt=["bad.ipynb"]), environment=ENV)
+class TestDirectoryReading:
+    def test_an_unreadable_notebook_is_a_failed_entry_and_the_rest_are_still_processed(self, tmp_path, isolated):
+        result = snapshot(_repo(tmp_path, corrupt=["bad.ipynb"]), environment=ENV)
         assert [Path(n.path).name for n in result.failed] == ["bad.ipynb"]
         assert result.failed[0].error and result.failed[0].report.parse_error == result.failed[0].error
         assert len(result.notebooks) == 3
@@ -334,14 +316,8 @@ class TestDirectoryScan:
     def test_generated_companion_files_are_skipped_by_suffix(self, tmp_path, isolated):
         root = _repo(tmp_path)
         _notebook(tmp_path / "repo", "import requests", "a_merged.ipynb")
-        assert len(scan(root, environment=ENV).notebooks) == 2
-        assert len(scan(root, ScanOptions(suffix="_other"), ENV).notebooks) == 3
-
-    def test_never_contacts_pypi(self, tmp_path, isolated, monkeypatch):
-        def refuse(*args, **kwargs):
-            raise AssertionError("scan must not check pins")
-        monkeypatch.setattr(drift, "run_pin_checks", refuse)
-        scan(_repo(tmp_path), environment=ENV)
+        assert len(snapshot(root, environment=ENV).notebooks) == 2
+        assert len(snapshot(root, SnapshotOptions(suffix="_other"), ENV).notebooks) == 3
 
 
 class TestDirectorySnapshot:
@@ -446,57 +422,23 @@ def _locked_notebook(tmp_path, name="nb.ipynb", source="import requests", enviro
     return path
 
 
-class TestScanDelta:
+class TestSnapshotDelta:
     def test_a_notebook_without_a_manifest_has_none(self, tmp_path, isolated):
-        notebook, = scan(_source(tmp_path), environment=ENV).notebooks
-        assert (notebook.manifest, notebook.manifest_error, notebook.delta) == (None, None, None)
-
-    def test_an_unchanged_notebook_reports_no_changes(self, tmp_path, isolated):
-        path = _locked_notebook(tmp_path)
-        notebook, = scan(path, environment=ENV).notebooks
-        assert [d.name for d in notebook.manifest.dependencies] == ["requests"]
-        assert notebook.delta is not None and not notebook.delta.has_changes
-
-    def test_a_different_environment_shows_version_changes_apart_from_added_and_removed(self, tmp_path, isolated):
-        path = _locked_notebook(tmp_path)
-        notebook, = scan(path, environment=ENV_NEWER).notebooks
-        assert notebook.delta.version_changes == [PackageChange("requests", "2.32.3", "2.32.4")]
-        assert notebook.delta.added == [] and notebook.delta.removed == []
+        assert snapshot(_source(tmp_path), environment=ENV).notebooks[0].delta is None
 
     def test_a_changed_notebook_shows_added_and_removed_packages(self, tmp_path, isolated):
         path = _locked_notebook(tmp_path)
         edited = json.loads(open(path, encoding="utf-8").read())
         edited["cells"][-1]["source"] = ["import torch"]      # the notebook's own cell, after the two setup cells
         open(path, "w", encoding="utf-8").write(json.dumps(edited))
-        delta = scan(path, environment=ENV).notebooks[0].delta
+        delta = snapshot(path, environment=ENV).notebooks[0].delta
         assert [c.name for c in delta.added] == ["torch"] and [c.name for c in delta.removed] == ["requests"]
 
-    def test_it_never_compares_the_baseline_because_it_never_contacts_pypi(self, tmp_path, isolated):
-        assert scan(_locked_notebook(tmp_path), environment=ENV).notebooks[0].delta.baseline_compared is False
-
-    def test_an_unreadable_manifest_is_reported_without_failing_the_scan(self, tmp_path, isolated):
+    def test_an_unreadable_manifest_is_replaced_with_a_warning(self, tmp_path, isolated):
         path = _source(tmp_path, "STEADY_PY_MANIFEST = {'python_version': 3}\nimport requests")
-        notebook, = scan(path, environment=ENV).notebooks
-        assert notebook.error is None and notebook.manifest is None and notebook.delta is None
-        assert notebook.manifest_error
-
-    def test_a_directory_scan_gives_each_notebook_its_own_delta(self, tmp_path, isolated):
-        root = tmp_path / "repo"
-        root.mkdir()
-        _locked_notebook(root, "locked.ipynb")
-        _source(root, "import requests", "plain.ipynb")
-        deltas = {Path(n.path).name: n.delta for n in scan(str(root), environment=ENV).notebooks}
-        assert deltas["plain.ipynb"] is None and deltas["locked.ipynb"] is not None
-
-    def test_the_live_session_has_no_delta(self, isolated, monkeypatch):
-        monkeypatch.setattr(util, "is_running_in_ipython", lambda: True)
-        monkeypatch.setattr(scanning, "extract_from_active_session", lambda: scanning.extract_from_cells(scanning.as_cells(["import requests"])))
-        assert scan(None, environment=ENV).notebooks[0].delta is None
-
-
-class TestSnapshotDelta:
-    def test_a_notebook_without_a_manifest_has_none(self, tmp_path, isolated):
-        assert snapshot(_source(tmp_path), environment=ENV).notebooks[0].delta is None
+        notebook, = snapshot(path, environment=ENV).notebooks
+        assert notebook.error is None and notebook.delta is None and notebook.manifest is not None
+        assert [w.type for w in notebook.report.warnings] == ["unreadable_manifest"]
 
     def test_it_compares_the_baseline_because_it_validates_against_pypi(self, tmp_path, isolated):
         delta = snapshot(_locked_notebook(tmp_path), environment=ENV).notebooks[0].delta
@@ -518,7 +460,7 @@ class TestSnapshotDelta:
     def test_a_companion_snapshot_leaves_the_source_manifest_in_place(self, tmp_path, isolated):
         path = _locked_notebook(tmp_path)
         delta = snapshot(path, SnapshotOptions(write_mode=WriteMode.COMPANION), ENV_NEWER).notebooks[0].delta
-        assert delta.version_changes and scan(path, environment=ENV).notebooks[0].delta.has_changes is False
+        assert delta.version_changes and snapshot(path, environment=ENV).notebooks[0].delta.has_changes is False
 
     def test_findings_that_appear_are_reported(self, tmp_path, isolated, monkeypatch):
         path = _locked_notebook(tmp_path)
@@ -541,22 +483,21 @@ class TestEachCallIsOneRun:
     process (a live kernel, a program using the API) see what changed in between."""
 
     @pytest.mark.parametrize("call", [
-        lambda tmp_path: scan(_source(tmp_path), environment=ENV),
         lambda tmp_path: snapshot(_source(tmp_path), environment=ENV),
         lambda tmp_path: check(str(_notebook_with_manifest(tmp_path))),
-    ], ids=["scan", "snapshot", "check"])
+    ], ids=["snapshot", "check"])
     def test_every_endpoint_starts_by_clearing_the_run_caches(self, tmp_path, isolated, monkeypatch, call):
         resets = []
         monkeypatch.setattr(util, "reset_run_caches", lambda: resets.append(1))
         call(tmp_path)
         assert resets == [1]
 
-    def test_a_second_scan_sees_a_local_module_created_after_the_first(self, tmp_path, isolated):
+    def test_a_second_snapshot_sees_a_local_module_created_after_the_first(self, tmp_path, isolated):
         target = _source(tmp_path, "import helper_mod")
-        assert scan(target, environment=ENV).notebooks[0].report.local_modules == []
+        assert snapshot(target, environment=ENV).notebooks[0].report.local_modules == []
         before = tmp_path.stat()
         (tmp_path / "helper_mod.py").write_text("", encoding="utf-8")
         # Keep the directory's modification time unchanged, as a coarse-timestamp filesystem (seen on
         # Windows) does, so importlib's directory cache can only be refreshed by being invalidated.
         os.utime(tmp_path, ns=(before.st_atime_ns, before.st_mtime_ns))
-        assert scan(target, environment=ENV).notebooks[0].report.local_modules == ["helper_mod"]
+        assert snapshot(target, environment=ENV).notebooks[0].report.local_modules == ["helper_mod"]

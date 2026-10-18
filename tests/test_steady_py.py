@@ -633,10 +633,8 @@ class TestIntegrationAndFormatting:
 
 def test_install_failure_prints_troubleshooting_steps(monkeypatch, capsys):
     """When any install fails, install() prints troubleshooting steps including HELP_URL."""
-    manifest = {
-        "dependencies": [{"name": "pandas", "version": "2.1.0", "flags": []}],
-        "raw_installs": [], "custom_sourced": [], "python_version": {}, "generated_at": "",
-    }
+    manifest = {"schema_version": "2.0", "packages": [{"name": "pandas", "status": "pinned", "version": "2.1.0"}],
+                "python_version": {}, "generated_at": ""}
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=1))
     runtime.install(manifest)
     out = capsys.readouterr().out

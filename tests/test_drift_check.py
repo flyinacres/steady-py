@@ -515,10 +515,8 @@ class TestLocalModuleDriftCheck:
     def _manifest_with(self, local_modules):
         return models.SteadyPyManifest(
             python_version={"major": 3, "minor": 11},
-            dependencies=[],
-            gpu=None,
             generated_at="2026-01-01 00:00:00",
-            local_modules=local_modules,
+            local_modules=[models.LocalModule(e.get("name", ""), e.get("anchor", "")) for e in local_modules],
         )
 
     def test_notebook_dir_module_still_present_no_finding(self, tmp_path):
@@ -606,16 +604,21 @@ def _sha256_of(payload):
     return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
+def _package(pin):
+    """A pinned package record, as the manifest literal stores it."""
+    return {"name": pin.name, "status": "pinned", "version": pin.version}
+
+
 def _old_style_manifest():
-    """Shaped and hashed the way a tool version that predates the local_modules field wrote it."""
+    """Shaped and hashed the way a tool version of the same format that predates the local_modules,
+    declarations and baseline fields would have written it."""
     manifest = {
+        "schema_version": "2.0",
         "python_version": {"major": 3, "minor": 11},
-        "dependencies": [CLEAN_DEP.to_dict()],
+        "packages": [_package(CLEAN_DEP)],
         "gpu": None,
         "generated_at": "2025-01-01 00:00:00",
         "tool_version": "40",
-        "raw_installs": [],
-        "custom_sourced": [],
     }
     manifest["dependency_hash"] = _sha256_of(manifest)
     return manifest
@@ -928,7 +931,7 @@ class TestCheckDriftClassifiesAgainstBaseline:
 
     def test_manifest_without_a_baseline_is_reported_flat_as_before(self, tmp_path, capsys):
         manifest = _old_style_manifest()
-        manifest["dependencies"] = [STALE_ONLY.to_dict()]
+        manifest["packages"] = [_package(STALE_ONLY)]
         manifest["dependency_hash"] = _sha256_of(manifest)
         path = _write_literal(tmp_path, manifest)
 
@@ -942,7 +945,7 @@ class TestCheckDriftClassifiesAgainstBaseline:
 
     def test_unrecognized_baseline_format_is_treated_as_no_baseline(self, tmp_path, capsys):
         manifest = _old_style_manifest()
-        manifest["dependencies"] = [STALE_ONLY.to_dict()]
+        manifest["packages"] = [_package(STALE_ONLY)]
         manifest["baseline"] = {"version": 99, "findings": [["stale", "stale-package"]], "errors": []}
         manifest["dependency_hash"] = _sha256_of(manifest)
 
@@ -1011,7 +1014,7 @@ class TestKnownCustomSources:
 
     def test_without_a_baseline_it_stays_a_confirmed_finding(self, tmp_path, capsys):
         manifest = _old_style_manifest()
-        manifest["dependencies"] = [PRIVATE_PKG.to_dict()]
+        manifest["packages"] = [_package(PRIVATE_PKG)]
         manifest["dependency_hash"] = _sha256_of(manifest)
         exit_code, report = _check(_write_literal(tmp_path, manifest), capsys)
         assert [f["signal"] for f in report["confirmed"]] == ["not_found_on_pypi"]
@@ -1076,7 +1079,7 @@ def _run_batch(root, capsys, fmt="text", write=True, only=None):
     if write:
         cli.run_snapshot_directory(args, env)
     else:
-        cli.run_scan_directory(args, env)
+        cli.run_snapshot_directory(args, env)
     return capsys.readouterr().out
 
 

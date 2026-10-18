@@ -86,6 +86,11 @@ def remove_package(step: str, verify: bool = False) -> None:
               shown.returncode != 0)
 
 
+def direct_sources(manifest) -> list:
+    """The direct sources (a URL, `name @ url` or path) Cell 2 installs, as the manifest records them."""
+    return [p.url for p in manifest.packages if p.status == "direct_reference"]
+
+
 def snapshot_notebook(step: str, code_cells: list[str], name: str, expect_exit: int = 0):
     """Runs steady-py snapshot --output on a temporary notebook, which must exit `expect_exit` (1 when
     the notebook imports something only this machine has). Returns (merged_path, manifest, cell2_source, raw_text)."""
@@ -194,13 +199,13 @@ def main() -> None:
         pip(step, "install", str(wheel))
         merged, manifest, cell2, text = snapshot_notebook(step, [f"%pip install {wheel}\n", verify_code("explicit-path")], "explicit")
         merged_files.append(merged)
-        show("raw_installs", manifest.raw_installs)
-        show("pinned", [d.name for d in manifest.dependencies])
+        show("raw_installs", direct_sources(manifest))
+        show("pinned", [d.name for d in manifest.pins()])
         show("Cell 2 says", line_with(cell2, DIST_NAME))
         check(step, "the notebook's own path is carried verbatim in raw_installs",
-              [r.spec for r in manifest.raw_installs] == [str(wheel)], raw_installs=manifest.raw_installs)
+              direct_sources(manifest) == [str(wheel)], raw_installs=direct_sources(manifest))
         check(step, "the package is not pinned as if it were on PyPI",
-              not [d for d in manifest.dependencies if DIST_NAME in d.name], dependencies=manifest.dependencies)
+              not [d for d in manifest.pins() if DIST_NAME in d.name], dependencies=manifest.pins())
         check(step, "the installed package is not reported as 'not found'",
               "not installed here" not in cell2, cell2=cell2[:1500])
         remove_package(step, verify=True)
@@ -218,15 +223,15 @@ def main() -> None:
         merged, manifest, cell2, text = snapshot_notebook(step, [verify_code("inferred-url")], "inferred_url")
         merged_files.append(merged)
         inferred_url_notebook = merged
-        show("raw_installs", manifest.raw_installs)
-        show("pinned", [d.name for d in manifest.dependencies])
+        show("raw_installs", direct_sources(manifest))
+        show("pinned", [d.name for d in manifest.pins()])
         show("Cell 2 says", line_with(cell2, DIST_NAME))
         # pip records the archive's hash, and the inferred spec carries it (step 2.1), so pip verifies it at install.
-        inferred = [r.spec for r in manifest.raw_installs]
+        inferred = direct_sources(manifest)
         check(step, "the recorded source URL is inferred into raw_installs, with its hash",
-              len(inferred) == 1 and inferred[0].split("#sha256=")[0] == url, raw_installs=manifest.raw_installs)
+              len(inferred) == 1 and inferred[0].split("#sha256=")[0] == url, raw_installs=direct_sources(manifest))
         check(step, "the package is not pinned as if it were on PyPI",
-              not [d for d in manifest.dependencies if DIST_NAME in d.name], dependencies=manifest.dependencies)
+              not [d for d in manifest.pins() if DIST_NAME in d.name], dependencies=manifest.pins())
         check(step, "Cell 2 describes it as installed from a direct URL, not 'not found'",
               "not installed here" not in cell2 and "installed from a direct URL" in cell2, cell2=cell2[:1500])
         remove_package(step, verify=True)
@@ -255,11 +260,11 @@ def main() -> None:
         pip(step, "install", str(wheel))
         merged, manifest, cell2, text = snapshot_notebook(step, [verify_code("local-path")], "local_path", expect_exit=1)
         merged_files.append(merged)
-        show("raw_installs", manifest.raw_installs)
+        show("raw_installs", direct_sources(manifest))
         show("Cell 2 says", line_with(cell2, DIST_NAME))
         show("path search", f"looked for the wheel path and its directory in {len(text)} characters of output")
         check(step, "a machine-specific path is not stored in raw_installs",
-              manifest.raw_installs == [], raw_installs=manifest.raw_installs)
+              direct_sources(manifest) == [], raw_installs=direct_sources(manifest))
         check(step, "the local path appears nowhere in the generated notebook",
               str(wheel) not in text and str(SCRATCH) not in text)
         check(step, "Cell 2 says the package is on a system-dependent path", "system-dependent path" in cell2, cell2=cell2[:1500])

@@ -73,6 +73,7 @@ def _report(argv: list, stdout: str) -> Optional[dict]:
 
 # What Cell 2 runs after its bootstrap, with the result printed on a marked line.
 _RESULT_MARK = "STEADY_PY_TEST_INSTALL_RESULT "
+MANIFEST_FORMAT = "2.0"  # the manifest format these hand-written install inputs follow
 INSTALL_SCRIPT = ("import dataclasses, json, sys, steady_py\n"
                   "with open(sys.argv[1], encoding='utf-8') as f:\n"
                   "    result = steady_py.install(json.load(f))\n"
@@ -82,11 +83,17 @@ INSTALL_SCRIPT = ("import dataclasses, json, sys, steady_py\n"
 def write_install_inputs(directory: Path, pins: Iterable[str], python: Tuple[int, int] = sys.version_info[:2],
                          raw_installs: Iterable[str] = ()) -> Path:
     """Writes install.py and manifest.json for `pins` ("name==version", extras allowed) and
-    `raw_installs` (specs, no flags) into `directory`; returns the script. The manifest holds only the
-    fields install() reads."""
-    deps = [dict(zip(("name", "version"), pin.split("==", 1)), flags=[]) for pin in pins]
-    manifest = {"python_version": {"major": python[0], "minor": python[1]}, "dependencies": deps,
-                "raw_installs": [{"spec": spec, "flags": []} for spec in raw_installs]}
+    `raw_installs` (direct sources, no options) into `directory`; returns the script. The manifest
+    holds only the fields install() reads."""
+    packages = []
+    for pin in pins:
+        name, _, version = pin.partition("==")
+        base, _, extras = name.partition("[")
+        packages.append({"name": base, "status": "pinned", "version": version,
+                         "extras": [e for e in extras.rstrip("]").split(",") if e]})
+    packages += [{"name": "", "status": "direct_reference", "url": spec} for spec in raw_installs]
+    manifest = {"schema_version": MANIFEST_FORMAT, "python_version": {"major": python[0], "minor": python[1]},
+                "packages": packages}
     (Path(directory) / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     script = Path(directory) / "install.py"
     script.write_text(INSTALL_SCRIPT, encoding="utf-8")

@@ -9,9 +9,11 @@ import pytest
 from tests.support.envs import uninstall
 from tests.support.markers import finding
 from tests.support.notebooks import Notebook, code
-from tests.support.outcomes import cell2_text, manifest
+from tests.support.outcomes import cell2_text, sources
 from tests.support.runner import run_in
 from tests.support.sites import CONDA_STUB, SiteDir, file_url, pythonpath, vcs_ref
+
+pytestmark = pytest.mark.usefixtures("analysis_only")  # these read the analysis report
 
 COMMIT = "a" * 40
 
@@ -21,14 +23,14 @@ COMMIT = "a" * 40
 def test_legacy_version_is_recorded_verbatim(tmp_path, base_venv):
     site = SiteDir(tmp_path / "site")
     site.add("legacypkg", "0.8.1ubuntu1")
-    outcome = run_in(base_venv, "scan", Notebook(code("import legacypkg")).write(tmp_path), env=pythonpath(site))
+    outcome = run_in(base_venv, "snapshot", Notebook(code("import legacypkg")).write(tmp_path), env=pythonpath(site))
     assert outcome.exit_code in (0, 1), outcome.log
     assert outcome.dependency("legacypkg")["version"] == "0.8.1ubuntu1"
 
 
 @pytest.mark.venv
 @finding("E1")
-@pytest.mark.parametrize("verb", [["scan"], ["snapshot", "--output"]], ids=["scan", "snapshot"])
+@pytest.mark.parametrize("verb", [["snapshot"], ["snapshot", "--output"]], ids=["unwritten", "written"])
 def test_capture_needs_no_pip(tmp_path, fresh_venv, pypi, verb):
     # Capture once ran pip freeze, and a venv without pip gave an empty "verified" manifest.
     pypi.allow_unknown()  # validation's lookups aren't under test
@@ -39,7 +41,7 @@ def test_capture_needs_no_pip(tmp_path, fresh_venv, pypi, verb):
 
 
 
-def _run(venv, tmp_path, source, *sites, verb="scan", options=(), directory=False):
+def _run(venv, tmp_path, source, *sites, verb="snapshot", options=(), directory=False):
     """`verb` on a one-cell notebook, or on its directory, with `sites` first on sys.path."""
     nb = Notebook(code(source)).write(tmp_path / "nb")
     outcome = run_in(venv, verb, nb.parent if directory else nb, *options, env=pythonpath(*sites))
@@ -95,8 +97,7 @@ def test_monorepo_packages_keep_their_subdirectories(tmp_path, base_venv, pypi):
     for name in ("alpha", "beta"):
         site.add(name, "1.0", **vcs_ref("https://example.com/mono.git", COMMIT, subdirectory=name))
     outcome = _run(base_venv, tmp_path, "import alpha, beta", site, verb="snapshot", options=["--output"])
-    raw = manifest(outcome.written[0])["raw_installs"]
-    assert sorted(r["spec"].split("#subdirectory=")[-1] for r in raw) == ["alpha", "beta"]
+    assert sorted(s["url"].split("#subdirectory=")[-1] for s in sources(outcome.written[0])) == ["alpha", "beta"]
 
 
 @pytest.mark.venv
@@ -120,7 +121,7 @@ def test_cell2_claims_an_install_only_for_what_it_installs(tmp_path, base_venv, 
     nb = Notebook(code(source), code("%%writefile train.py\nimport gitscripted")).write(tmp_path / "nb")
     outcome = run_in(base_venv, "snapshot", nb, "--output", env=pythonpath(site))
     assert outcome.exit_code in (0, 1), outcome.log
-    assert [r for r in manifest(outcome.written[0])["raw_installs"] if "installed.git" in r["spec"]]  # control
+    assert [s for s in sources(outcome.written[0]) if "installed.git" in s["url"]]  # control
     lines = {name: [line for line in cell2_text(outcome.written[0]).splitlines() if f"# git{name} " in line]
              for name in ("guarded", "scripted")}
     assert all(found and not any("is installed from" in line for line in found) for found in lines.values()), lines
@@ -169,6 +170,7 @@ def test_warns_when_most_imports_are_installed_elsewhere(tmp_path, base_venv):
 _ORACLE = """
 import json, re, subprocess, sys
 from steady_py import installed, util
+
 freeze = {}
 out = subprocess.run([sys.executable, "-m", "pip", "freeze"], capture_output=True, text=True, check=True).stdout
 for line in out.splitlines():

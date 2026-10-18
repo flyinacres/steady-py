@@ -10,7 +10,10 @@ try:
 except importlib.metadata.PackageNotFoundError:
     TOOL_VERSION = "0.0.0+unknown"
 SCHEMA_VERSION: str = "1.0"
-MANIFEST_SCHEMA_VERSION: str = "1.0"
+# The manifest's format version, "major.minor" as PEP 751's lock-version: a reader that knows the major
+# version reads any minor one, ignoring and reporting fields it doesn't know; a different major version
+# is refused. Additive changes bump the minor version, changed or removed fields the major.
+MANIFEST_SCHEMA_VERSION: str = "2.0"
 
 
 DEFAULT_UNIVERSAL_MANIFEST_NAME: str = "requirements-all.txt"
@@ -64,6 +67,7 @@ class Signal:
     TAMPERED = "tampered"
     LOCAL_MODULE_MISSING = "local_module_missing"
     LOCAL_MODULE_UNVERIFIABLE = "local_module_unverifiable"
+    UNREAD_FIELDS = "unread_fields"  # the manifest has fields this steady-py doesn't know, so it can't check them
 
 
 class Severity:
@@ -95,6 +99,23 @@ class DependencyStatus:
     EDITABLE = "editable"          # an editable install of the creator's own package
     CUSTOM_PATH = "custom_path"    # importable from a folder no installed distribution owns
     AMBIGUOUS = "ambiguous"        # several installed distributions provide the same module
+    NOT_INSTALLED = "not_installed"  # manifest only: needed, but not installed where snapshot ran
+
+
+# Manifest package statuses Cell 2 installs; every other status is a record Cell 2 leaves alone.
+INSTALLABLE_STATUSES = frozenset({DependencyStatus.PINNED, DependencyStatus.DIRECT_REFERENCE})
+# Entry statuses the manifest doesn't record as packages: not distributions (platform modules, the
+# runner's own build tools), or recorded in local_modules instead.
+UNRECORDED_STATUSES = frozenset({DependencyStatus.BUILD_TOOL, DependencyStatus.PLATFORM_PSEUDO_MODULE,
+                                 DependencyStatus.LOCAL_MODULE})
+
+
+class Provenance:
+    """Where a manifest value came from (fix_plan.md, section 3.2)."""
+    DECLARATION = "declaration"
+    NOTEBOOK = "notebook"
+    ENVIRONMENT = "environment"
+    CARRIED = "carried"  # carried forward from the previous manifest
 
 
 # Statuses for dependencies that are installed here but can't be pinned for anyone else.

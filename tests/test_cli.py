@@ -12,16 +12,16 @@ import steady_py.cli as cli
 from steady_py import accelerator, constants, drift, generate, models, reporting
 import steady_py.endpoints as endpoints
 from steady_py.results import (
-    CheckResult, Delta, Environment, PackageChange, NotebookCheck, NotebookScan, NotebookSnapshot, ScanResult, SetupCells,
+    CheckResult, Delta, Environment, FieldChange, PackageChange, NotebookCheck, NotebookSnapshot, SetupCells,
     SnapshotResult, TargetKind, WriteMode,
 )
 
-PIN = models.PinnedDependency("requests", "2.32.1")
+PIN = models.ManifestPackage("requests", "pinned", display_name="requests", version="2.32.1")
 
 
 def _manifest(baseline=None):
-    return models.SteadyPyManifest(python_version={"major": 3, "minor": 12}, dependencies=[PIN], gpu=None,
-                                generated_at="t", baseline=baseline)
+    return models.SteadyPyManifest(python_version={"major": 3, "minor": 12}, packages=[PIN], generated_at="t",
+                                   baseline=baseline)
 
 
 def _finding(signal, severity, **kw):
@@ -136,13 +136,13 @@ class TestRunCheck:
 
 
 # ---------------------------------------------------------------------------------------------
-# scan and snapshot for one notebook
+# snapshot for one notebook
 
 ENV = Environment(frozen_env={"requests": "requests==2.32.3"}, pkg_dist_map={"requests": ["requests"]})
 
 
 def _args(**overrides):
-    """The namespace argparse builds for scan/snapshot, with every flag at its default."""
+    """The namespace argparse builds for snapshot, with every flag at its default."""
     values = dict(target=None, format="text", full_freeze=False, timeout=120, quiet=False, verbose=False,
                   universal=None, output=False, output_dir=None, suffix=None, in_place=False)
     values.update(overrides)
@@ -169,31 +169,26 @@ def _unreadable(tmp_path):
     return str(path)
 
 
-class TestScanAndSnapshotExitCodes:
+class TestSnapshotExitCodes:
     """0 everything processed, 1 some of it, 2 nothing."""
 
     REPORT = models.NotebookAnalysisReport(notebook_path="a.ipynb", is_python=True, lang_label="python")
-
-    def _scan(self, *errors):
-        return ScanResult(target="t", notebooks=[NotebookScan(path=f"n{i}", report=self.REPORT, error=e) for i, e in enumerate(errors)])
 
     def _snap(self, *errors, run_error=None):
         return SnapshotResult(target="t", error=run_error,
                               notebooks=[NotebookSnapshot(path=f"n{i}", report=self.REPORT, error=e) for i, e in enumerate(errors)])
 
     def test_everything_processed_is_0(self):
-        assert cli.scan_exit_code(self._scan(None, None)) == 0
         assert cli.snapshot_exit_code(self._snap(None, None)) == 0
 
     def test_a_target_with_no_notebooks_is_0(self):
-        assert cli.scan_exit_code(self._scan()) == 0 and cli.snapshot_exit_code(self._snap()) == 0
+        assert cli.snapshot_exit_code(self._snap()) == 0
 
     def test_some_processed_and_some_not_is_1(self):
-        assert cli.scan_exit_code(self._scan(None, "boom")) == 1
         assert cli.snapshot_exit_code(self._snap(None, "boom")) == 1
 
     def test_nothing_processed_is_2_including_a_single_unreadable_file(self):
-        assert cli.scan_exit_code(self._scan("boom")) == 2
+        assert cli.snapshot_exit_code(self._snap("boom")) == 2
         assert cli.snapshot_exit_code(self._snap("boom", "boom")) == 2
 
     def test_a_failure_of_the_run_as_a_whole_counts_like_a_failed_notebook(self):
@@ -236,34 +231,11 @@ class TestFormatSnapshotResult:
         result = self._result(tmp_path, options=SnapshotOptions(write_mode=WriteMode.COMPANION))
         report = json.loads(cli.format_snapshot_result(result, "json"))
         assert report["artifacts_written"] == {"locked_notebook": result.notebooks[0].written_path}
-        assert report["drift_check"]["manifest"]["dependencies"][0]["name"] == "requests"
+        assert report["drift_check"]["manifest"]["packages"][0]["name"] == "requests"
 
     def test_unwritten_json_is_the_analysis_report_alone(self, tmp_path, isolated):
         result = self._result(tmp_path)
         assert cli.format_snapshot_result(result, "json") == reporting.format_json_single_report(result.notebooks[0].report)
-
-    def test_scan_json_is_the_analysis_report(self, tmp_path, isolated):
-        scanned = endpoints.scan(_write_notebook(tmp_path), ENV)
-        assert cli.format_scan_result(scanned) == reporting.format_json_single_report(scanned.notebooks[0].report)
-
-
-class TestRunScanFile:
-    def test_json_returns_the_scan_report_and_never_contacts_pypi(self, tmp_path, isolated, capsys, monkeypatch):
-        def refuse(*args, **kwargs):
-            raise AssertionError("a scan must not check pins")
-        monkeypatch.setattr(drift, "run_pin_checks", refuse)
-        assert cli.run_scan_file(_args(target=_write_notebook(tmp_path), format="json")) == 0
-        report = json.loads(capsys.readouterr().out)
-        assert [d["name"] for d in report["dependencies"]] == ["requests"]
-
-    def test_text_format_is_not_yet_supported_and_fails_clearly(self, tmp_path, isolated, capsys):
-        assert cli.run_scan_file(_args(target=_write_notebook(tmp_path), format="text")) == 2
-        assert capsys.readouterr().out == ""
-
-    def test_an_unreadable_notebook_still_prints_a_json_report(self, tmp_path, isolated, capsys):
-        assert cli.run_scan_file(_args(target=_unreadable(tmp_path), format="json")) == 2
-        assert json.loads(capsys.readouterr().out)["parse_error"]
-
 
 class TestRunSnapshotFile:
     def test_text_prints_the_cells_and_returns_0(self, tmp_path, isolated, capsys):
@@ -314,46 +286,6 @@ class TestRunSnapshotFile:
         with caplog.at_level(logging.INFO, logger="steady_py"):
             cli.run_snapshot_file(_args(target=path))
         assert "DIAGNOSTIC WARNINGS" in caplog.text and "Dynamic import detected" in caplog.text
-
-
-class TestRunScanDirectory:
-    @pytest.fixture(autouse=True)
-    def offline(self, monkeypatch):
-        monkeypatch.setattr(drift, "run_pin_checks", lambda deps, python_version: [])
-        monkeypatch.setattr(accelerator, "inspect_gpu_environment", lambda imports: None)
-
-    def _repo(self, tmp_path, corrupt=False):
-        root = tmp_path / "repo"
-        root.mkdir()
-        _write_notebook(root, "import requests", "a.ipynb")
-        _write_notebook(root, "import requests", "b.ipynb")
-        if corrupt:
-            (root / "bad.ipynb").write_text("{ not json", encoding="utf-8")
-        return root
-
-    def _run(self, root, **flags):
-        return cli.run_scan_directory(_args(target=str(root), **flags), ENV)
-
-    def test_it_prints_the_analysis_and_never_contacts_pypi(self, tmp_path, capsys, monkeypatch):
-        monkeypatch.setattr(drift, "run_pin_checks", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no PyPI")))
-        assert self._run(self._repo(tmp_path)) == 0
-        assert "requests" in capsys.readouterr().out
-
-    def test_json_is_the_batch_report(self, tmp_path, capsys):
-        assert self._run(self._repo(tmp_path), format="json") == 0
-        report = json.loads(capsys.readouterr().out)
-        assert report["mode"] == "batch" and report["summary"]["total_python_notebooks"] == 2
-        assert not report["validation"] and not report["artifacts_written"]
-
-    def test_an_unreadable_notebook_prints_the_report_lists_it_and_exits_1(self, tmp_path, capsys, caplog):
-        with caplog.at_level(logging.INFO, logger="steady_py"):
-            assert self._run(self._repo(tmp_path, corrupt=True)) == 1
-        assert "bad.ipynb" in capsys.readouterr().out and "could not be processed and were skipped" in caplog.text
-
-    def test_a_directory_that_does_not_exist_is_an_error_not_an_empty_report(self, tmp_path, capsys, caplog):
-        with caplog.at_level(logging.INFO, logger="steady_py"):
-            assert self._run(tmp_path / "nowhere") == 2
-        assert "is not a directory" in caplog.text and capsys.readouterr().out == ""
 
 
 class TestRunSnapshotDirectory:
@@ -469,12 +401,6 @@ class TestMain:
         path = _write_notebook(tmp_path)
         assert self._exit_code(monkeypatch, "snapshot", path) == 1 and calls == [path]
 
-    def test_a_file_with_scan_goes_to_the_scan_file_runner(self, tmp_path, monkeypatch):
-        calls = []
-        monkeypatch.setattr(cli, "run_scan_file", lambda args: calls.append(args.target) or 1)
-        path = _write_notebook(tmp_path)
-        assert self._exit_code(monkeypatch, "scan", path) == 1 and calls == [path]
-
     def test_a_clean_run_exits_with_code_0(self, tmp_path, monkeypatch):
         monkeypatch.setattr(cli, "run_snapshot_file", lambda args: 0)
         assert self._exit_code(monkeypatch, "snapshot", _write_notebook(tmp_path)) == 0
@@ -484,13 +410,6 @@ class TestMain:
         monkeypatch.setattr(cli, "run_snapshot_directory", lambda args: seen.append(args.target) or 0)
         monkeypatch.setattr(cli, "run_snapshot_file", lambda args: pytest.fail("a directory is not a single file"))
         self._exit_code(monkeypatch, "snapshot", str(tmp_path))
-        assert seen == [str(tmp_path)]
-
-    def test_a_directory_with_scan_goes_to_the_scan_directory_runner(self, tmp_path, monkeypatch):
-        seen = []
-        monkeypatch.setattr(cli, "run_scan_directory", lambda args: seen.append(args.target) or 0)
-        monkeypatch.setattr(cli, "run_scan_file", lambda args: pytest.fail("a directory is not a single file"))
-        self._exit_code(monkeypatch, "scan", str(tmp_path))
         assert seen == [str(tmp_path)]
 
     def test_check_runs_with_the_format_and_root_dir(self, tmp_path, monkeypatch):
@@ -558,6 +477,18 @@ class TestFormatDelta:
         text = cli.format_delta(delta, "nb.ipynb")
         assert "  Python 3.11 -> 3.12" in text and "  Accelerator: none -> A100" in text
 
+    def test_an_unpinned_package_is_named_without_a_version(self):
+        lines = cli.format_delta(Delta(added=[PackageChange("yaml")]), "nb.ipynb").splitlines()
+        assert lines[1] == "  + yaml (added)"
+
+    def test_other_field_changes_name_the_package_field_and_values(self):
+        delta = Delta(field_changes=[
+            FieldChange("packages", "torch", "options", [], [["--index-url", "https://idx"]]),
+            FieldChange("local_modules", "helper", "entry", None, {"name": "helper", "anchor": "notebook_dir"}),
+        ])
+        lines = cli.format_delta(delta, "nb.ipynb").splitlines()
+        assert lines[1:] == ["  * torch options: none -> --index-url https://idx", "  + local module helper"]
+
     def test_findings_are_listed_when_the_baseline_was_compared(self):
         delta = Delta(baseline_compared=True, findings_appeared=[("yanked", "requests", "2.32.3")], findings_resolved=[("stale", "numpy")])
         text = cli.format_delta(delta, "nb.ipynb")
@@ -598,9 +529,9 @@ class TestDeltaInOutput:
 
     def test_json_carries_the_delta_or_null(self, tmp_path):
         locked = self._locked(tmp_path)
-        report = json.loads(cli.format_scan_result(endpoints.scan(locked, environment=self.NEWER)))
+        report = json.loads(cli.format_snapshot_result(endpoints.snapshot(locked, environment=self.NEWER), "json"))
         assert report["delta"]["version_changes"] == [{"name": "requests", "old_version": "2.32.3", "new_version": "2.32.4"}]
-        plain = json.loads(cli.format_scan_result(endpoints.scan(_write_notebook(tmp_path, name="plain.ipynb"), environment=ENV)))
+        plain = json.loads(cli.format_snapshot_result(endpoints.snapshot(_write_notebook(tmp_path, name="plain.ipynb"), environment=ENV), "json"))
         assert plain["delta"] is None
 
     def test_the_directory_report_lists_each_notebook_that_had_a_manifest(self, tmp_path, capsys, monkeypatch):
@@ -608,7 +539,7 @@ class TestDeltaInOutput:
         root.mkdir()
         self._locked(root, "locked.ipynb")
         _write_notebook(root, name="plain.ipynb")
-        assert cli.run_scan_directory(_args(target=str(root)), self.NEWER) == 0
+        assert cli.run_snapshot_directory(_args(target=str(root)), self.NEWER) == 0
         out = capsys.readouterr().out
         assert "Changes since the existing manifest in locked.ipynb:" in out and "plain.ipynb: " not in out.split("Changes since")[-1]
 
@@ -617,7 +548,7 @@ class TestDeltaInOutput:
         root.mkdir()
         self._locked(root, "locked.ipynb")
         _write_notebook(root, name="plain.ipynb")
-        cli.run_scan_directory(_args(target=str(root), format="json"), self.NEWER)
+        cli.run_snapshot_directory(_args(target=str(root), format="json"), self.NEWER)
         report = json.loads(capsys.readouterr().out)
         assert list(report["deltas"]) == ["locked.ipynb"]
         assert report["deltas"]["locked.ipynb"]["version_changes"][0]["new_version"] == "2.32.4"
@@ -626,7 +557,7 @@ class TestDeltaInOutput:
         root = tmp_path / "repo"
         root.mkdir()
         _write_notebook(root, name="plain.ipynb")
-        cli.run_scan_directory(_args(target=str(root), format="json"), ENV)
+        cli.run_snapshot_directory(_args(target=str(root), format="json"), ENV)
         assert json.loads(capsys.readouterr().out)["deltas"] is None
 
 

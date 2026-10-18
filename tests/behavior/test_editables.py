@@ -9,8 +9,11 @@ from tests.support.notebooks import Notebook, code
 from tests.support.runner import run, run_in
 from tests.support.sites import SiteDir, pythonpath
 
+pytestmark = pytest.mark.usefixtures("analysis_only")  # these read the analysis report
+
+
 def _scan(venv, target, env=None):
-    outcome = run_in(venv, "scan", target, env=env)
+    outcome = run_in(venv, "snapshot", target, env=env)
     assert outcome.exit_code in (0, 1), outcome.log
     return outcome
 
