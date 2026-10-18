@@ -52,6 +52,12 @@ def main() -> None:
     with temp_directory(mock_base):
         mock_pkg_dir.mkdir(parents=True, exist_ok=True)
         (mock_pkg_dir / "__init__.py").write_text(MOCK_TORCH_CODE, encoding="utf-8")
+        # Metadata as a real install has it: without it, the import join reports the mock as a module
+        # on a custom path, which no installed package owns (ED4), and snapshot exits 1.
+        dist_info = mock_base / "torch-2.3.0.dist-info"
+        dist_info.mkdir(exist_ok=True)
+        (dist_info / "METADATA").write_text("Metadata-Version: 2.1\nName: torch\nVersion: 2.3.0\n", encoding="utf-8")
+        (dist_info / "top_level.txt").write_text("torch\n", encoding="utf-8")
 
         with temp_notebook(fixture_path, ["import torch"]):
             env_override = {"PYTHONPATH": f"{mock_base}:{os.environ.get('PYTHONPATH', '')}"}
