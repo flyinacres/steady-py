@@ -1,0 +1,698 @@
+{
+ "ISLP_labs/Ch06-varselect-lab.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ISLP\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"l0bnb\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"matplotlib\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pandas\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"scikit-learn\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"statsmodels\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 4, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Lab: Linear Models and Regularization Methods\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 7, \"notebook\": \"ISLP_labs/Ch06-varselect-lab.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"l0bnb\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"l0bnb\", \"specifier\": \"\", \"text\": \"l0bnb\"}], \"text\": \"!pip install l0bnb\", \"tool\": \"pip\"}"
+  ]
+ },
+ "cookbook/examples/langchain/Chat_with_SQL_using_langchain.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google-genai\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipython\", \"source\": \"import\", \"status\": \"pinned\", \"version\": \"9.17.1\"}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"langchain\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"langchain-community\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"langchain-google-genai\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"langchain_core\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"scikit-learn\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 5, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Gemini API: Chat with SQL using LangChain\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"cookbook/examples/langchain/Chat_with_SQL_using_langchain.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}, {\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"google-genai\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"google-genai\", \"specifier\": \">=2.9.0\", \"text\": \"google-genai>=2.9.0\"}, {\"canonical\": \"langchain\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"langchain\", \"specifier\": \"\", \"text\": \"langchain\"}, {\"canonical\": \"langchain-community\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"langchain-community\", \"specifier\": \"\", \"text\": \"langchain-community\"}, {\"canonical\": \"langchain-google-genai\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"langchain-google-genai\", \"specifier\": \"\", \"text\": \"langchain-google-genai\"}], \"text\": \"%pip install -U -q \\\"google-genai>=2.9.0\\\" langchain langchain-community langchain-google-genai\", \"tool\": \"pip\"}"
+  ]
+ },
+ "cookbook/quickstarts/Get_started_LyriaRealTime.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google-genai\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipython\", \"source\": \"import\", \"status\": \"pinned\", \"version\": \"9.17.1\"}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 9, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Install the SDK\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"cookbook/quickstarts/Get_started_LyriaRealTime.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}, {\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"google-genai\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"google-genai\", \"specifier\": \"\", \"text\": \"google-genai\"}], \"text\": \"%pip install -U -q google-genai # 1.16 is needed for the Lyria RealTime support\", \"tool\": \"pip\"}"
+  ]
+ },
+ "datashader/8_Polygons.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"bokeh\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"colorcet\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"dask\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"datashader\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"geopandas\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"holoviews\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pandas\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"spatialpandas\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ]
+ },
+ "handson-ml3/tools_pandas.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"matplotlib\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pandas\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ]
+ },
+ "huggingface/course/en/chapter13/grpo_finetune.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"accelerate\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"bitsandbytes\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"datasets\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"flash-attn\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"peft\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"trl\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"wandb\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 1, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Install dependencies\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"huggingface/course/en/chapter13/grpo_finetune.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--progress-bar\", \"value\": \"off\"}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"datasets\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"datasets\", \"specifier\": \"==3.2.0\", \"text\": \"datasets==3.2.0\"}, {\"canonical\": \"transformers\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"transformers\", \"specifier\": \"==4.47.1\", \"text\": \"transformers==4.47.1\"}, {\"canonical\": \"trl\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"trl\", \"specifier\": \"==0.14.0\", \"text\": \"trl==0.14.0\"}, {\"canonical\": \"peft\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"peft\", \"specifier\": \"==0.14.0\", \"text\": \"peft==0.14.0\"}, {\"canonical\": \"accelerate\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"accelerate\", \"specifier\": \"==1.2.1\", \"text\": \"accelerate==1.2.1\"}, {\"canonical\": \"bitsandbytes\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"bitsandbytes\", \"specifier\": \"==0.45.2\", \"text\": \"bitsandbytes==0.45.2\"}, {\"canonical\": \"wandb\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"wandb\", \"specifier\": \"==0.19.7\", \"text\": \"wandb==0.19.7\"}], \"text\": \"!pip install -qqq datasets==3.2.0 transformers==4.47.1 trl==0.14.0 peft==0.14.0 accelerate==1.2.1 bitsandbytes==0.45.2 wandb==0.19.7 --progress-bar off\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 1, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Install dependencies\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"huggingface/course/en/chapter13/grpo_finetune.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--no-build-isolation\", \"value\": null}, {\"known\": true, \"name\": \"--progress-bar\", \"value\": \"off\"}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"flash-attn\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"flash-attn\", \"specifier\": \"\", \"text\": \"flash-attn\"}], \"text\": \"!pip install -qqq flash-attn --no-build-isolation --progress-bar off\", \"tool\": \"pip\"}"
+  ]
+ },
+ "huggingface/diffusers/clip_guided_img2img_stable_diffusion.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"diffusers\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pillow\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"requests\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 1, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": null, \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"huggingface/diffusers/clip_guided_img2img_stable_diffusion.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"diffusers\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"diffusers\", \"specifier\": \"\", \"text\": \"diffusers\"}, {\"canonical\": \"transformers\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"transformers\", \"specifier\": \"\", \"text\": \"transformers\"}, {\"canonical\": \"pillow\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"pillow\", \"specifier\": \"\", \"text\": \"pillow\"}, {\"canonical\": \"torch\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"torch\", \"specifier\": \"\", \"text\": \"torch\"}], \"text\": \"pip install diffusers transformers pillow torch\", \"tool\": \"pip\"}"
+  ],
+  "warnings": [
+   "[\"unparseable_cell\", \"steady-py couldn't read this cell as Python (line 1: invalid syntax), so imports in it are missing from the report.\", 1, 0]"
+  ]
+ },
+ "huggingface/diffusers/geodiff_molecule_conformation.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"condacolab\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"datasets\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"diffusers\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipython\", \"source\": \"import\", \"status\": \"pinned\", \"version\": \"9.17.1\"}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"nglview\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"rdkit\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch_geometric\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch_scatter\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch_sparse\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"tqdm\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 10, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Install Conda\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"huggingface/diffusers/geodiff_molecule_conformation.ipynb\", \"options\": [{\"known\": true, \"name\": \"-c\", \"value\": \"pytorch-lts\"}, {\"known\": true, \"name\": \"-c\", \"value\": \"nvidia\"}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"pytorch\", \"specifier\": \"\", \"text\": \"pytorch\"}, {\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"torchvision\", \"specifier\": \"\", \"text\": \"torchvision\"}, {\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"torchaudio\", \"specifier\": \"\", \"text\": \"torchaudio\"}, {\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"cudatoolkit=11.1\", \"specifier\": \"\", \"text\": \"cudatoolkit=11.1\"}], \"text\": \"!conda install pytorch torchvision torchaudio cudatoolkit=11.1 -c pytorch-lts -c nvidia\", \"tool\": \"conda\"}",
+   "{\"cell_idx\": 14, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Install Conda\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"huggingface/diffusers/geodiff_molecule_conformation.ipynb\", \"options\": [{\"known\": true, \"name\": \"-c\", \"value\": \"rusty1s\"}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"pytorch-geometric=1.7.2\", \"specifier\": \"\", \"text\": \"pytorch-geometric=1.7.2\"}], \"text\": \"!conda install -c rusty1s pytorch-geometric=1.7.2\", \"tool\": \"conda\"}",
+   "{\"cell_idx\": 16, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Install Diffusers\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 4, \"notebook\": \"huggingface/diffusers/geodiff_molecule_conformation.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"path\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"/content/diffusers\"}], \"text\": \"!pip install -q /content/diffusers\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 16, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Install Diffusers\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 7, \"notebook\": \"huggingface/diffusers/geodiff_molecule_conformation.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"datasets\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"datasets\", \"specifier\": \"\", \"text\": \"datasets\"}, {\"canonical\": \"transformers\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"transformers\", \"specifier\": \"\", \"text\": \"transformers\"}], \"text\": \"!pip install -q datasets transformers\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 20, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Install Chemistry-specific Dependencies\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"huggingface/diffusers/geodiff_molecule_conformation.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"rdkit\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"rdkit\", \"specifier\": \"\", \"text\": \"rdkit\"}], \"text\": \"!pip install rdkit\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 22, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Get viewer from nglview\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"huggingface/diffusers/geodiff_molecule_conformation.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"nglview\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"nglview\", \"specifier\": \"\", \"text\": \"nglview\"}], \"text\": \"!pip install nglview\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 6, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Install Conda\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"huggingface/diffusers/geodiff_molecule_conformation.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"condacolab\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"condacolab\", \"specifier\": \"\", \"text\": \"condacolab\"}], \"text\": \"!pip install -q condacolab\", \"tool\": \"pip\"}"
+  ],
+  "notices": [
+   "[\"conda_command\", \"Uses a conda install command ('!conda install -c rusty1s pytorch-geometric=1.7.2'). Conda packages are not tracked in pip requirements manifests.\", 14, 0]",
+   "[\"conda_command\", \"Uses a conda install command ('!conda install pytorch torchvision torchaudio cudatoolkit=11.1 -c pytorch-lts -c nvidia'). Conda packages are not tracked in pip requirements manifests.\", 10, 0]",
+   "[\"raw_install\", \"'/content/diffusers' is installed from a non-standard source (git/URL/local file), not PyPI. It will still be installed exactly as specified, but can't be verified or checked for drift -- you're responsible for ensuring anyone running this notebook has access to the same resource.\", 16, 4]"
+  ]
+ },
+ "huggingface/diffusers/sd_textual_inversion_training.ipynb": {
+  "dependencies": [
+   "{\"flags\": [\"--pre\"], \"hardware_tagged\": false, \"name\": \"triton\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"Pillow\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"accelerate\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"diffusers\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ftfy\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"huggingface_hub\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipython\", \"source\": \"import\", \"status\": \"pinned\", \"version\": \"9.17.1\"}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"requests\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"slugify\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torchvision\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"tqdm\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 2, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Initial setup\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"huggingface/diffusers/sd_textual_inversion_training.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}, {\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"url\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"git+https://github.com/huggingface/diffusers.git\"}], \"text\": \"!pip install -U -qq git+https://github.com/huggingface/diffusers.git\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 2, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Initial setup\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 2, \"notebook\": \"huggingface/diffusers/sd_textual_inversion_training.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"accelerate\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"accelerate\", \"specifier\": \"\", \"text\": \"accelerate\"}, {\"canonical\": \"transformers\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"transformers\", \"specifier\": \"\", \"text\": \"transformers\"}, {\"canonical\": \"ftfy\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"ftfy\", \"specifier\": \"\", \"text\": \"ftfy\"}], \"text\": \"!pip install -qq accelerate transformers ftfy\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 3, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Initial setup\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 4, \"notebook\": \"huggingface/diffusers/sd_textual_inversion_training.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}, {\"known\": true, \"name\": \"--pre\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"triton\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"triton\", \"specifier\": \"\", \"text\": \"triton\"}], \"text\": \"!pip install -U --pre triton\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 3, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 0, \"condition\": \"gpu == 'T4'\", \"group\": \"3:31\", \"kind\": \"if\"}, \"heading\": \"Initial setup\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 31, \"notebook\": \"huggingface/diffusers/sd_textual_inversion_training.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"url\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"https://github.com/TheLastBen/fast-stable-diffusion/raw/main/precompiled/T4/xformers-0.0.13.dev0-py3-none-any.whl\"}], \"text\": \"%pip install -q https://github.com/TheLastBen/fast-stable-diffusion/raw/main/precompiled/T4/xformers-0.0.13.dev0-py3-none-any.whl\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 3, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 1, \"condition\": \"gpu == 'P100'\", \"group\": \"3:31\", \"kind\": \"if\"}, \"heading\": \"Initial setup\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 34, \"notebook\": \"huggingface/diffusers/sd_textual_inversion_training.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"url\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"https://github.com/TheLastBen/fast-stable-diffusion/raw/main/precompiled/P100/xformers-0.0.13.dev0-py3-none-any.whl\"}], \"text\": \"%pip install -q https://github.com/TheLastBen/fast-stable-diffusion/raw/main/precompiled/P100/xformers-0.0.13.dev0-py3-none-any.whl\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 3, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 2, \"condition\": \"gpu == 'V100'\", \"group\": \"3:31\", \"kind\": \"if\"}, \"heading\": \"Initial setup\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 37, \"notebook\": \"huggingface/diffusers/sd_textual_inversion_training.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"url\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"https://github.com/TheLastBen/fast-stable-diffusion/raw/main/precompiled/V100/xformers-0.0.13.dev0-py3-none-any.whl\"}], \"text\": \"%pip install -q https://github.com/TheLastBen/fast-stable-diffusion/raw/main/precompiled/V100/xformers-0.0.13.dev0-py3-none-any.whl\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 3, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 3, \"condition\": \"gpu == 'A100'\", \"group\": \"3:31\", \"kind\": \"if\"}, \"heading\": \"Initial setup\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 40, \"notebook\": \"huggingface/diffusers/sd_textual_inversion_training.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"url\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"https://github.com/TheLastBen/fast-stable-diffusion/raw/main/precompiled/A100/xformers-0.0.13.dev0-py3-none-any.whl\"}], \"text\": \"%pip install -q https://github.com/TheLastBen/fast-stable-diffusion/raw/main/precompiled/A100/xformers-0.0.13.dev0-py3-none-any.whl\", \"tool\": \"pip\"}"
+  ],
+  "notices": [
+   "[\"raw_install\", \"'git+https://github.com/huggingface/diffusers.git' is installed from a non-standard source (git/URL/local file), not PyPI. It will still be installed exactly as specified, but can't be verified or checked for drift -- you're responsible for ensuring anyone running this notebook has access to the same resource.\", 2, 1]"
+  ],
+  "warnings": [
+   "[\"guarded_install\", \"'%pip install -q https://github.com/TheLastBen/fast-stable-diffusion/raw/main/precompiled/A100/xformers-0.0.13.dev0-py3-none-any.whl' runs only inside `elif gpu == 'A100'`, so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 3, 40]",
+   "[\"guarded_install\", \"'%pip install -q https://github.com/TheLastBen/fast-stable-diffusion/raw/main/precompiled/P100/xformers-0.0.13.dev0-py3-none-any.whl' runs only inside `elif gpu == 'P100'`, so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 3, 34]",
+   "[\"guarded_install\", \"'%pip install -q https://github.com/TheLastBen/fast-stable-diffusion/raw/main/precompiled/T4/xformers-0.0.13.dev0-py3-none-any.whl' runs only inside `if gpu == 'T4'`, so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 3, 31]",
+   "[\"guarded_install\", \"'%pip install -q https://github.com/TheLastBen/fast-stable-diffusion/raw/main/precompiled/V100/xformers-0.0.13.dev0-py3-none-any.whl' runs only inside `elif gpu == 'V100'`, so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 3, 37]"
+  ]
+ },
+ "huggingface/diffusers_doc/en/pytorch/weighted_prompts.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"diffusers\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"sd_embed\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 6, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Prompt weighting\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"huggingface/diffusers_doc/en/pytorch/weighted_prompts.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"url\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"git+https://github.com/xhinker/sd_embed.git@main\"}], \"text\": \"!uv pip install git+https://github.com/xhinker/sd_embed.git@main\", \"tool\": \"uv\"}"
+  ],
+  "notices": [
+   "[\"raw_install\", \"'git+https://github.com/xhinker/sd_embed.git@main' is installed from a non-standard source (git/URL/local file), not PyPI. It will still be installed exactly as specified, but can't be verified or checked for drift -- you're responsible for ensuring anyone running this notebook has access to the same resource.\", 6, 0]"
+  ]
+ },
+ "huggingface/examples/onnx-export.ipynb": {
+  "dependencies": [
+   "{\"flags\": [\"--find-links\", \"https://download.pytorch.org/whl/torch_stable.html\"], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [\"--find-links\", \"https://download.pytorch.org/whl/torch_stable.html\"], \"hardware_tagged\": false, \"name\": \"torchvision\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [\"--index-url\", \"https://test.pypi.org/simple/\"], \"hardware_tagged\": false, \"name\": \"ort-nightly\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"matplotlib\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"onnx\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"onnxruntime\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"onnxruntime-gpu\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"onnxruntime-tools\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"psutil\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": \"7.2.2\"}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"tqdm\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 3, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Exporting \\ud83e\\udd17 transformers model to ONNX\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"huggingface/examples/onnx-export.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"url\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"git+https://github.com/huggingface/transformers\"}], \"text\": \"!{sys.executable} -m pip install --upgrade git+https://github.com/huggingface/transformers\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 3, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Exporting \\ud83e\\udd17 transformers model to ONNX\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 2, \"notebook\": \"huggingface/examples/onnx-export.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}, {\"known\": true, \"name\": \"--find-links\", \"value\": \"https://download.pytorch.org/whl/torch_stable.html\"}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"torch\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"torch\", \"specifier\": \"==1.6.0+cpu\", \"text\": \"torch==1.6.0+cpu\"}, {\"canonical\": \"torchvision\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"torchvision\", \"specifier\": \"==0.7.0+cpu\", \"text\": \"torchvision==0.7.0+cpu\"}], \"text\": \"!{sys.executable} -m pip install --upgrade torch==1.6.0+cpu torchvision==0.7.0+cpu -f https://download.pytorch.org/whl/torch_stable.html\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 3, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Exporting \\ud83e\\udd17 transformers model to ONNX\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 3, \"notebook\": \"huggingface/examples/onnx-export.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"onnxruntime\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"onnxruntime\", \"specifier\": \"==1.4.0\", \"text\": \"onnxruntime==1.4.0\"}], \"text\": \"!{sys.executable} -m pip install --upgrade onnxruntime==1.4.0\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 3, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Exporting \\ud83e\\udd17 transformers model to ONNX\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 4, \"notebook\": \"huggingface/examples/onnx-export.ipynb\", \"options\": [{\"known\": true, \"name\": \"--index-url\", \"value\": \"https://test.pypi.org/simple/\"}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"ort-nightly\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"ort-nightly\", \"specifier\": \"\", \"text\": \"ort-nightly\"}], \"text\": \"!{sys.executable} -m pip install -i https://test.pypi.org/simple/ ort-nightly\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 3, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Exporting \\ud83e\\udd17 transformers model to ONNX\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 5, \"notebook\": \"huggingface/examples/onnx-export.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"onnxruntime-tools\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"onnxruntime-tools\", \"specifier\": \"\", \"text\": \"onnxruntime-tools\"}], \"text\": \"!{sys.executable} -m pip install --upgrade onnxruntime-tools\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 6, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"How to leverage runtime for inference over an ONNX graph\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"huggingface/examples/onnx-export.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"transformers\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"transformers\", \"specifier\": \"\", \"text\": \"transformers\"}, {\"canonical\": \"onnxruntime-gpu\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"onnxruntime-gpu\", \"specifier\": \"\", \"text\": \"onnxruntime-gpu\"}, {\"canonical\": \"onnx\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"onnx\", \"specifier\": \"\", \"text\": \"onnx\"}, {\"canonical\": \"psutil\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"psutil\", \"specifier\": \"\", \"text\": \"psutil\"}, {\"canonical\": \"matplotlib\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"matplotlib\", \"specifier\": \"\", \"text\": \"matplotlib\"}], \"text\": \"!pip install transformers onnxruntime-gpu onnx psutil matplotlib\", \"tool\": \"pip\"}"
+  ],
+  "notices": [
+   "[\"raw_install\", \"'git+https://github.com/huggingface/transformers' is installed from a non-standard source (git/URL/local file), not PyPI. It will still be installed exactly as specified, but can't be verified or checked for drift -- you're responsible for ensuring anyone running this notebook has access to the same resource.\", 3, 1]"
+  ]
+ },
+ "huggingface/examples/timesfm2_5.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"accelerate\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"kernels\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"matplotlib\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pandas\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"peft\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pyarrow\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"scikit-learn\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 2, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Setup\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"huggingface/examples/timesfm2_5.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"url\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"git+https://github.com/huggingface/transformers.git\"}, {\"canonical\": \"kernels\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"kernels\", \"specifier\": \"\", \"text\": \"kernels\"}, {\"canonical\": \"accelerate\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"accelerate\", \"specifier\": \"\", \"text\": \"accelerate\"}, {\"canonical\": \"peft\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"peft\", \"specifier\": \"\", \"text\": \"peft\"}, {\"canonical\": \"matplotlib\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"matplotlib\", \"specifier\": \"\", \"text\": \"matplotlib\"}, {\"canonical\": \"pandas\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"pandas\", \"specifier\": \"\", \"text\": \"pandas\"}, {\"canonical\": \"pyarrow\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"pyarrow\", \"specifier\": \"\", \"text\": \"pyarrow\"}, {\"canonical\": \"scikit-learn\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"scikit-learn\", \"specifier\": \"\", \"text\": \"scikit-learn\"}], \"text\": \"%pip install -q git+https://github.com/huggingface/transformers.git kernels accelerate peft matplotlib pandas pyarrow scikit-learn\", \"tool\": \"pip\"}"
+  ],
+  "notices": [
+   "[\"raw_install\", \"'git+https://github.com/huggingface/transformers.git' is installed from a non-standard source (git/URL/local file), not PyPI. It will still be installed exactly as specified, but can't be verified or checked for drift -- you're responsible for ensuring anyone running this notebook has access to the same resource.\", 2, 0]"
+  ]
+ },
+ "huggingface/lerobot/training-act.ipynb": {
+  "install_lines": [
+   "{\"cell_idx\": 2, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Install LeRobot\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"huggingface/lerobot/training-act.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"ffmpeg\", \"specifier\": \"\", \"text\": \"ffmpeg\"}], \"text\": \"!apt-get install ffmpeg\", \"tool\": \"system\"}",
+   "{\"cell_idx\": 2, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 0, \"condition\": \"cd lerobot && pip install -e \\\".[train, dataset]\\\"\", \"group\": \"2:3\", \"kind\": \"shell_joined\"}, \"heading\": \"Install LeRobot\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 2, \"notebook\": \"huggingface/lerobot/training-act.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"editable\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \".[train, dataset]\"}], \"text\": \"!cd lerobot && pip install -e \\\".[train, dataset]\\\"\", \"tool\": \"pip\"}"
+  ],
+  "notices": [
+   "[\"system_command\", \"Uses a system install command ('!apt-get install ffmpeg'). Note: System dependencies must be run manually by readers.\", 2, 1]"
+  ],
+  "warnings": [
+   "[\"editable_install\", \"'!cd lerobot && pip install -e \\\".[train, dataset]\\\"' installs '.[train, dataset]' in editable mode, so the setup cell doesn't install it. Share that project with your notebook, or publish it and install it by name.\", 2, 2]",
+   "[\"guarded_install\", \"'!cd lerobot && pip install -e \\\".[train, dataset]\\\"' runs only as part of a shell `&&`/`||` chain, so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 2, 2]"
+  ]
+ },
+ "huggingface/longform-qa/Long_Form_Question_Answering_with_ELI5_and_Wikipedia.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"lfqa_utils\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"nlp\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"nltk\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"rouge\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"spacy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ]
+ },
+ "huggingface/peft/gemma_7b_english_quotes.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"accelerate\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"bitsandbytes\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"datasets\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"peft\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"trl\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 1, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"huggingface/peft/gemma_7b_english_quotes.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"bitsandbytes\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"bitsandbytes\", \"specifier\": \"==0.42.0\", \"text\": \"bitsandbytes==0.42.0\"}], \"text\": \"!pip3 install -q -U bitsandbytes==0.42.0\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 1, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"huggingface/peft/gemma_7b_english_quotes.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"peft\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"peft\", \"specifier\": \"==0.8.2\", \"text\": \"peft==0.8.2\"}], \"text\": \"!pip3 install -q -U peft==0.8.2\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 1, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 2, \"notebook\": \"huggingface/peft/gemma_7b_english_quotes.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"trl\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"trl\", \"specifier\": \"==0.7.10\", \"text\": \"trl==0.7.10\"}], \"text\": \"!pip3 install -q -U trl==0.7.10\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 1, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 3, \"notebook\": \"huggingface/peft/gemma_7b_english_quotes.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"accelerate\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"accelerate\", \"specifier\": \"==0.27.1\", \"text\": \"accelerate==0.27.1\"}], \"text\": \"!pip3 install -q -U accelerate==0.27.1\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 1, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 4, \"notebook\": \"huggingface/peft/gemma_7b_english_quotes.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"datasets\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"datasets\", \"specifier\": \"==2.17.0\", \"text\": \"datasets==2.17.0\"}], \"text\": \"!pip3 install -q -U datasets==2.17.0\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 1, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 5, \"notebook\": \"huggingface/peft/gemma_7b_english_quotes.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"transformers\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"transformers\", \"specifier\": \"==4.38.1\", \"text\": \"transformers==4.38.1\"}], \"text\": \"!pip3 install -q -U transformers==4.38.1\", \"tool\": \"pip\"}"
+  ]
+ },
+ "huggingface/smolagents_doc/en/inspect_runs.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"langfuse\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"mlflow\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"openinference\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"openinference-instrumentation-smolagents\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"phoenix\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"smolagents\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 0, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"huggingface/smolagents_doc/en/inspect_runs.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"smolagents\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"smolagents\", \"specifier\": \"\", \"text\": \"smolagents\"}], \"text\": \"! pip install smolagents\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 13, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Setting up telemetry with MLflow\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"huggingface/smolagents_doc/en/inspect_runs.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"mlflow\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"mlflow\", \"specifier\": \"\", \"text\": \"mlflow\"}, {\"canonical\": \"smolagents\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"smolagents\", \"specifier\": \"\", \"text\": \"smolagents\"}], \"text\": \"%pip install mlflow smolagents\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 18, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Step 1: Install Dependencies\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"huggingface/smolagents_doc/en/inspect_runs.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"langfuse\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"langfuse\", \"specifier\": \"\", \"text\": \"langfuse\"}, {\"canonical\": \"smolagents\", \"extras\": [\"telemetry\"], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"smolagents\", \"specifier\": \"\", \"text\": \"smolagents[telemetry]\"}, {\"canonical\": \"openinference-instrumentation-smolagents\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"openinference-instrumentation-smolagents\", \"specifier\": \"\", \"text\": \"openinference-instrumentation-smolagents\"}], \"text\": \"%pip install langfuse 'smolagents[telemetry]' openinference-instrumentation-smolagents\", \"tool\": \"pip\"}"
+  ]
+ },
+ "kaggle_corpus/130818535.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"PyYAML\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"basicsr\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"einops\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ffmpeg\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"fvcore\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"gradio\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipython\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": \"9.17.1\"}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ninja\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"num2words\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"omegaconf\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"open_clip_torch\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"openai-whisper\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pydub\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pytorch_lightning\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"safetensors\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"soundfile\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"triton\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"xformers\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 10, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"2. Install the web UI\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 9, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"gradio\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"gradio\", \"specifier\": \"\", \"text\": \"gradio\"}, {\"canonical\": \"einops\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"einops\", \"specifier\": \"\", \"text\": \"einops\"}, {\"canonical\": \"transformers\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"transformers\", \"specifier\": \"\", \"text\": \"transformers\"}, {\"canonical\": \"open-clip-torch\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"open_clip_torch\", \"specifier\": \"\", \"text\": \"open_clip_torch\"}, {\"canonical\": \"pytorch-lightning\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"pytorch_lightning\", \"specifier\": \"==1.7.7\", \"text\": \"pytorch_lightning==1.7.7\"}, {\"canonical\": \"omegaconf\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"omegaconf\", \"specifier\": \"\", \"text\": \"omegaconf\"}, {\"canonical\": \"xformers\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"xformers\", \"specifier\": \"==0.0.18\", \"text\": \"xformers==0.0.18\"}, {\"canonical\": \"triton\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"triton\", \"specifier\": \"==2.0.0\", \"text\": \"triton==2.0.0\"}, {\"canonical\": \"basicsr\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"basicsr\", \"specifier\": \"\", \"text\": \"basicsr\"}, {\"canonical\": \"safetensors\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"safetensors\", \"specifier\": \"\", \"text\": \"safetensors\"}, {\"canonical\": \"fvcore\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"fvcore\", \"specifier\": \"\", \"text\": \"fvcore\"}], \"text\": \"!pip install -q gradio einops transformers open_clip_torch pytorch_lightning==1.7.7 omegaconf xformers==0.0.18 triton==2.0.0 basicsr safetensors fvcore\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 12, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"2. Install the web UI\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"requirements_file\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"requirements.txt\"}], \"text\": \"!pip install -r requirements.txt\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 15, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"2. Install the web UI\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 3, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"ninja\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"ninja\", \"specifier\": \"\", \"text\": \"ninja\"}], \"text\": \"!pip install ninja\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 15, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"2. Install the web UI\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 4, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"requirements_file\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"requirements.txt\"}], \"text\": \"!pip install -r requirements.txt\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 2, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 0, \"condition\": \"source /opt/conda/bin/activate newCondaEnvironment && conda install -c cctbx202208 python -y\", \"group\": \"2:3\", \"kind\": \"shell_joined\"}, \"heading\": \"1. **THESE LINE BELOW WILL UPDATE PYTHON, AND A WORKAROUND FOR KAGGLE UPDATING ISSUE. IT SHOULD NOT BE COMBINED AS ONE CELL**\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 2, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [{\"known\": true, \"name\": \"-c\", \"value\": \"cctbx202208\"}, {\"known\": false, \"name\": \"-y\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"python\", \"specifier\": \"\", \"text\": \"python\"}], \"text\": \"!source /opt/conda/bin/activate newCondaEnvironment && conda install -c cctbx202208 python -y\", \"tool\": \"conda\"}",
+   "{\"cell_idx\": 2, \"elsewhere\": \"-n newCondaEnvironment\", \"execution_count\": null, \"guard\": null, \"heading\": \"1. **THESE LINE BELOW WILL UPDATE PYTHON, AND A WORKAROUND FOR KAGGLE UPDATING ISSUE. IT SHOULD NOT BE COMBINED AS ONE CELL**\", \"invocation\": \"shell_escape\", \"kernel_target\": false, \"line_idx\": 1, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [{\"known\": true, \"name\": \"-n\", \"value\": \"newCondaEnvironment\"}, {\"known\": true, \"name\": \"-c\", \"value\": \"cctbx202208\"}, {\"known\": false, \"name\": \"-y\", \"value\": null}], \"readability\": \"literal\", \"targets\": [], \"text\": \"!conda create -n newCondaEnvironment -c cctbx202208 -y\", \"tool\": \"conda\"}",
+   "{\"cell_idx\": 24, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"2. Install the web UI\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"url\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"git+https://github.com/Uberi/speech_recognition.git@010382b80267f0f7794169fccc8e875ee7da7c19\"}], \"text\": \"!pip install git+https://github.com/Uberi/speech_recognition.git@010382b80267f0f7794169fccc8e875ee7da7c19\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 24, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"2. Install the web UI\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"openai-whisper\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"openai-whisper\", \"specifier\": \"\", \"text\": \"openai-whisper\"}], \"text\": \"!pip install openai-whisper\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 24, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"2. Install the web UI\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 2, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"soundfile\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"soundfile\", \"specifier\": \"\", \"text\": \"soundfile\"}], \"text\": \"!pip install soundfile\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 24, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"2. Install the web UI\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 3, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"ffmpeg\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"ffmpeg\", \"specifier\": \"\", \"text\": \"ffmpeg\"}], \"text\": \"!pip install ffmpeg\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 24, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"2. Install the web UI\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 4, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"ipython\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"ipython\", \"specifier\": \"\", \"text\": \"ipython\"}], \"text\": \"!pip install ipython\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 24, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"2. Install the web UI\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 5, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"num2words\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"num2words\", \"specifier\": \"\", \"text\": \"num2words\"}], \"text\": \"!pip install num2words\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 24, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"2. Install the web UI\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 6, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"omegaconf\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"omegaconf\", \"specifier\": \"\", \"text\": \"omegaconf\"}], \"text\": \"!pip install omegaconf\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 24, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"2. Install the web UI\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 7, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"pydub\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"pydub\", \"specifier\": \"\", \"text\": \"pydub\"}], \"text\": \"!pip install pydub\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 24, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"2. Install the web UI\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 8, \"notebook\": \"kaggle_corpus/130818535.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"pyyaml\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"PyYAML\", \"specifier\": \"\", \"text\": \"PyYAML\"}], \"text\": \"!pip install PyYAML\", \"tool\": \"pip\"}"
+  ],
+  "notices": [
+   "[\"conda_command\", \"Uses a conda install command ('!conda create -n newCondaEnvironment -c cctbx202208 -y'). Conda packages are not tracked in pip requirements manifests.\", 2, 1]",
+   "[\"conda_command\", \"Uses a conda install command ('!source /opt/conda/bin/activate newCondaEnvironment && conda install -c cctbx202208 python -y'). Conda packages are not tracked in pip requirements manifests.\", 2, 2]",
+   "[\"raw_install\", \"'git+https://github.com/Uberi/speech_recognition.git@010382b80267f0f7794169fccc8e875ee7da7c19' is installed from a non-standard source (git/URL/local file), not PyPI. It will still be installed exactly as specified, but can't be verified or checked for drift -- you're responsible for ensuring anyone running this notebook has access to the same resource.\", 24, 0]"
+  ],
+  "warnings": [
+   "[\"external_requirement\", \"References an external requirements file ('!pip install -r requirements.txt'). Ensure that file is shared alongside your notebook.\", 12, 1]",
+   "[\"external_requirement\", \"References an external requirements file ('!pip install -r requirements.txt'). Ensure that file is shared alongside your notebook.\", 15, 4]"
+  ]
+ },
+ "kaggle_corpus/209669249.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pandas\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"peft\", \"source\": \"writefile_script\", \"status\": \"writefile_script\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"writefile_script\", \"status\": \"writefile_script\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"tqdm\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"tqdm\", \"source\": \"writefile_script\", \"status\": \"writefile_script\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"writefile_script\", \"status\": \"writefile_script\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 1, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"kaggle_corpus/209669249.ipynb\", \"options\": [{\"known\": true, \"name\": \"--no-index\", \"value\": null}, {\"known\": true, \"name\": \"--find-links\", \"value\": \"/kaggle/input/eedi-library\"}], \"readability\": \"computed\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"computed\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"/kaggle/input/eedi-library/autoawq*.whl\"}, {\"canonical\": \"\", \"extras\": [], \"kind\": \"path\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"/kaggle/input/eedi-library/peft-0.13.2-py3-none-any.whl\"}], \"text\": \"!pip install /kaggle/input/eedi-library/autoawq*.whl /kaggle/input/eedi-library/peft-0.13.2-py3-none-any.whl  --no-index --find-links=/kaggle/input/eedi-library\", \"tool\": \"pip\"}"
+  ],
+  "notices": [
+   "[\"kaggle_input_install\", \"'/kaggle/input/eedi-library/peft-0.13.2-py3-none-any.whl' comes from the Kaggle dataset 'eedi-library'. The notebook needs that dataset attached as an input, and this install fails outside Kaggle.\", 1, 0]"
+  ],
+  "warnings": [
+   "[\"computed_install\", \"'!pip install /kaggle/input/eedi-library/autoawq*.whl /kaggle/input/eedi-library/peft-0.13.2-py3-none-any.whl  --no-index --find-links=/kaggle/input/eedi-library' names packages or options with a variable or wildcard, which steady-py can't know before it runs, so the setup cell doesn't install those. The line stays in your notebook and runs there as before.\", 1, 0]"
+  ]
+ },
+ "kaggle_corpus/246556058.ipynb": {
+  "dependencies": [
+   "{\"flags\": [\"--index-url\", \"https://download.pytorch.org/whl/cu118\"], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [\"--index-url\", \"https://download.pytorch.org/whl/cu118\"], \"hardware_tagged\": false, \"name\": \"torchaudio\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [\"--index-url\", \"https://download.pytorch.org/whl/cu118\"], \"hardware_tagged\": false, \"name\": \"torchvision\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"NEW_MOMS_DATA\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"PREGNANCY_SUPPORT_DATA\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"SelfCare_DATA\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"Student_DATA\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"WORK_LIFE_BALANCE_DATA\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"bert_score\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"bitsandbytes\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"bleurt\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"datasets\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"evaluate\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"firebase_admin\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"huggingface_hub\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"kaggle_secrets\", \"source\": \"import\", \"status\": \"platform_pseudo_module\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"matplotlib\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pandas\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pip\", \"source\": \"pip_command\", \"status\": \"build_tool\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"scikit-learn\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"seaborn\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"tensorflow\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"tqdm\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"trl\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"unsloth\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"wandb\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"wordcloud\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 116, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Testing - Comparing Femuna Models Responses With Others\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"kaggle_corpus/246556058.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"pip\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"pip\", \"specifier\": \"\", \"text\": \"pip\"}], \"text\": \"!pip install --upgrade pip\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 116, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Testing - Comparing Femuna Models Responses With Others\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 2, \"notebook\": \"kaggle_corpus/246556058.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"tensorflow\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"tensorflow\", \"specifier\": \"\", \"text\": \"tensorflow\"}], \"text\": \"!pip install tensorflow\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 116, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Testing - Comparing Femuna Models Responses With Others\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 3, \"notebook\": \"kaggle_corpus/246556058.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"url\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"git+https://github.com/google-research/bleurt.git\"}], \"text\": \"!pip install git+https://github.com/google-research/bleurt.git\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 116, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Testing - Comparing Femuna Models Responses With Others\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 4, \"notebook\": \"kaggle_corpus/246556058.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"bert-score\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"bert_score\", \"specifier\": \"\", \"text\": \"bert_score\"}], \"text\": \"!pip install bert_score\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 4, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Installing the required libraries and packages\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"kaggle_corpus/246556058.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"requirements_file\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"requirements.txt\"}], \"text\": \"!pip install -r requirements.txt\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 5, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Installing the required libraries and packages\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 2, \"notebook\": \"kaggle_corpus/246556058.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"bitsandbytes\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"bitsandbytes\", \"specifier\": \"\", \"text\": \"bitsandbytes\"}], \"text\": \"!pip install -U bitsandbytes\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 6, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Installing the required libraries and packages\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"kaggle_corpus/246556058.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"unsloth\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"unsloth\", \"specifier\": \"\", \"text\": \"unsloth\"}], \"text\": \"!pip install unsloth\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 6, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Installing the required libraries and packages\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 2, \"notebook\": \"kaggle_corpus/246556058.ipynb\", \"options\": [{\"known\": true, \"name\": \"--force-reinstall\", \"value\": null}, {\"known\": true, \"name\": \"--no-cache-dir\", \"value\": null}, {\"known\": true, \"name\": \"--no-deps\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"url\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"git+https://github.com/unslothai/unsloth.git\"}], \"text\": \"!pip install --force-reinstall --no-cache-dir --no-deps git+https://github.com/unslothai/unsloth.git\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 88, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Testing the models before fine tuning them :\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"kaggle_corpus/246556058.ipynb\", \"options\": [{\"known\": true, \"name\": \"--index-url\", \"value\": \"https://download.pytorch.org/whl/cu118\"}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"torch\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"torch\", \"specifier\": \"==2.1.2\", \"text\": \"torch==2.1.2\"}, {\"canonical\": \"torchvision\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"torchvision\", \"specifier\": \"==0.16.2\", \"text\": \"torchvision==0.16.2\"}, {\"canonical\": \"torchaudio\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"torchaudio\", \"specifier\": \"==2.1.2\", \"text\": \"torchaudio==2.1.2\"}], \"text\": \"!pip install torch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 --index-url https://download.pytorch.org/whl/cu118\", \"tool\": \"pip\"}"
+  ],
+  "notices": [
+   "[\"raw_install\", \"'git+https://github.com/google-research/bleurt.git' is installed from a non-standard source (git/URL/local file), not PyPI. It will still be installed exactly as specified, but can't be verified or checked for drift -- you're responsible for ensuring anyone running this notebook has access to the same resource.\", 116, 3]",
+   "[\"raw_install\", \"'git+https://github.com/unslothai/unsloth.git' is installed from a non-standard source (git/URL/local file), not PyPI. It will still be installed exactly as specified, but can't be verified or checked for drift -- you're responsible for ensuring anyone running this notebook has access to the same resource.\", 6, 2]"
+  ],
+  "platform_pseudo_modules": [
+   "\"kaggle_secrets\""
+  ],
+  "warnings": [
+   "[\"external_requirement\", \"References an external requirements file ('!pip install -r requirements.txt'). Ensure that file is shared alongside your notebook.\", 4, 0]"
+  ]
+ },
+ "kaggle_corpus/282973518.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"catboost\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipython\", \"source\": \"import\", \"status\": \"pinned\", \"version\": \"9.17.1\"}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"joblib\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"kaggle_secrets\", \"source\": \"import\", \"status\": \"platform_pseudo_module\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"lightgbm\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"matplotlib\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"optuna\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"optuna-integration\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pandas\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"scikit-learn\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"scipy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"seaborn\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"sweetviz\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ydata_profiling\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 2, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"The Approach\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"kaggle_corpus/282973518.ipynb\", \"options\": [{\"known\": true, \"name\": \"--no-binary\", \"value\": \"lightgbm\"}, {\"known\": true, \"name\": \"--config-settings\", \"value\": \"cmake.define.USE_CUDA=ON\"}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"lightgbm\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"lightgbm\", \"specifier\": \"\", \"text\": \"lightgbm\"}], \"text\": \"%pip install --no-binary lightgbm --config-settings=cmake.define.USE_CUDA=ON lightgbm\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 2, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"The Approach\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 2, \"notebook\": \"kaggle_corpus/282973518.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"optuna\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"optuna\", \"specifier\": \"\", \"text\": \"optuna\"}], \"text\": \"%pip -q install -U optuna\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 2, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"The Approach\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 3, \"notebook\": \"kaggle_corpus/282973518.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"optuna-integration\", \"extras\": [\"lightgbm\"], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"optuna-integration\", \"specifier\": \"\", \"text\": \"optuna-integration[lightgbm]\"}], \"text\": \"%pip -q install optuna-integration[lightgbm]\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 2, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"The Approach\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 4, \"notebook\": \"kaggle_corpus/282973518.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"ydata-profiling\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"ydata_profiling\", \"specifier\": \"\", \"text\": \"ydata_profiling\"}], \"text\": \"%pip -q install --upgrade ydata_profiling\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 2, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"The Approach\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"kaggle_corpus/282973518.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"sweetviz\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"sweetviz\", \"specifier\": \"\", \"text\": \"sweetviz\"}], \"text\": \"!pip install sweetviz\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 2, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"The Approach\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 5, \"notebook\": \"kaggle_corpus/282973518.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"catboost\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"catboost\", \"specifier\": \"\", \"text\": \"catboost\"}], \"text\": \"!pip install catboost\", \"tool\": \"pip\"}"
+  ],
+  "platform_pseudo_modules": [
+   "\"kaggle_secrets\""
+  ]
+ },
+ "kaggle_corpus/295962447.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"datasets\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"fastparquet\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"flax\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google-tunix\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"huggingface_hub\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"humanize\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"jax\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"kaggle\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"kagglehub\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"optax\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"orbax\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pyarrow\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"tqdm\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"tunix\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 21, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Data Sourcing and Loading\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 4, \"notebook\": \"kaggle_corpus/295962447.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"huggingface-hub\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"huggingface_hub\", \"specifier\": \"\", \"text\": \"huggingface_hub\"}, {\"canonical\": \"pyarrow\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"pyarrow\", \"specifier\": \"\", \"text\": \"pyarrow\"}, {\"canonical\": \"fastparquet\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"fastparquet\", \"specifier\": \"\", \"text\": \"fastparquet\"}, {\"canonical\": \"datasets\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"datasets\", \"specifier\": \"\", \"text\": \"datasets\"}, {\"canonical\": \"kaggle\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"kaggle\", \"specifier\": \"\", \"text\": \"kaggle\"}], \"text\": \"!pip install -q huggingface_hub pyarrow fastparquet datasets kaggle\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 3, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Library Imports & Installations\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"kaggle_corpus/295962447.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"git\", \"specifier\": \"\", \"text\": \"git\"}], \"text\": \"!apt-get install -y git\", \"tool\": \"system\"}",
+   "{\"cell_idx\": 4, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Library Imports & Installations\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"kaggle_corpus/295962447.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"google-tunix\", \"extras\": [\"prod\"], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"google-tunix\", \"specifier\": \"==0.1.5\", \"text\": \"google-tunix[prod]==0.1.5\"}], \"text\": \"!pip install google-tunix[prod]==0.1.5\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 5, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Library Imports & Installations\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 4, \"notebook\": \"kaggle_corpus/295962447.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"datasets\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"datasets\", \"specifier\": \"\", \"text\": \"datasets\"}], \"text\": \"!pip install datasets --quiet\", \"tool\": \"pip\"}"
+  ],
+  "notices": [
+   "[\"system_command\", \"Uses a system install command ('!apt-get install -y git'). Note: System dependencies must be run manually by readers.\", 3, 1]"
+  ],
+  "warnings": [
+   "[\"unparseable_cell\", \"steady-py couldn't read this cell as Python (line 52: unexpected indent), so imports in it are missing from the report.\", 21, 51]"
+  ]
+ },
+ "kaggle_corpus/310110700.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"datasets\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"kagglehub\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"mamba_ssm\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pandas\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"peft\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"triton\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"trl\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 3, \"elsewhere\": \"--target {?}\", \"execution_count\": null, \"guard\": null, \"heading\": \"Setup & Model Loading\", \"invocation\": \"python_call\", \"kernel_target\": false, \"line_idx\": 12, \"notebook\": \"kaggle_corpus/310110700.ipynb\", \"options\": [{\"known\": true, \"name\": \"--no-deps\", \"value\": null}, {\"known\": true, \"name\": \"--upgrade\", \"value\": null}, {\"known\": true, \"name\": \"--ignore-installed\", \"value\": null}, {\"known\": true, \"name\": \"--target\", \"value\": \"{?}\"}], \"readability\": \"computed\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"computed\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"{?}\"}], \"text\": \"subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', '--target', target, '--upgrade', '--ignore-installed', wheel], check=True)\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 5, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 0, \"condition\": \"os.path.exists(offline_path)\", \"group\": \"5:9\", \"kind\": \"if\"}, \"heading\": \"Setup & Model Loading\", \"invocation\": \"python_call\", \"kernel_target\": true, \"line_idx\": 9, \"notebook\": \"kaggle_corpus/310110700.ipynb\", \"options\": [{\"known\": true, \"name\": \"--no-index\", \"value\": null}, {\"known\": true, \"name\": \"--find-links\", \"value\": \"{{offline_path}}\"}], \"readability\": \"computed\", \"targets\": [{\"canonical\": \"trl\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"trl\", \"specifier\": \"\", \"text\": \"trl\"}], \"text\": \"subprocess.run(f'pip install --no-index --find-links={offline_path} trl', shell=True)\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 5, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 1, \"condition\": \"\", \"group\": \"5:9\", \"kind\": \"if\"}, \"heading\": \"Setup & Model Loading\", \"invocation\": \"python_call\", \"kernel_target\": true, \"line_idx\": 11, \"notebook\": \"kaggle_corpus/310110700.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"trl\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"trl\", \"specifier\": \"\", \"text\": \"trl\"}], \"text\": \"subprocess.run('pip install trl', shell=True)\", \"tool\": \"pip\"}"
+  ],
+  "warnings": [
+   "[\"guarded_install\", \"'subprocess.run('pip install trl', shell=True)' runs only in an `else` branch, so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 5, 11]",
+   "[\"guarded_install\", \"'subprocess.run(f'pip install --no-index --find-links={offline_path} trl', shell=True)' runs only inside `if os.path.exists(offline_path)`, so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 5, 9]",
+   "[\"other_environment_install\", \"'subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', '--target', target, '--upgrade', '--ignore-installed', wheel], check=True)' installs somewhere other than the notebook's environment (--target {?}), so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 3, 12]"
+  ]
+ },
+ "kaggle_corpus/62497958.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"Pillow\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"efficientnet\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"focal_loss\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"hpacellseg\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"imageio\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipython\", \"source\": \"import\", \"status\": \"pinned\", \"version\": \"9.17.1\"}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"matplotlib\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"opencv-python\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pandas\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"plotly\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pycocotools\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"requests\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"seaborn\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"tensorflow\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"tqdm\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 4, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"kaggle_corpus/62497958.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"path\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"./focal-loss-master/\"}], \"text\": \"!pip install ./focal-loss-master/\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 6, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"kaggle_corpus/62497958.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"path\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"/kaggle/input/kerasapplications\"}], \"text\": \"!pip install /kaggle/input/kerasapplications -q\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 6, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"kaggle_corpus/62497958.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--no-deps\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"path\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"/kaggle/input/efficientnet-keras-source-code/\"}], \"text\": \"!pip install /kaggle/input/efficientnet-keras-source-code/ -q --no-deps\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 8, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 1, \"condition\": \"\", \"group\": \"8:3\", \"kind\": \"except\"}, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 6, \"notebook\": \"kaggle_corpus/62497958.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"path\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"/kaggle/input/pycocotools/pycocotools-2.0-cp37-cp37m-linux_x86_64.whl\"}], \"text\": \"!pip install -q \\\"/kaggle/input/pycocotools/pycocotools-2.0-cp37-cp37m-linux_x86_64.whl\\\"\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 8, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 1, \"condition\": \"\", \"group\": \"8:3\", \"kind\": \"except\"}, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 7, \"notebook\": \"kaggle_corpus/62497958.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"path\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"/kaggle/input/hpapytorchzoozip/pytorch_zoo-master\"}], \"text\": \"!pip install -q \\\"/kaggle/input/hpapytorchzoozip/pytorch_zoo-master\\\"\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 8, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 1, \"condition\": \"\", \"group\": \"8:3\", \"kind\": \"except\"}, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 8, \"notebook\": \"kaggle_corpus/62497958.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"path\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"/kaggle/input/hpacellsegmentatormaster/HPA-Cell-Segmentation-master\"}], \"text\": \"!pip install -q \\\"/kaggle/input/hpacellsegmentatormaster/HPA-Cell-Segmentation-master\\\"\", \"tool\": \"pip\"}"
+  ],
+  "notices": [
+   "[\"kaggle_input_install\", \"'/kaggle/input/efficientnet-keras-source-code/' comes from the Kaggle dataset 'efficientnet-keras-source-code'. The notebook needs that dataset attached as an input, and this install fails outside Kaggle.\", 6, 1]",
+   "[\"kaggle_input_install\", \"'/kaggle/input/kerasapplications' comes from the Kaggle dataset 'kerasapplications'. The notebook needs that dataset attached as an input, and this install fails outside Kaggle.\", 6, 0]",
+   "[\"raw_install\", \"'./focal-loss-master/' is installed from a non-standard source (git/URL/local file), not PyPI. It will still be installed exactly as specified, but can't be verified or checked for drift -- you're responsible for ensuring anyone running this notebook has access to the same resource.\", 4, 1]"
+  ],
+  "warnings": [
+   "[\"guarded_install\", \"'!pip install -q \\\"/kaggle/input/hpacellsegmentatormaster/HPA-Cell-Segmentation-master\\\"' runs only inside an `except` block, so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 8, 8]",
+   "[\"guarded_install\", \"'!pip install -q \\\"/kaggle/input/hpapytorchzoozip/pytorch_zoo-master\\\"' runs only inside an `except` block, so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 8, 7]",
+   "[\"guarded_install\", \"'!pip install -q \\\"/kaggle/input/pycocotools/pycocotools-2.0-cp37-cp37m-linux_x86_64.whl\\\"' runs only inside an `except` block, so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 8, 6]"
+  ]
+ },
+ "kaggle_samples/failed/plant-pathology-2020-fgvc7_mamamot_fastai-v2-example_v2_C1.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"azure-cognitiveservices-search-imagesearch\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"fastai2\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"graphviz\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipywidgets\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"matplotlib\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"nbdev\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pandas\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"scikit_learn\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"sentencepiece\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 0, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": null, \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"kaggle_samples/failed/plant-pathology-2020-fgvc7_mamamot_fastai-v2-example_v2_C1.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"fastai2\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"fastai2\", \"specifier\": \"\", \"text\": \"fastai2\"}, {\"canonical\": \"graphviz\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"graphviz\", \"specifier\": \"\", \"text\": \"graphviz\"}, {\"canonical\": \"ipywidgets\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"ipywidgets\", \"specifier\": \"\", \"text\": \"ipywidgets\"}, {\"canonical\": \"matplotlib\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"matplotlib\", \"specifier\": \"\", \"text\": \"matplotlib\"}, {\"canonical\": \"nbdev\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"nbdev\", \"specifier\": \"\", \"text\": \"nbdev\"}, {\"canonical\": \"pandas\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"pandas\", \"specifier\": \"\", \"text\": \"pandas\"}, {\"canonical\": \"scikit-learn\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"scikit_learn\", \"specifier\": \"\", \"text\": \"scikit_learn\"}, {\"canonical\": \"azure-cognitiveservices-search-imagesearch\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"azure-cognitiveservices-search-imagesearch\", \"specifier\": \"\", \"text\": \"azure-cognitiveservices-search-imagesearch\"}, {\"canonical\": \"sentencepiece\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"sentencepiece\", \"specifier\": \"\", \"text\": \"sentencepiece\"}], \"text\": \"!pip install fastai2>=0.0.11 graphviz ipywidgets matplotlib nbdev>=0.2.12 pandas scikit_learn azure-cognitiveservices-search-imagesearch sentencepiece\", \"tool\": \"pip\"}"
+  ]
+ },
+ "kaggle_samples/failed/spooky-author-identification_jaymanvirk_fine-tuning-logreg-rf-nb-svm-and-xgboost_v7_C1.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"matplotlib\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"nltk\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pandas\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"scikit-learn\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"seaborn\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"spacy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"xgboost\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ]
+ },
+ "mine/medgemma-kaggle.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"accelerate\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"bitsandbytes\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"json5\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"kaggle_secrets\", \"source\": \"import\", \"status\": \"platform_pseudo_module\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"python-dotenv\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 3, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Before running this notebook\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"mine/medgemma-kaggle.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"bitsandbytes\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"bitsandbytes\", \"specifier\": \"\", \"text\": \"bitsandbytes\"}, {\"canonical\": \"transformers\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"transformers\", \"specifier\": \"\", \"text\": \"transformers\"}, {\"canonical\": \"accelerate\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"accelerate\", \"specifier\": \"\", \"text\": \"accelerate\"}, {\"canonical\": \"json5\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"json5\", \"specifier\": \"\", \"text\": \"json5\"}], \"text\": \"%pip install -q bitsandbytes transformers accelerate json5\", \"tool\": \"pip\"}"
+  ],
+  "platform_pseudo_modules": [
+   "\"kaggle_secrets\""
+  ]
+ },
+ "mine/silhouette-testing.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"matplotlib\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pandas\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"psutil\", \"source\": \"import\", \"status\": \"pinned\", \"version\": \"7.2.2\"}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pykeops\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"scikit-learn\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 5, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Install the required library and modules\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"mine/silhouette-testing.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"pykeops\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"pykeops\", \"specifier\": \"\", \"text\": \"pykeops\"}], \"text\": \"!pip install pykeops --quiet\", \"tool\": \"pip\"}"
+  ]
+ },
+ "packt/Data-Strategy-for-LLMs/chapter_03/Jupyter_Notebooks/Chapter_3_Notebook.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"beautifulsoup4\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"chromadb\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipykernel\", \"source\": \"import\", \"status\": \"guarded\", \"version\": \"7.4.0\"}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"langchain_text_splitters\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"matplotlib\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"networkx\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"nltk\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"openai\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"packaging\", \"source\": \"import\", \"status\": \"guarded\", \"version\": \"26.3\"}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"python-dotenv\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"requests\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"sentence_transformers\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ]
+ },
+ "packt/Data-Strategy-for-LLMs/chapter_05/Jupyter_Notebooks/Chapter_5_Notebook.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"chromadb\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"openai\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"python-dotenv\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"utils\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 3, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Setup: Reuse Chapter 4 Environment\", \"invocation\": \"python_call\", \"kernel_target\": true, \"line_idx\": 14, \"notebook\": \"packt/Data-Strategy-for-LLMs/chapter_05/Jupyter_Notebooks/Chapter_5_Notebook.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"computed\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"computed\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"{?}\"}], \"text\": \"subprocess.run([sys.executable, '-m', 'pip', 'install', pkg, '-q'], capture_output=True)\", \"tool\": \"pip\"}"
+  ],
+  "warnings": [
+   "[\"computed_install\", \"'subprocess.run([sys.executable, '-m', 'pip', 'install', pkg, '-q'], capture_output=True)' names packages or options with a variable or wildcard, which steady-py can't know before it runs, so the setup cell doesn't install those. The line stays in your notebook and runs there as before.\", 3, 14]"
+  ]
+ },
+ "sagemaker/sm-async_inference_with_python_sdk.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"awscli\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"boto3\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"botocore\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pip\", \"source\": \"pip_command\", \"status\": \"build_tool\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"sagemaker\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 11, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"1. Setup <a id='setup'></a>\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 2, \"notebook\": \"sagemaker/sm-async_inference_with_python_sdk.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}, {\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"pip\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"pip\", \"specifier\": \"\", \"text\": \"pip\"}], \"text\": \"!python -m pip install --upgrade pip --quiet\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 11, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"1. Setup <a id='setup'></a>\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 3, \"notebook\": \"sagemaker/sm-async_inference_with_python_sdk.ipynb\", \"options\": [{\"known\": true, \"name\": \"--upgrade\", \"value\": null}, {\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"awscli\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"awscli\", \"specifier\": \"\", \"text\": \"awscli\"}], \"text\": \"!pip install -U awscli --quiet\", \"tool\": \"pip\"}"
+  ]
+ },
+ "sagemaker/sm-pipelines_step_decorator_with_classic_training_step.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"sagemaker\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 5, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Install the dependencies and setup configuration file path\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"sagemaker/sm-pipelines_step_decorator_with_classic_training_step.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"requirements_file\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"./requirements.txt\"}], \"text\": \"!pip install -r ./requirements.txt\", \"tool\": \"pip\"}"
+  ],
+  "warnings": [
+   "[\"external_requirement\", \"References an external requirements file ('!pip install -r ./requirements.txt'). Ensure that file is shared alongside your notebook.\", 5, 0]"
+  ]
+ },
+ "sagemaker/sm-triton_inferentia2.ipynb": {
+  "dependencies": [
+   "{\"flags\": [\"--extra-index-url\", \"https://pip.repos.neuron.amazonaws.com\"], \"hardware_tagged\": false, \"name\": \"transformers-neuronx\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"Pillow\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"awscli\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"boto3\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"nvidia-pyindex\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pip\", \"source\": \"pip_command\", \"status\": \"build_tool\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"sagemaker\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch-neuronx\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torchvision\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"tritonclient\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 31, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"PyTorch-Neuronx\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"sagemaker/sm-triton_inferentia2.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"torch-neuronx\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"torch-neuronx\", \"specifier\": \"\", \"text\": \"torch-neuronx\"}, {\"canonical\": \"transformers-neuronx\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"transformers-neuronx\", \"specifier\": \"\", \"text\": \"transformers-neuronx\"}], \"text\": \"!pip install torch-neuronx transformers-neuronx\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 52, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Note: the following commands to compile/trace the model should be run on an inf2 instance\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"sagemaker/sm-triton_inferentia2.ipynb\", \"options\": [{\"known\": true, \"name\": \"--extra-index-url\", \"value\": \"https://pip.repos.neuron.amazonaws.com\"}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"transformers-neuronx\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"transformers-neuronx\", \"specifier\": \"\", \"text\": \"transformers-neuronx\"}], \"text\": \"!pip install transformers-neuronx --extra-index-url=https://pip.repos.neuron.amazonaws.com\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 7, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Set up the environment\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"sagemaker/sm-triton_inferentia2.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}, {\"known\": true, \"name\": \"--upgrade\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"pip\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"pip\", \"specifier\": \"\", \"text\": \"pip\"}, {\"canonical\": \"awscli\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"awscli\", \"specifier\": \"\", \"text\": \"awscli\"}, {\"canonical\": \"boto3\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"boto3\", \"specifier\": \"\", \"text\": \"boto3\"}, {\"canonical\": \"sagemaker\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"sagemaker\", \"specifier\": \"<3.0\", \"text\": \"sagemaker<3.0\"}], \"text\": \"!pip install -qU pip awscli boto3 'sagemaker<3.0'\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 7, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Set up the environment\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 1, \"notebook\": \"sagemaker/sm-triton_inferentia2.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"nvidia-pyindex\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"nvidia-pyindex\", \"specifier\": \"\", \"text\": \"nvidia-pyindex\"}], \"text\": \"!pip install nvidia-pyindex\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 7, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Set up the environment\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 2, \"notebook\": \"sagemaker/sm-triton_inferentia2.ipynb\", \"options\": [], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"tritonclient\", \"extras\": [\"http\"], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"tritonclient\", \"specifier\": \"\", \"text\": \"tritonclient[http]\"}], \"text\": \"!pip install tritonclient[http]\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 73, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": null, \"heading\": \"Note: the following commands to compile/trace the model should be run on an inf2 instance\", \"invocation\": \"shell_escape\", \"kernel_target\": true, \"line_idx\": 0, \"notebook\": \"sagemaker/sm-triton_inferentia2.ipynb\", \"options\": [{\"known\": true, \"name\": \"--extra-index-url\", \"value\": \"https://pip.repos.neuron.amazonaws.com\"}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"transformers-neuronx\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"transformers-neuronx\", \"specifier\": \"\", \"text\": \"transformers-neuronx\"}], \"text\": \"!pip install transformers-neuronx --extra-index-url=https://pip.repos.neuron.amazonaws.com\", \"tool\": \"pip\"}"
+  ],
+  "warnings": [
+   "[\"conflicting_flags\", \"Conflicting Scoped Flags for 'transformers-neuronx': Overwriting earlier flags with '--extra-index-url https://pip.repos.neuron.amazonaws.com' (in execution sequence).\", 73, 0]",
+   "[\"conflicting_flags\", \"Conflicting Scoped Flags for 'transformers-neuronx': Overwriting earlier flags with '--extra-index-url https://pip.repos.neuron.amazonaws.com' (in execution sequence).\", 73, 0]"
+  ]
+ },
+ "teachopencadd/teachopencadd/talktorials/T019_md_simulation/talktorial.ipynb": {
+  "dependencies": [
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipython\", \"source\": \"import\", \"status\": \"pinned\", \"version\": \"9.17.1\"}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"mdtraj\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"openff\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"openmm\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"openmmforcefields\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"pdbfixer\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"rdkit\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"requests\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "install_lines": [
+   "{\"cell_idx\": 7, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 0, \"condition\": \"on_colab\", \"group\": \"7:4\", \"kind\": \"if\"}, \"heading\": \"References\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 4, \"notebook\": \"teachopencadd/teachopencadd/talktorials/T019_md_simulation/talktorial.ipynb\", \"options\": [{\"known\": true, \"name\": \"--no-deps\", \"value\": null}, {\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"teachopencadd\", \"extras\": [], \"kind\": \"requirement\", \"marker\": \"\", \"name\": \"teachopencadd\", \"specifier\": \"\", \"text\": \"teachopencadd\"}], \"text\": \"%pip install teachopencadd --no-deps -q\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 7, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 0, \"condition\": \"on_colab\", \"group\": \"7:4\", \"kind\": \"if\"}, \"heading\": \"References\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 7, \"notebook\": \"teachopencadd/teachopencadd/talktorials/T019_md_simulation/talktorial.ipynb\", \"options\": [{\"known\": true, \"name\": \"--quiet\", \"value\": null}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"requirements_file\", \"marker\": \"\", \"name\": \"\", \"specifier\": \"\", \"text\": \"requirements.txt\"}], \"text\": \"%pip install -qr requirements.txt\", \"tool\": \"pip\"}",
+   "{\"cell_idx\": 7, \"elsewhere\": \"\", \"execution_count\": null, \"guard\": {\"branch\": 0, \"condition\": \"on_colab\", \"group\": \"7:4\", \"kind\": \"if\"}, \"heading\": \"References\", \"invocation\": \"line_magic\", \"kernel_target\": true, \"line_idx\": 8, \"notebook\": \"teachopencadd/teachopencadd/talktorials/T019_md_simulation/talktorial.ipynb\", \"options\": [{\"known\": false, \"name\": \"-y\", \"value\": null}, {\"known\": true, \"name\": \"-c\", \"value\": \"conda-forge\"}], \"readability\": \"literal\", \"targets\": [{\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"mdtraj\", \"specifier\": \"\", \"text\": \"mdtraj\"}, {\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"openmm\", \"specifier\": \"\", \"text\": \"openmm\"}, {\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"openmmforcefields\", \"specifier\": \"\", \"text\": \"openmmforcefields\"}, {\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"openff-toolkit\", \"specifier\": \"\", \"text\": \"openff-toolkit\"}, {\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"pdbfixer\", \"specifier\": \"\", \"text\": \"pdbfixer\"}, {\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"pypdb\", \"specifier\": \"\", \"text\": \"pypdb\"}, {\"canonical\": \"\", \"extras\": [], \"kind\": \"name\", \"marker\": \"\", \"name\": \"rdkit\", \"specifier\": \"\", \"text\": \"rdkit\"}], \"text\": \"%conda install mdtraj openmm openmmforcefields openff-toolkit pdbfixer pypdb rdkit -y -c conda-forge\", \"tool\": \"conda\"}"
+  ],
+  "notices": [
+   "[\"conda_command\", \"Uses a conda install command ('%conda install mdtraj openmm openmmforcefields openff-toolkit pdbfixer pypdb rdkit -y -c conda-forge'). Conda packages are not tracked in pip requirements manifests.\", 7, 8]"
+  ],
+  "warnings": [
+   "[\"external_requirement\", \"References an external requirements file ('%pip install -qr requirements.txt'). Ensure that file is shared alongside your notebook.\", 7, 7]",
+   "[\"guarded_install\", \"'%pip install -qr requirements.txt' runs only inside `if on_colab`, so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 7, 7]",
+   "[\"guarded_install\", \"'%pip install teachopencadd --no-deps -q' runs only inside `if on_colab`, so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 7, 4]"
+  ]
+ }
+}
