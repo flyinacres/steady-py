@@ -264,7 +264,9 @@ class TestSnapshot:
         path = _source(tmp_path)
         slow, = snapshot(path, SnapshotOptions(install_timeout=999), ENV).notebooks
         fast, = snapshot(path, SnapshotOptions(install_timeout=5), ENV).notebooks
-        assert "999" in slow.cells.code and "999" not in fast.cells.code
+        # The install call, not the whole cell: the manifest's hash and dates can contain any digits.
+        assert "install(STEADY_PY_MANIFEST, timeout=999)" in slow.cells.code
+        assert "install(STEADY_PY_MANIFEST, timeout=5)" in fast.cells.code
 
     def test_an_unreadable_file_is_an_error_and_produces_no_cells(self, tmp_path, isolated):
         bad = tmp_path / "bad.ipynb"
