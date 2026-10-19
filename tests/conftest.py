@@ -9,7 +9,7 @@ import pytest
 from tests.support import docker
 from tests.support.envs import WHEELHOUSE, build_steady_py, ensure_wheelhouse, kernel_venv, steady_venv
 from tests.support.fake_pypi import FakePyPI
-from tests.support.markers import TIERS
+from tests.support.markers import TIERS, unavailable
 
 _TIER_DOCS = {
     "venv": "runs the tool in a real venv (matrix layer V)",
@@ -90,10 +90,10 @@ def analysis_only(pypi):
 
 @pytest.fixture(scope="session")
 def steady_dist(tmp_path_factory):
-    """steady-py's wheel, built once per session. Skips the tier when the wheelhouse is unavailable."""
+    """steady-py's wheel, built once per session. The tier can't run without the wheelhouse (unavailable)."""
     reason = ensure_wheelhouse()
     if reason:
-        pytest.skip(reason)
+        unavailable(reason)
     return build_steady_py(tmp_path_factory.mktemp("dist"))
 
 
@@ -106,8 +106,11 @@ def base_venv(steady_dist, tmp_path_factory):
 @pytest.fixture(scope="session")
 def live_venv(steady_dist, tmp_path_factory):
     """base_venv plus ipykernel, shared by kernel-tier tests (which must not install into it).
-    Skips when this process can't drive a kernel."""
-    pytest.importorskip("jupyter_client", reason="the kernel tier needs jupyter_client in the test environment")
+    The tier can't run when this process can't drive a kernel (unavailable)."""
+    try:
+        import jupyter_client  # noqa: F401
+    except ImportError:
+        unavailable("the kernel tier needs jupyter_client in the test environment")
     return kernel_venv(tmp_path_factory.mktemp("venvs") / "kernel", steady_dist)
 
 
@@ -119,11 +122,11 @@ def fresh_venv(steady_dist, tmp_path):
 
 @pytest.fixture
 def docker_work(steady_dist, tmp_path):
-    """A directory to mount at /work, with steady-py's wheel and its dependencies in wheels/. Skips
-    the test when Docker can't run."""
+    """A directory to mount at /work, with steady-py's wheel and its dependencies in wheels/. The
+    test can't run without Docker (unavailable)."""
     reason = docker.unavailable()
     if reason:
-        pytest.skip(reason)
+        unavailable(reason)
     wheels = tmp_path / "work" / "wheels"
     wheels.mkdir(parents=True)
     # Not the wheelhouse's pip: the Docker tiers keep the image's own pip, as users would.

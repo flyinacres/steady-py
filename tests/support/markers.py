@@ -1,6 +1,12 @@
 """Matrix bookkeeping for tests: `finding` tags a test with a triage-matrix ID, `known_bug` marks
 a test that documents an unfixed finding. Tier markers and the hooks that read these live in
-tests/conftest.py."""
+tests/conftest.py. `unavailable` is how a test whose tier can't run here bows out.
+
+CI sets STEADY_PY_REQUIRE_TIERS, under which a missing prerequisite fails the test instead of
+skipping it, so a tier that silently didn't run can't pass."""
+import os
+from typing import NoReturn
+
 import pytest
 
 TIERS = ("venv", "kernel", "docker")
@@ -14,6 +20,13 @@ class _Marks(list):
         for mark in self:
             func = mark(func)
         return func
+
+
+def unavailable(reason: str) -> NoReturn:
+    """Skips the test because its tier can't run here, or fails it when STEADY_PY_REQUIRE_TIERS is set."""
+    if os.environ.get("STEADY_PY_REQUIRE_TIERS"):
+        pytest.fail(f"a required tier can't run: {reason}", pytrace=False)
+    pytest.skip(reason)
 
 
 def finding(finding_id: str) -> _Marks:

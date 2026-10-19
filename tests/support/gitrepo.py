@@ -1,14 +1,13 @@
 """F6: local git repositories. A saved project copied into tmp and committed, referenced as
-`git+file://...@<commit>`, with `#subdirectory=` for a project inside a monorepo. Skips the test
-when git is missing."""
+`git+file://...@<commit>`, with `#subdirectory=` for a project inside a monorepo. The test can't
+run without git (markers.unavailable)."""
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
-import pytest
-
 from tests.support.envs import PROJECTS
+from tests.support.markers import unavailable
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -22,7 +21,7 @@ def git_repo(workdir: Path, project: str, subdirectory: Optional[str] = None) ->
     """tests/fixtures/projects/<project> committed as a repository in `workdir` (under
     `subdirectory` when given). Returns (the `git+file://` URL without a ref, the commit)."""
     if shutil.which("git") is None:
-        pytest.skip("git is not installed")
+        unavailable("git is not installed")
     repo = Path(workdir) / "repo"
     shutil.copytree(PROJECTS / project, repo / subdirectory if subdirectory else repo)
     _git(repo, "init", "-q")

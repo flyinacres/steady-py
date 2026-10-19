@@ -1,0 +1,85 @@
+# The test tiers on every push to main and every pull request (working_rules.md, section 6).
+# STEADY_PY_REQUIRE_TIERS turns a tier that can't run (no wheelhouse, kernel, Docker or git) into a
+# failure instead of a skip. The live PyPI tests stay off (RUN_LIVE_PYPI_TESTS unset), and the
+# Kaggle and Colab images stay a manual `run_suite.py --all`.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash  # also on Windows, so a failing command in a multi-line step fails the step
+
+env:
+  PYTHONIOENCODING: utf-8
+  STEADY_PY_REQUIRE_TIERS: "1"
+
+jobs:
+  tiers:
+    name: unit, venv, kernel (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/cache@v6
+        with:
+          path: tests/.wheelhouse
+          key: wheelhouse-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('constraints-dev.txt', 'tests/support/envs.py') }}
+      - name: Install (working_rules.md, section 6)
+        id: install
+        run: |
+          python -m pip install -c constraints-dev.txt pip
+          python -m pip install -c constraints-dev.txt -e . mypy pytest nbformat ipykernel jupyter_client
+      - name: Unit tier
+        run: python -m pytest -ra
+      - name: Venv tier
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: python -m pytest -m venv -ra
+      - name: Kernel tier
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: python -m pytest -m kernel -ra
+
+  docker:
+    name: docker (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/cache@v6
+        with:
+          path: tests/.wheelhouse
+          key: wheelhouse-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('constraints-dev.txt', 'tests/support/envs.py') }}
+      - name: Install (working_rules.md, section 6)
+        id: install
+        run: |
+          python -m pip install -c constraints-dev.txt pip
+          python -m pip install -c constraints-dev.txt -e . mypy pytest nbformat ipykernel jupyter_client
+      - name: Docker tier
+        run: python -m pytest -m docker -ra
+      - name: run_suite.py, python3.11 tier
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: python tests/runners/run_suite.py --tier python3.11
+      - name: run_suite.py, common tier
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: python tests/runners/run_suite.py --tier common
