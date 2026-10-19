@@ -138,6 +138,7 @@ Reading test status:
 | K5 | Transitive markers use the host platform | N | not planned | out |  |  | Fires only when check runs on a different OS than snapshot; see decision 6 |
 | K8 | Lookup failure reported as a confirmed conflict | Y |  | pf2 | U | F3 |  |
 | LV1 | Local-version pins skip every PyPI check | Y |  | pf2 | U | F3 | Include an old baseline: not_checked_at_generation, not new |
+| LV5 | A heuristic finding not checked at generation exits 1 | Y |  | pf2 | U | F3 | Decision 8. The heuristic case of the characterization test for an unchecked package flips to exit 0; the confirmed case stays 1 |
 | CI1 | Custom-index project on PyPI reported removed; graph abandoned | Y |  | pf2 | U | F3 | Index lookup through the simple API deferred until a fake index exists. A removed pin also gets a duplicate `conflict` on itself |
 | LV2 | `custom_sourced` decided by the wrong rule | P |  | pf2 | U | F3 | Network-error case settled; build-tag field and runtime message open (DG6) |
 | CH1 | A manifest with an unknown or missing required field can't be read (exit 2) | Y |  | fixed | U | F1 | Decision 9: unknown fields of the same major version are named by check (exit 1) |
@@ -188,6 +189,7 @@ All N, blocked on feature design, except DG8, which is fixed. DG5 is under Envir
 | DG4 | Guard status in the manifest | Y |  | fixed | U | F1 | Guard group and branch fill `packages.guard` in step 4 |
 | DG6 | Build-tag runtime policy | N | not planned | pf1 | Decision 4 |
 | DG7 | Creator install lines undoing Cell 2 | N | not planned | 4 | |
+| DG9 | No creator override for an exit-1 condition | N | not planned | 4 | Decision 12 |
 | DG8 | Offline `/kaggle/input` wheel installs | Y |  | fixed | Decision 11 |
 | D7 | Live-session recipe is clunky | N | not planned | 4 | The round trip runs there |
 
@@ -212,7 +214,8 @@ Foundations and infrastructure:
 5. Whether the CLI describes its own interpreter or the kernel's (DG5).
 6. Whether the manifest records the target platform (K5). The manifest has no platform field, so check can't know it; a field adds complexity for a case that arises only when check runs on a different OS than snapshot (a Colab repository checked from a laptop, say). Revisit if that becomes a supported workflow.
 7. Whether DG1 (undeclared optional dependencies) becomes a settled row. Where the trigger appears, the dependency is undeclared in nearly every notebook (review_findings.md, Corpus evidence). The platform image hides it, so the notebook fails only once it leaves Kaggle or Colab. Open: report as candidates, or pin what's installed.
-8. The exit code for a heuristic finding classified `not_checked_at_generation`. Today it exits 1 (only `known` heuristics are exempt), and the characterization tests pin that; the comment in LV1's test says a newly visible finding on an old notebook must not start exiting 1. If the comment is the rule, this is a finding and the characterization test flips with the fix.
+8. The exit code for a heuristic finding classified `not_checked_at_generation` (LV5). Decided: it exits 0 and stays in the report under its label; a confirmed finding exits 1 whatever its baseline status. The finding couldn't be checked when the creator snapshotted, so exit 1 would report a change nobody can show happened; after LV1's fix it would fire on every old notebook with a local-version pin. The next snapshot records it as known.
 9. Manifest schema compatibility (CH1). Decided: PEP 751's `lock-version` rule (fix_plan.md, section 3.2, item 7).
 10. Classify CH2. Decided: a bug. The manifest stores the normalized name and the installed display name, and matches on the normalized one. CH3 is decided: `name @ url` is stored as written.
 11. Offline `/kaggle/input/...whl` installs (DG8). Decided: handled as any local path install, with no version recorded from the wheel. For a `/kaggle/input/<dataset>/...` path, the notice names the dataset and says the notebook needs it attached as an input and fails outside Kaggle.
+12. A creator override for every exit-1 condition (DG9). steady-py will sometimes be wrong, and a finding the creator can't dismiss makes it a blocker. Decided: a third declaration kind, accept, names one finding or diagnostic by the facts that define it (for a check finding, its baseline key: signal, package, version) and a reason. An accepted item stays in the report, marked accepted, and doesn't count toward exit 1. It lapses when those facts change, so a different yanked version fails again. It is recorded with provenance like any declaration, never inferred: the baseline snapshot writes isn't acceptance. It covers every exit-1 condition: snapshot's `ATTENTION_DIAGNOSTICS`, check's confirmed and new heuristic findings, and any added later (conflicting install lines, if review_findings.md item 10.1 makes them exit 1). Exit 2, could not do the job, has no override.

@@ -45,7 +45,7 @@ Standards for everything else are in working_rules.md, section 1. Two structures
    2. `packages`: one entry per package, matched across manifests by normalized name (the URL for a nameless direct source) and normalized extras. Fields: `name` (normalized), `display_name` (the installed metadata Name, carried forward while `name` is unchanged), `status`, `version`, `extras` (as written), `url` (a direct source as written, CH3), `options` (canonical name and value pairs, as in section 3.1.9), `custom_sourced`, `guard` (the install-line guard's kind, group and branch, filled from step 4), `provenance` (a map from `version`, `url` and `options` to declaration, notebook, environment or carried), `changed_at`.
    3. `status` is a DependencyStatus value. Cell 2 installs `pinned` and `direct_reference` only; the rest (`guarded`, `not_installed`, `auxiliary_tool`, `writefile_script`, `editable`, `system_path`, `custom_path`, `ambiguous`) are the protected record of what Cell 2 leaves alone (DG4). Build tools, platform modules and local modules are not packages.
    4. `local_modules`: `name`, `anchor` (`notebook_dir` or `root_dir`, never a path), `provenance`, `changed_at`.
-   5. `declarations` (filled from step 4): `kind` (install or ignore), `name`, `version`, `options`, `group`, `reason`, `origin` ("cell" or the declarations file's label), `changed_at`.
+   5. `declarations` (filled from step 4): `kind` (install, ignore or accept, decision 12), `name`, `version`, `options`, `group`, `finding` (accept only: the accepted finding's key), `reason`, `origin` ("cell" or the declarations file's label), `changed_at`.
    6. The delta compares every field (P3); a display name or a change date never makes a change.
    7. Compatibility (decision 9), as PEP 751 reads `lock-version`: `schema_version` is "major.minor". A minor bump adds fields, a major bump changes or removes them. A reader of the same major version ignores fields it doesn't know, and check reports them as `unread_fields` (exit 1); a missing optional field reads as not recorded; a missing `python_version` or `packages`, or another major version, can't be read (exit 2). Snapshot never replaces a manifest of a newer major version, and replaces an older one with a warning. Until the first release the format can change freely; after it, a major bump ships with a reader for the previous major version.
 
@@ -87,7 +87,7 @@ Not on the features' path; each is done when convenient, in any step.
 
 Numbers refer to the matrix's "Decisions that unblock rows", which owns each decision's content.
 
-1. Before step 4: decision 8, and the install-lines spec's open decisions 10.1 to 10.4.
+1. Before step 4: the install-lines spec's open decisions 10.1 to 10.4.
 2. Before step 5: the manifest-updating open items (baseline, GPU record, `custom_sourced` and `local_modules` under the update rule; update and rebuild with `--in-place`).
 3. With the runtime point fixes: decision 4.
 4. Any time: decision 1.

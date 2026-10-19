@@ -144,9 +144,10 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
 
 1. Declarations structure (working name `STEADY_PY_DECLARATIONS`; a better name is welcome):
    1. It is a tool-owned Python literal, parsed with `ast` and never executed. It is valid Python that does nothing when run. Parsing must handle any valid characters and comments.
-   2. Each entry is one of two flavors:
+   2. Each entry is one of three kinds:
       1. Install: package, optional pin, optional source (an index URL, find-links or VCS commit), and a reason.
       2. Ignore, meaning "I handle this": package, optional pin, optional group name for guarded alternatives, and a reason.
+      3. Accept, meaning "this finding is wrong for my notebook": one finding or diagnostic, named by the facts that define it, and a reason. Every condition that makes snapshot or check exit 1 can be accepted (matrix decision 12).
    3. A declarations literal that fails to parse stops snapshot with exit 2, naming the cell and the error. Continuing without it would pin every package the creator marked ignore.
 2. Where declarations come from:
    1. A declarations cell in the notebook, the default for online users. It persists in the notebook like any other cell. In a live kernel it is read from session history, where the last executed version counts; from the CLI it is read from the file. It must never match the prior-setup-cell rule, and snapshot warns if one cell holds both the declarations and the manifest.
