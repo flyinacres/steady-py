@@ -158,9 +158,17 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
    1. Snapshot checks each install entry. The package and version must exist, the version must support the notebook's Python, and it must resolve with the rest of the pins.
    2. Entries go into the hashed manifest with provenance, including which source each came from. A declarations file is recorded by a relative name or label, never a local path, since the manifest is shared.
    3. Snapshot reports drift, such as a declared package now detected on its own or a conflict with the environment.
-   4. Cell 2 and check read only the manifest.
+   4. Cell 2 reads only the manifest. Check reads the manifest and the notebook's install lines (item 10.2).
 5. Install-line reconciliation, reported by snapshot and never applied to the creator's code:
-   1. Packages Cell 2 installs, whether inferred or declared: each line is conflicting (it can change the pinned version, as with `-U`, a different `==` or `--force-reinstall`; fix these first) or redundant (a no-op).
+   1. Packages Cell 2 installs, whether inferred or declared: each line naming one is conflicting (fix these first) or redundant. A line conflicts when, run after Cell 2 has installed `P==v`, it could leave P at another version or replace its distribution:
+      1. Its specifier excludes v (`SpecifierSet.contains(v, prereleases=True)` is false).
+      2. It upgrades (`-U`, `--upgrade`; uv `-U`, `-P P`) and its specifier admits any version other than v, a bare name included, whether or not a newer release exists yet.
+      3. It reinstalls (`--force-reinstall`, `-I`/`--ignore-installed`; uv `--reinstall`), whatever the specifier, since this also reinstalls P's dependencies.
+      4. It is a direct reference (URL, VCS, local path or wheel) that differs from the pin's recorded `url`, or any direct reference when the pin comes from an index.
+      5. It is an editable naming P.
+      6. It is a conda-family line naming P: conda ignores pip's installed state.
+
+      Every other line naming P is redundant: pip finds the requirement satisfied and changes nothing, whatever its index options. A guard doesn't change the classification, only the advice (item 5.4). Computed and unreadable lines and `-r` files aren't classified, since their targets aren't known. Movement through dependencies needs no rule of its own: pip's default only-if-needed strategy leaves a satisfied requirement's dependencies alone, and a conflict between two pins is a resolver finding.
    2. For a package the notebook imports, the advice is to delete the line; the import keeps the pin alive. For a package nothing imports, the advice is to replace the line with an install declaration. Deleting it would leave the pin backed only by the previous manifest, which warns on every snapshot (see Snapshot manifest updating).
    3. Packages declared ignore: the line is always kept, with no advice.
    4. Lines Cell 2 doesn't reproduce and the creator hasn't declared (guarded branches, computed installs, conda, `-r`, packages not installed at snapshot): the line is kept, and snapshot proposes a declaration for it.
@@ -171,6 +179,7 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
    2. An ignored package that is already installed is checked against its pin if it has one, and otherwise noted as present. A mismatch is reported as information, not failure: guarded alternatives differ by platform, and the creator's own line may replace the version after Cell 2 runs.
    3. An ignored package that isn't installed yet is reported as installed later by the notebook, and counts neither for nor against "N/N verified".
    4. pip can still install or move an ignored package as a dependency of a pinned one. Snapshot warns when an ignored package is reachable from the pins' dependency graph.
+   5. For a pinned package whose conflicting line the creator left in place (`packages.conflicting_line`), the "N/N verified" line names it as one a later cell can change.
 7. Limitation: a creator may forget to remove the snapshot call before sharing the notebook, and snapshot then runs whenever someone else runs the notebook. It never writes to the notebook, so the author's setup cells are unaffected. Snapshot returns immediately in Kaggle "Save Version" runs, and skips its slow checks when nothing has changed. Otherwise it can't tell the creator from anyone else, so its output begins: "This output is for the notebook's author. If you are running someone else's notebook, ignore it and don't paste anything from it; you can delete this cell."
 8. Ownership:
    1. Resolution decides what Cell 2 covers.
@@ -183,12 +192,12 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
    3. "An install line with extras produces an invalid pin".
    4. Cell positions by notebook order: "Batch reports lose each notice's notebook, and cell numbers match nothing the user sees", plus execution-order scanning, which discards each cell's position (`scanning.get_ordered_code_cells`).
    5. Guard detection, so guarded lines never get delete advice: done (G3, G6, G9), apart from one-line shell conditionals (G5).
-10. Open decisions:
-    1. Whether conflicting lines make snapshot exit 1.
-    2. Whether check also classifies install lines added after snapshot.
-    3. Whether Cell 2 warns the runner about conflicting lines the creator left in place.
-    4. With `--output`, Cell 2 exists only in the `_merged` copy, so deleting install lines from the source leaves a source that installs nothing. Should the advice target the companion, or accept that the source depends on steady-py?
-    5. Optionally, on Colab only, read the live notebook through `google.colab._message.blocking_request('get_ipynb')`. It would fix the unexecuted-cell, deleted-cell and cell-position problems of the live path. It is a private API (used by colab2pdf and wandb), and no Kaggle equivalent was found.
+10. Decisions:
+    1. A conflicting line makes snapshot exit 1, and a redundant line is advice only (exit 0). An accept or ignore declaration overrides the exit (matrix decision 12).
+    2. Check also classifies the notebook's install lines against the manifest's packages, through the same function: conflicting lines exit 1, redundant ones are notices. Check gives no delete-or-replace advice, since that needs the import join and so the environment.
+    3. Snapshot records each pinned package with a conflicting line left in place (`packages.conflicting_line`), and Cell 2 warns the runner (item 6.5). Cell 2 can't see later cells, so the manifest is the only mechanism.
+    4. With `--output`, advice targets the source, as in every mode, and notes that once the lines are deleted the source installs nothing without the companion. The companion is regenerated from the source on every snapshot, so edits to it are lost.
+11. Open, optional: on Colab only, read the live notebook through `google.colab._message.blocking_request('get_ipynb')`. It would fix the unexecuted-cell, deleted-cell and cell-position problems of the live path. It is a private API (used by colab2pdf and wandb), and no Kaggle equivalent was found.
 
 #### Snapshot manifest updating
 
