@@ -56,6 +56,9 @@ jobs:
       - name: Kernel tier
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python -m pytest -m kernel -ra
+      - name: Corpus fixtures (Ubuntu only, where the golden file was made)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && runner.os == 'Linux' }}
+        run: python -m pytest -m corpus -ra
 
   docker:
     name: docker (ubuntu-latest)

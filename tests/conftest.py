@@ -15,6 +15,7 @@ _TIER_DOCS = {
     "venv": "runs the tool in a real venv (matrix layer V)",
     "kernel": "runs a real Jupyter kernel (matrix layer L)",
     "docker": "runs a Docker scenario (matrix layer D)",
+    "corpus": "snapshot's analysis of the corpus fixtures against a golden file (Linux, Python 3.13, dev lock)",
 }
 
 

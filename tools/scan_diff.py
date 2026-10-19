@@ -1,5 +1,6 @@
 """Compare two `steady-py snapshot --format json` runs (no write flag) per notebook, and copy a fixed
-corpus sample. Only the analysis report is compared; snapshot's validation output is not.
+corpus sample. Only the analysis report is compared; snapshot's validation output is not. The
+comparison's canonical form (`canonical`) is also the corpus fixtures' golden file.
 
   python tools/scan_diff.py diff OLD.json NEW.json
   python tools/scan_diff.py sample SRC_DIR DST_DIR --every 10
@@ -26,12 +27,28 @@ def _canon(item: Any) -> str:
     return json.dumps(item, sort_keys=True)
 
 
+def _relative(item: Any, root: str) -> Any:
+    """`item` with the run's root directory removed from every string (install lines carry their
+    notebook's full path), so runs from different checkouts compare equal."""
+    if isinstance(item, str):
+        for form in {root.replace("\\", "/").rstrip("/") + "/", root.replace("/", "\\").rstrip("\\") + "\\"}:
+            if len(form) > 1:
+                item = item.replace(form, "")
+        return item
+    if isinstance(item, list):
+        return [_relative(x, root) for x in item]
+    if isinstance(item, dict):
+        return {k: _relative(v, root) for k, v in item.items()}
+    return item
+
+
 def _diagnostic(event: Dict[str, Any]) -> str:
     return _canon([event["type"], event["detail"], event.get("cell_idx"), event.get("line_idx")])
 
 
-def _items(nb: Dict[str, Any]) -> Dict[str, Counter[str]]:
+def _items(nb: Dict[str, Any], root: str) -> Dict[str, Counter[str]]:
     """Each field as a multiset, so repeated identical items are counted, not collapsed."""
+    nb = _relative(nb, root) if root else nb
     out: Dict[str, Counter[str]] = {
         "dependencies": Counter(_canon({k: v for k, v in d.items() if k != "comment"}) for d in nb.get("dependencies", [])),
         "warnings": Counter(_diagnostic(w) for w in nb.get("warnings", [])),
@@ -43,14 +60,25 @@ def _items(nb: Dict[str, Any]) -> Dict[str, Counter[str]]:
     return out
 
 
-def _load(path: str) -> Dict[str, Dict[str, Counter[str]]]:
-    with open(path, encoding="utf-8") as fh:
-        run = json.load(fh)
+def _run_items(run: Dict[str, Any]) -> Dict[str, Dict[str, Counter[str]]]:
     root = run.get("target_dir") or ""
-    notebooks = {_norm(nb["notebook_path"], root): _items(nb) for nb in run["notebooks"]}
+    notebooks = {_norm(nb["notebook_path"], root): _items(nb, root) for nb in run["notebooks"]}
     for err in run.get("summary", {}).get("parse_errors", []):
         notebooks.setdefault(_norm(err["path"], root), {})["unreadable"] = Counter([_canon(err["cause"])])
     return notebooks
+
+
+def canonical(run: Dict[str, Any]) -> Dict[str, Dict[str, List[str]]]:
+    """A directory run's report as diff compares it: per notebook (path relative to the target), each
+    field's items as sorted canonical JSON strings, empty fields left out. The corpus fixtures'
+    golden file (tests/characterization/test_corpus.py) is this form."""
+    return {path: {field: sorted(items.elements()) for field, items in fields.items() if items}
+            for path, fields in sorted(_run_items(run).items())}
+
+
+def _load(path: str) -> Dict[str, Dict[str, Counter[str]]]:
+    with open(path, encoding="utf-8") as fh:
+        return _run_items(json.load(fh))
 
 
 def diff(old_path: str, new_path: str) -> int:

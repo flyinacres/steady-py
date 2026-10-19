@@ -9,7 +9,7 @@ from typing import NoReturn
 
 import pytest
 
-TIERS = ("venv", "kernel", "docker")
+TIERS = ("venv", "kernel", "docker", "corpus")
 
 
 class _Marks(list):
