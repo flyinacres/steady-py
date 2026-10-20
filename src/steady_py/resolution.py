@@ -3,11 +3,13 @@ timeline, import-to-distribution resolution, and the pinned entries the manifest
 import importlib.metadata
 import logging
 import os
+import re
 import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
 from packaging.requirements import InvalidRequirement, Requirement
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
 from steady_py import installed, join, magics, pypi, scanning, util
@@ -108,8 +110,12 @@ def build_unified_timeline(
             entry = resolved.entries[0]
             entry.source = "pip_command"
             if pip.version_spec and not entry.is_comment:
-                entry.version = pip.version_spec.lstrip("=<>!~")
-                entry.version_source = Provenance.NOTEBOOK
+                version, from_line, warning = line_pin(pip.name, pip.version_spec, entry.version or "")
+                entry.version = version
+                if from_line:
+                    entry.version_source = Provenance.NOTEBOOK
+                if warning:
+                    resolved.warnings.append(DiagnosticEvent.at(pip.cell, pip.line_idx, "install_line_version", warning))
             if pip.extras and not entry.is_comment:
                 base, _extra = installed.split_pin_name(entry.name)
                 entry.name = f"{base}[{','.join(pip.extras)}]"  # G16: the install line's extras, as written
@@ -121,6 +127,40 @@ def build_unified_timeline(
             resolved = _for_import(module, target, key, submods.get(key, set()), ctx, guarded, occ_import, placed)
         result.add(resolved)
     return result
+
+
+_EXACT = re.compile(r"^\s*===?\s*([^\s,*]+)\s*$")
+
+
+def line_pin(name: str, spec: str, installed_version: str) -> Tuple[str, bool, Optional[str]]:
+    """The version to pin for an installed package that an install line names with `spec`, whether
+    it came from the line, and a warning when the line and the installed version disagree (P1).
+
+    An explicit `==` is kept as written, since the line installs that version after Cell 2 anyway.
+    Any other spec pins what is installed, the version the notebook ran with.
+    """
+    exact = _EXACT.match(spec)
+    if exact:
+        version = exact.group(1)
+        if version != installed_version and not _same_version(version, installed_version):
+            return version, True, (f"The notebook installs {name}=={version}, but {installed_version} is installed here. "
+                                   f"Cell 2 pins {version}, since that line installs it after Cell 2 anyway.")
+        return version, True, None
+    try:
+        allowed = SpecifierSet(spec).contains(installed_version, prereleases=True)
+    except (InvalidSpecifier, InvalidVersion):
+        allowed = False
+    if allowed:
+        return installed_version, False, None
+    return installed_version, False, (f"The installed {name} {installed_version} doesn't match '{name}{spec}' in the notebook. "
+                                      f"Cell 2 pins {installed_version}, the version this notebook ran with; check the line.")
+
+
+def _same_version(a: str, b: str) -> bool:
+    try:
+        return Version(a) == Version(b)
+    except InvalidVersion:
+        return False
 
 
 # =====================================================================

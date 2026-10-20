@@ -34,9 +34,9 @@ def test_status_pinned_only_for_installed_imports(tmp_path, module, installed):
 
 # Pin what's installed over a loose spec; an explicit == is kept as written.
 @pytest.mark.parametrize("spec, warns", [
-    pytest.param(">=20", False, marks=known_bug("P1", "a lower bound becomes the pin"), id="lower-bound"),
-    pytest.param(">=20,<99", False, marks=known_bug("P1", "a range becomes an invalid pin"), id="range"),
-    pytest.param("~=1.0", True, marks=known_bug("P1", "an unsatisfied spec becomes the pin, silently"), id="unsatisfied"),
+    pytest.param(">=20", False, marks=finding("P1"), id="lower-bound"),
+    pytest.param(">=20,<99", False, marks=finding("P1"), id="range"),
+    pytest.param("~=1.0", True, marks=finding("P1"), id="unsatisfied"),
     pytest.param(f"=={INSTALLED}", False, id="explicit"),
 ])
 def test_loose_spec_pins_the_installed_version(tmp_path, spec, warns):
@@ -44,6 +44,13 @@ def test_loose_spec_pins_the_installed_version(tmp_path, spec, warns):
     assert outcome.pins()["packaging"] == INSTALLED
     assert bool(outcome.warnings(about="packaging")) is warns
 
+
+
+@finding("P1")
+def test_explicit_pin_unlike_the_installed_version_is_kept_with_a_warning(tmp_path):
+    outcome = _scan(tmp_path, '%pip install "packaging==20.0"', "import packaging")
+    assert outcome.pins()["packaging"] == "20.0"
+    assert outcome.warnings(type="install_line_version", about="packaging")
 
 def _scan_in(venv, tmp_path, site, source):
     outcome = run_in(venv, "snapshot", Notebook(code(source)).write(tmp_path), env=pythonpath(site))

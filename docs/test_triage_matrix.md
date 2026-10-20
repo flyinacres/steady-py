@@ -120,7 +120,7 @@ Reading test status:
 
 | ID | Finding | Settled | Status | Step | Layer | Fixture | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| P1 | Version operators stripped into invalid pins | Y |  | pf3 | U | F1 | Host `packaging` is the installed version |
+| P1 | Version operators stripped into invalid pins | Y |  | fixed | U | F1 | Host `packaging` is the installed version |
 | P2 | Namespace import resolves to an arbitrary distribution | Y |  | fixed | V | F4 | Needs `RECORD` for `dist.files` |
 | P6 | Not-found imports labeled `pinned` | Y |  | pf3 | U | F1 | JSON status |
 | LV4 | Cell 1 lists flag names as URLs | Y |  | pf3 | U | F1 |  |

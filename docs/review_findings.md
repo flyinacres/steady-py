@@ -68,7 +68,6 @@ What is wrong and why, one entry per finding, by matrix ID. Each entry carries i
 
 ### Pinning, delta and output stability
 
-- **P1. Version operators are stripped into invalid or untested pins.** `resolution.build_unified_timeline` computes `v_clean = occ.version_spec.lstrip("=<>!~")` and the manifest writes `==`. `%pip install torch>=2.0,<3` becomes `torch==2.0,<3` (an invalid specifier), and `numpy~=1.26` becomes `numpy==1.26` although 1.26.4 is installed (confirmed). Preserving the author's bounds would defeat reproducibility. Pin the installed version when it satisfies the author's spec (`packaging.specifiers.SpecifierSet`), report when it doesn't, and keep an explicit `==` as written.
 - **P4. Editable installs vanish without a warning.** `-e`/`--editable` is in `PIP_VALUE_FLAGS`, so pass 2 skips the flag and its path before the VCS/path check; `%pip install -e ./mypkg` yields no occurrence, no raw install and no diagnostic (confirmed). `-r` at least emits an `external_requirement` warning.
 - **P6. Imports not found in the environment are labeled `pinned`.** `resolve_pypi_package_and_extras` returns status `pinned` for a not-found import rendered as a comment (confirmed: `baz` → `pinned`, `is_comment=True`), so JSON report consumers see a missing package as pinned.
 
