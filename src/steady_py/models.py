@@ -11,7 +11,7 @@ from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
 from steady_py.constants import (
-    INSTALLABLE_STATUSES, MANIFEST_SCHEMA_VERSION, PIP_OPTIONS, TOOL_VERSION, DependencyStatus, Invocation, Provenance, Readability,
+    INSTALLABLE_STATUSES, MANIFEST_SCHEMA_VERSION, DeclarationKind, PIP_OPTIONS, TOOL_VERSION, DependencyStatus, Invocation, Provenance, Readability,
     Signal,
 )
 
@@ -619,26 +619,30 @@ class LocalModule:
 
 @dataclass
 class Declaration:
-    """A creator declaration as recorded (review_findings.md, Proposed features): `kind` is "install"
-    or "ignore"; `origin` is "cell" or the declarations file's label. Recorded from step 4 on."""
+    """A creator declaration as recorded (review_findings.md, install-lines spec, item 1): `kind` is
+    "install", "ignore" or "accept". `name` is canonical for install and ignore; an accept keeps the
+    package or import name as written. `origin` is "cell" or the declarations file's label."""
     kind: str
     name: str
     version: Optional[str] = None
+    extras: Tuple[str, ...] = ()
+    url: Optional[str] = None
     options: Tuple[Option, ...] = ()
     group: Optional[str] = None
     reason: str = ""
     origin: str = ""
     changed_at: str = ""
 
-    _FIELDS = ("kind", "name", "version", "options", "group", "reason", "origin", "changed_at")
+    _FIELDS = ("kind", "name", "version", "extras", "url", "options", "group", "reason", "origin", "changed_at")
 
     @property
     def key(self) -> Tuple[str, Tuple[str, ...]]:
-        return (canonicalize_name(self.name), ())
+        """An accept matches across manifests apart from an install or ignore for the same name."""
+        return (canonicalize_name(self.name), (self.kind,) if self.kind == DeclarationKind.ACCEPT else ())
 
     @property
     def label(self) -> str:
-        return self.name
+        return f"{self.name} ({self.kind})"
 
     def content(self) -> Dict[str, Any]:
         out = self.to_dict()
@@ -646,13 +650,15 @@ class Declaration:
         return out
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"kind": self.kind, "name": self.name, "version": self.version, "options": [list(o) for o in self.options],
-                "group": self.group, "reason": self.reason, "origin": self.origin, "changed_at": self.changed_at}
+        return {"kind": self.kind, "name": self.name, "version": self.version, "extras": list(self.extras), "url": self.url,
+                "options": [list(o) for o in self.options], "group": self.group, "reason": self.reason,
+                "origin": self.origin, "changed_at": self.changed_at}
 
     @classmethod
     def from_dict(cls, data: Any, unknown: Set[str]) -> "Declaration":
         d = _entry_dict(data, "declarations", ("kind", "name"), set(cls._FIELDS), unknown)
         return cls(kind=d["kind"], name=d["name"], version=_str_or_none(d.get("version"), "version"),
+                   extras=_str_list(d.get("extras"), "extras"), url=_str_or_none(d.get("url"), "url"),
                    options=_options(d.get("options"), "options"), group=_str_or_none(d.get("group"), "group"),
                    reason=_str_or_none(d.get("reason"), "reason") or "", origin=_str_or_none(d.get("origin"), "origin") or "",
                    changed_at=_str_or_none(d.get("changed_at"), "changed_at") or "")

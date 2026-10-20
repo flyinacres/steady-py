@@ -18,6 +18,9 @@ MANIFEST_SCHEMA_VERSION: str = "2.0"
 
 DEFAULT_UNIVERSAL_MANIFEST_NAME: str = "requirements-all.txt"
 
+# The name of the creator declarations literal (review_findings.md, install-lines spec, item 1).
+DECLARATIONS_NAME: str = "STEADY_PY_DECLARATIONS"
+
 HELP_URL: str = "https://github.com/flyinacres/steady-py/blob/main/HELP.md"
 
 # Fixed first line of the generated Cell 1. Shared by the generator and by is_prior_setup_cell,
@@ -155,6 +158,13 @@ class Invocation:
     SHELL_ESCAPE = "shell_escape"
     SHELL_CELL = "shell_cell"
     PYTHON_CALL = "python_call"
+
+
+class DeclarationKind:
+    """Declaration.kind values (review_findings.md, install-lines spec, item 1)."""
+    INSTALL = "install"
+    IGNORE = "ignore"
+    ACCEPT = "accept"
 
 
 class Tool:

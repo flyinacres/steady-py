@@ -61,7 +61,7 @@ class TestEveryField:  # P3
         after = models.SteadyPyManifest({"major": 3, "minor": 12}, local_modules=[models.LocalModule("new", "root_dir")],
                                         declarations=[models.Declaration("ignore", "torch")])
         changes = {(c.section, c.name, c.before is None) for c in compute_delta(before, after).field_changes}
-        assert changes == {("local_modules", "new", True), ("local_modules", "old", False), ("declarations", "torch", True)}
+        assert changes == {("local_modules", "new", True), ("local_modules", "old", False), ("declarations", "torch (ignore)", True)}
 
     def test_any_other_top_level_field_is_compared_whole(self):
         before, after = _manifest(), _manifest()

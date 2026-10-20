@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from steady_py import constants, endpoints, models, reporting, util
+from steady_py import constants, declarations, endpoints, models, reporting, util
 from steady_py.constants import ATTENTION_DIAGNOSTICS
 from steady_py.results import (
     CheckOptions, CheckResult, Delta, Environment, NotebookCheck, NotebookSnapshot, SnapshotOptions, SnapshotResult,
@@ -327,7 +327,7 @@ def run_snapshot_file(args: argparse.Namespace, environment: Optional[Environmen
     write_mode, output_dir = _write_mode(args)
     options = SnapshotOptions(
         write_mode=write_mode, suffix=args.suffix, output_dir=output_dir,
-        full_freeze=args.full_freeze, install_timeout=args.timeout,
+        full_freeze=args.full_freeze, install_timeout=args.timeout, declarations_file=getattr(args, "declarations", None),
     )
     snapshot_result = endpoints.snapshot(target, options, environment)
     snapped = snapshot_result.notebooks[0]
@@ -374,7 +374,7 @@ def run_snapshot_directory(args: argparse.Namespace, environment: Optional[Envir
 
     options = SnapshotOptions(
         write_mode=write_mode, suffix=args.suffix, output_dir=output_dir, universal=universal,
-        full_freeze=args.full_freeze, install_timeout=args.timeout,
+        full_freeze=args.full_freeze, install_timeout=args.timeout, declarations_file=getattr(args, "declarations", None),
     )
     result = endpoints.snapshot(target, options, environment)
     assert result.batch_summary is not None
@@ -441,6 +441,10 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot_parser.add_argument("--output-dir", metavar="DIR", help="Directory where generated locked notebooks should be written.")
     snapshot_parser.add_argument("--suffix", default=None, help="File suffix for merged notebook outputs (default: '_merged' alongside source, '' with --output-dir).")
     snapshot_parser.add_argument("--in-place", action="store_true", help="Overwrite original notebooks in-place instead of creating companion files.")
+    snapshot_parser.add_argument(
+        "--declarations", metavar="FILE", default=None,
+        help=f"A file holding {constants.DECLARATIONS_NAME} = [...], applied to every notebook before its own declarations cell.",
+    )
 
     check_parser = subparsers.add_parser(
         "check", parents=[common],
@@ -470,6 +474,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     if args.command == "check":
         exit_code = run_check(args.target, output_format=args.format, root_dir=args.root_dir)
     else:  # "snapshot"
-        exit_code = run_snapshot_directory(args) if os.path.isdir(args.target) else run_snapshot_file(args)
+        try:
+            exit_code = run_snapshot_directory(args) if os.path.isdir(args.target) else run_snapshot_file(args)
+        except declarations.DeclarationError as e:  # the declarations file: nothing ran
+            logger.error(f"❌ Error: {e}")
+            exit_code = EXIT_FAILED
 
     sys.exit(exit_code)

@@ -21,7 +21,7 @@ from steady_py.constants import (
     TOOL_VERSION,
 )
 from steady_py.models import (
-    Cell, DependencyEntry, GpuInfo, LocalModule, ManifestError, ManifestPackage, NotebookAnalysisReport, PinnedDependency,
+    Cell, Declaration, DependencyEntry, GpuInfo, LocalModule, ManifestError, ManifestPackage, NotebookAnalysisReport, PinnedDependency,
     RawInstall, SteadyPyManifest,
 )
 
@@ -198,6 +198,7 @@ def generate_production_blueprint(
     install_timeout: int = 120,
     raw_installs: Optional[List[RawInstall]] = None,
     previous: Optional[SteadyPyManifest] = None,
+    declarations: Sequence[Declaration] = (),
 ) -> BlueprintResult:
     """Assembles Cell 1 Markdown and Cell 2 Python code using structured DependencyEntry objects.
 
@@ -291,6 +292,7 @@ def generate_production_blueprint(
         packages=package_list,
         gpu=gpu_info.to_dict() if gpu_info else None,
         local_modules=local_modules,
+        declarations=list(declarations),
     )
     generation_findings = drift.run_pin_checks(fresh.pins(), fresh.python_version)
     fresh.baseline = drift.build_baseline(generation_findings)
@@ -462,6 +464,7 @@ def build_blueprint_for_notebook(
     install_timeout: int = 120,
     full_freeze_lines: Optional[List[str]] = None,
     previous: Optional[SteadyPyManifest] = None,
+    declarations: Sequence[Declaration] = (),
 ) -> BlueprintResult:
     """The two setup cells and the generation-time validation for an analyzed notebook.
 
@@ -476,6 +479,7 @@ def build_blueprint_for_notebook(
         install_timeout=install_timeout,
         raw_installs=scan_res.raw_installs,
         previous=previous,
+        declarations=declarations,
     )
 
 

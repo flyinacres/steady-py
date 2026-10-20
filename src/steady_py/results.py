@@ -66,6 +66,7 @@ class SnapshotOptions:
     universal: Optional[str] = None   # directory targets only: file name of the combined requirements file
     full_freeze: bool = False         # append the full environment freeze after the targeted pins
     install_timeout: int = 120        # per-package pip timeout baked into the generated Cell 2
+    declarations_file: Optional[str] = None  # a declarations file, applied before each notebook's own cell
 
     def __post_init__(self) -> None:
         if self.write_mode not in _WRITE_MODES:

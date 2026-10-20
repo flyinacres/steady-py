@@ -12,9 +12,9 @@ import importlib.metadata
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
-from steady_py import accelerator, analyze, constants, delta, drift, generate, installed, localmodules, models, scanning, util
+from steady_py import accelerator, analyze, constants, declarations, delta, drift, generate, installed, localmodules, models, scanning, util
 from steady_py.results import (
     CheckOptions, CheckResult, Environment, NotebookCheck, NotebookSnapshot, SetupCells, SnapshotOptions, SnapshotResult,
     TargetKind, WriteMode,
@@ -103,10 +103,12 @@ def snapshot(
     """
     options = options or SnapshotOptions()
     util.reset_run_caches()
+    # Read once for every notebook; an unusable file raises DeclarationError before anything runs.
+    file_entries = declarations.from_file(options.declarations_file) if options.declarations_file else []
     if target is None and options.write_mode != WriteMode.NONE:
         raise ValueError("the live IPython session has no file to write into; use write_mode 'none'")
     if target is not None and os.path.isdir(target):
-        return _snapshot_directory(target, options, environment)
+        return _snapshot_directory(target, options, environment, file_entries)
     if options.universal:
         raise ValueError("universal is only valid for a directory target")
     analysis = _analyze(target, environment)
@@ -118,7 +120,7 @@ def snapshot(
     notebook = _snapshot_notebook(
         analysis.scan_result, analysis.report, analysis.hardware, options,
         full_freeze_lines=analysis.environment.raw_full_freeze if options.full_freeze else None,
-        root_dir=analysis.root_dir,
+        root_dir=analysis.root_dir, file_entries=file_entries, live=analysis.kind == TargetKind.SESSION,
     )
     return SnapshotResult(target=result_target, kind=analysis.kind, notebooks=[notebook])
 
@@ -130,6 +132,8 @@ def _snapshot_notebook(
     options: SnapshotOptions,
     full_freeze_lines: Optional[List[str]],
     root_dir: str,
+    file_entries: Sequence[models.Declaration] = (),
+    live: bool = False,
 ) -> NotebookSnapshot:
     """The cells and manifest for one analyzed notebook, written as the options say.
 
@@ -145,9 +149,15 @@ def _snapshot_notebook(
             type="unreadable_manifest", notebook=str(scan_result.path),
             detail=f"{read.error} Snapshot builds a new manifest in its place; nothing from the old one is carried forward."))
     previous = read.manifest
+    declared = declarations.read(scan_result.cells, file_entries, live=live)
+    if declared.error is not None:
+        return NotebookSnapshot(path=str(scan_result.path), report=report, error=declared.error)
+    for warning in declared.warnings:
+        warning.notebook = str(scan_result.path)
+    report.warnings.extend(declared.warnings)
     blueprint = generate.build_blueprint_for_notebook(
         scan_result, report, hardware, install_timeout=options.install_timeout, full_freeze_lines=full_freeze_lines,
-        previous=previous,
+        previous=previous, declarations=declared.entries,
     )
     notebook = NotebookSnapshot(
         path=str(scan_result.path),
@@ -216,7 +226,8 @@ def _unreadable(repo_map: analyze.RepoEnvironmentMap) -> List[Tuple[str, models.
     return out
 
 
-def _snapshot_directory(target: str, options: SnapshotOptions, environment: Optional[Environment]) -> SnapshotResult:
+def _snapshot_directory(target: str, options: SnapshotOptions, environment: Optional[Environment],
+                        file_entries: Sequence[models.Declaration] = ()) -> SnapshotResult:
     analysis = _analyze_directory(target, environment, _skip_suffix(options.suffix, options.write_mode == WriteMode.IN_PLACE))
     repo_map, summary = analysis.repo_map, analysis.summary
     result = SnapshotResult(target=target, kind=TargetKind.DIRECTORY, batch_summary=summary)
@@ -240,7 +251,8 @@ def _snapshot_directory(target: str, options: SnapshotOptions, environment: Opti
     full_freeze_lines = analysis.environment.raw_full_freeze if options.full_freeze else None
     validation_reports: List[Tuple[str, drift.DriftCheckReport]] = []
     for res, report in zip(repo_map.scan_results, summary.notebooks):
-        notebook = _snapshot_notebook(res, report, analysis.hardware, options, full_freeze_lines, root_dir=repo_map.target_dir)
+        notebook = _snapshot_notebook(res, report, analysis.hardware, options, full_freeze_lines, root_dir=repo_map.target_dir,
+                                      file_entries=file_entries)
         result.notebooks.append(notebook)
         if notebook.written_path is not None and notebook.drift_report is not None:
             validation_reports.append((util.relative_notebook_path(res.path, repo_map.target_dir), notebook.drift_report))
