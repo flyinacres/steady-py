@@ -159,6 +159,7 @@ def _snapshot_notebook(
         scan_result, report, hardware, install_timeout=options.install_timeout, full_freeze_lines=full_freeze_lines,
         previous=previous, declarations=declared.entries,
     )
+    _apply_accepts(report, blueprint, declared.entries)
     notebook = NotebookSnapshot(
         path=str(scan_result.path),
         report=report,
@@ -182,6 +183,23 @@ def _snapshot_notebook(
         except OSError as exc:
             notebook.error = f"could not write the locked notebook: {exc}"
     return notebook
+
+
+def _apply_accepts(report: models.NotebookAnalysisReport, blueprint: generate.BlueprintResult,
+                   entries: Sequence[models.Declaration]) -> None:
+    """Snapshot's declaration events, in report.declarations_applied: what install and ignore entries
+    changed, the attention diagnostics accepts cover (they no longer set exit 1), and accepts that
+    matched nothing. Generation findings an accept names are marked accepted too, without an event:
+    they don't set snapshot's exit code, and the accept will cover them at check."""
+    for warning in blueprint["declaration_warnings"]:
+        warning.notebook = report.notebook_path
+    report.warnings.extend(blueprint["declaration_warnings"])
+    accepted, used = declarations.accept_diagnostics(report.warnings, entries, sorted(constants.ATTENTION_DIAGNOSTICS))
+    validation = blueprint["drift_report"]
+    _, at_generation = declarations.accept_findings(
+        validation.confirmed + validation.heuristic + validation.notices, entries, counts=False)
+    report.declarations_applied = [*blueprint["declaration_events"], *accepted,
+                                   *declarations.unused_accepts(entries, used | at_generation)]
 
 
 # --- directories -----------------------------------------------------------------------------
@@ -326,5 +344,7 @@ def _check_file(path: str, options: CheckOptions, root_fallback: Optional[str] =
     findings.extend(localmodules.check_local_modules(manifest, notebook_dir=notebook_dir, root_dir=root_dir))
     findings.extend(drift.run_pin_checks(manifest.pins(), manifest.python_version))
 
+    accepted, used = declarations.accept_findings(findings, manifest.declarations)
     report = drift.build_drift_check_report(path, manifest, findings)
+    report.declarations_applied = [*accepted, *declarations.unused_accepts(manifest.declarations, used)]
     return NotebookCheck(path=path, manifest_found=True, report=report)

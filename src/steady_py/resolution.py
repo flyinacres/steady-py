@@ -176,11 +176,14 @@ class Resolved:
     notices: List[DiagnosticEvent] = field(default_factory=list)
 
 
-def _at(where: Optional[ImportOccurrence], type: str, detail: str, level: str = "warning") -> DiagnosticEvent:
-    """A diagnostic at the import that raised it, or unlocated (a %%writefile script's import)."""
-    if where is None:
-        return DiagnosticEvent(type=type, detail=detail, level=level)
-    return DiagnosticEvent.at(where.cell, where.line_idx, type, detail, level=level)
+def _at(where: Optional[ImportOccurrence], type: str, detail: str, level: str = "warning",
+        names: Tuple[str, ...] = ()) -> DiagnosticEvent:
+    """A diagnostic at the import that raised it, or unlocated (a %%writefile script's import).
+    `names` are the import and distribution names an accept declaration can match."""
+    event = (DiagnosticEvent(type=type, detail=detail, level=level) if where is None
+             else DiagnosticEvent.at(where.cell, where.line_idx, type, detail, level=level))
+    event.names = names
+    return event
 
 
 def _for_import(
@@ -208,7 +211,7 @@ def _for_import(
             warnings=[_at(where, "custom_path_import",
                           f"'{module}' is importable here from a folder that no installed package owns (one added with "
                           f"PYTHONPATH, a .pth file or `conda develop`, or a package installed without pip's records), "
-                          f"so it can't be pinned. Make sure anyone running this notebook has it.")])
+                          f"so it can't be pinned. Make sure anyone running this notebook has it.", names=(module,))])
     if target.kind == join.JoinKind.AMBIGUOUS:
         names = ", ".join(target.distributions)
         return Resolved(
@@ -216,7 +219,7 @@ def _for_import(
                              comment_text=f"# {module} (provided by more than one installed package: {names}; none pinned)")],
             warnings=[_at(where, "ambiguous_import",
                           f"'{module}' is provided by more than one installed package ({names}), so steady-py can't "
-                          f"tell which one the notebook uses and pins none of them.")])
+                          f"tell which one the notebook uses and pins none of them.", names=(module, *target.distributions))])
     dist = next(d for d in target.distributions if util.canonicalize_pkg_name(d) == key)
     return _distribution(dist, submodules, ctx, guarded=guarded, imported_as=module, where=where, placed=placed)
 
@@ -315,7 +318,7 @@ def _local_install_warning(dist: str, label: str, direct_url: str, where: Option
         return []
     return [_at(where, "local_file_import",
                 f"'{label}' comes from {dist}, installed from a file on this machine, so anyone running this "
-                f"notebook can't install it from there. Publish it, or host it at a shared URL.")]
+                f"notebook can't install it from there. Publish it, or host it at a shared URL.", names=(label, dist))]
 
 
 def _conda_built(dist: str, label: str, guarded: bool, where: Optional[ImportOccurrence]) -> Resolved:
@@ -364,7 +367,7 @@ def _editable_warning(dist: str, label: str, ctx: join.JoinContext, where: Optio
               f"machine, so anyone running this notebook can't install it. Publish it, or share it from a Git URL")
     detail += (f": `{candidate}` would install this commit, once it is pushed and the folder has no uncommitted "
                f"changes." if candidate else ".")
-    return _at(where, "editable_import", detail)
+    return _at(where, "editable_import", detail, names=(label, dist))
 
 
 def _editable_requirements(dist: str) -> List[str]:

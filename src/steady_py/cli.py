@@ -153,7 +153,8 @@ def snapshot_exit_code(result: SnapshotResult) -> int:
     processed = len(result.notebooks) - failed
     if failed or result.error is not None:
         return EXIT_ATTENTION if processed else EXIT_FAILED
-    attention = any(w.type in ATTENTION_DIAGNOSTICS for n in result.notebooks if n.report for w in n.report.warnings)
+    attention = any(w.type in ATTENTION_DIAGNOSTICS and w.accepted is None
+                    for n in result.notebooks if n.report for w in n.report.warnings)
     return EXIT_ATTENTION if attention else EXIT_OK
 
 
@@ -352,6 +353,9 @@ def run_snapshot_file(args: argparse.Namespace, environment: Optional[Environmen
     out = format_snapshot_result(snapshot_result, args.format)
     if out:
         print(out)
+    applied = reporting.format_declarations_applied(snapped.report.declarations_applied)
+    if applied and not is_json:
+        print("\n" + applied)
     return snapshot_exit_code(snapshot_result)
 
 
@@ -384,6 +388,10 @@ def run_snapshot_directory(args: argparse.Namespace, environment: Optional[Envir
         print(reporting.format_console_report(summary))
         if deltas:
             print("\n" + format_directory_deltas(result))
+        for notebook in result.notebooks:
+            applied = reporting.format_declarations_applied(notebook.report.declarations_applied)
+            if applied:
+                print(f"\n{util.relative_notebook_path(Path(notebook.path), target)}\n{applied}")
 
     artifacts_written: Dict[str, Any] = {}
     if result.universal_path is not None:

@@ -49,6 +49,8 @@ class DiagnosticEvent:
     level: str = "warning"
     cell_label: Optional[str] = None
     notebook: Optional[str] = None
+    names: Tuple[str, ...] = ()       # the import and distribution names an accept declaration matches
+    accepted: Optional[str] = None    # the reason, when an accept declaration covers this diagnostic
 
     @classmethod
     def at(cls, cell: Optional[Cell], line_idx: Optional[int], type: str, detail: str, level: str = "warning") -> "DiagnosticEvent":
@@ -60,7 +62,8 @@ class DiagnosticEvent:
     def format_console(self) -> str:
         prefix = "⚠️" if self.level == "warning" else "ℹ️"
         where = f"{self.cell_label}: " if self.cell_label else ""
-        return f"{prefix} {where}{self.detail}"
+        accepted = f" [accepted: {self.accepted}]" if self.accepted is not None else ""
+        return f"{prefix} {where}{self.detail}{accepted}"
 
     def __str__(self) -> str:
         return self.format_console()
@@ -69,12 +72,30 @@ class DiagnosticEvent:
         return item in self.detail or item in self.format_console()
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        out: Dict[str, Any] = {
             "type": self.type,
             "detail": self.detail,
             "cell_idx": self.cell_idx,
             "line_idx": self.line_idx,
         }
+        if self.accepted is not None:
+            out["accepted"] = self.accepted
+        return out
+
+
+@dataclass
+class DeclarationEvent:
+    """One outcome a creator declaration changed (review_findings.md, install-lines spec, item 4.5)."""
+    kind: str
+    name: str
+    origin: str
+    effect: str
+
+    def format_console(self) -> str:
+        return f"  • {self.kind} {self.name} ({self.origin}): {self.effect}"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"kind": self.kind, "name": self.name, "origin": self.origin, "effect": self.effect}
 
 
 @dataclass
@@ -813,9 +834,10 @@ class NotebookAnalysisReport:
     promotions: List[PromotionDetail] = field(default_factory=list)
     local_tagged: List[Tuple[str, List[str]]] = field(default_factory=list)  # specific package builds; feeds the blueprint, not the JSON
     install_lines: List[InstallLine] = field(default_factory=list)
+    declarations_applied: List[DeclarationEvent] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        out = {
             "notebook_path": self.notebook_path,
             "is_python": self.is_python,
             "lang_label": self.lang_label,
@@ -830,6 +852,9 @@ class NotebookAnalysisReport:
             "promotions": [p.to_dict() for p in self.promotions],
             "install_lines": [line.to_dict() for line in self.install_lines],
         }
+        if self.declarations_applied:
+            out["declarations_applied"] = [e.to_dict() for e in self.declarations_applied]
+        return out
 
 
 @dataclass
@@ -935,6 +960,7 @@ class DriftFinding:
     # than entries in the display-only `details` bag. Both still appear under "details" in JSON.
     latest_version: Optional[str] = None  # major_bump: the newest version on PyPI
     parent: Optional[str] = None  # conflict: the package whose requirement conflicted ("" = a direct pin)
+    accepted: Optional[str] = None  # the reason, when an accept declaration covers this finding
 
     def to_dict(self) -> Dict[str, Any]:
         details = dict(self.details)
@@ -953,6 +979,8 @@ class DriftFinding:
         }
         if self.baseline_status is not None:
             out["baseline_status"] = self.baseline_status
+        if self.accepted is not None:
+            out["accepted"] = self.accepted
         return out
 
 

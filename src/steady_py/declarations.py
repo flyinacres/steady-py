@@ -5,13 +5,13 @@ import ast
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from packaging.utils import canonicalize_name
 
 from steady_py import scanning
-from steady_py.constants import DECLARATIONS_NAME, DeclarationKind
-from steady_py.models import Cell, Declaration, DiagnosticEvent, Option
+from steady_py.constants import DECLARATIONS_NAME, DeclarationKind, DependencyStatus, Provenance, Signal
+from steady_py.models import Cell, Declaration, DeclarationEvent, DiagnosticEvent, DriftFinding, ManifestPackage, Option
 
 INSTALL, IGNORE, ACCEPT = DeclarationKind.INSTALL, DeclarationKind.IGNORE, DeclarationKind.ACCEPT
 KINDS = (INSTALL, IGNORE, ACCEPT)
@@ -213,3 +213,112 @@ def read(cells: Sequence[Cell], file_entries: Sequence[Declaration] = (), live: 
         return DeclarationsRead(error=str(e))
     entries, conflicts = combine(file_entries, cell_entries)
     return DeclarationsRead(entries=entries, warnings=warnings + conflicts)
+
+
+# --- applying declarations ---------------------------------------------------------------------
+# Declarations change outcomes only through the functions below, and each change is recorded as a
+# DeclarationEvent, so no rule acts silently (item 4.5).
+
+# Findings an accept can't cover: the accept would sit inside the manifest at fault, and the fix
+# (run snapshot again, upgrade steady-py) is always available; a check error is exit 2 (decision 12).
+UNACCEPTABLE_SIGNALS = frozenset({Signal.TAMPERED, Signal.UNREAD_FIELDS, Signal.CHECK_ERROR})
+
+
+def _event(entry: Declaration, effect: str) -> DeclarationEvent:
+    return DeclarationEvent(kind=entry.kind, name=entry.name, origin=entry.origin, effect=effect)
+
+
+def _install_package(entry: Declaration, version: Optional[str]) -> ManifestPackage:
+    provenance = {"version": Provenance.DECLARATION} if version else {}
+    if entry.url:
+        provenance["url"] = Provenance.DECLARATION
+    if entry.options:
+        provenance["options"] = Provenance.DECLARATION
+    return ManifestPackage(
+        name=entry.name, display_name=entry.name,
+        status=DependencyStatus.DIRECT_REFERENCE if entry.url else DependencyStatus.PINNED,
+        version=None if entry.url else version, extras=entry.extras, url=entry.url, options=entry.options,
+        provenance=provenance,
+    )
+
+
+def apply_to_packages(
+    packages: Sequence[ManifestPackage], entries: Sequence[Declaration], version_of: Callable[[str], Optional[str]],
+) -> Tuple[List[ManifestPackage], List[DeclarationEvent], List[DiagnosticEvent]]:
+    """The manifest's packages with install and ignore declarations applied: an ignored package is
+    never pinned, and an install entry replaces whatever was inferred for its package. An install
+    entry without a version or URL pins `version_of(name)` (the installed version, else PyPI's
+    latest); with none found it is installed unpinned, with a warning."""
+    out = list(packages)
+    events: List[DeclarationEvent] = []
+    warnings: List[DiagnosticEvent] = []
+    for entry in entries:
+        if entry.kind == ACCEPT:
+            continue
+        inferred = [p for p in out if p.name == entry.name]
+        out = [p for p in out if p.name != entry.name]
+        was = ", ".join(p.requirement() for p in inferred)
+        if entry.kind == IGNORE:
+            if inferred:
+                events.append(_event(entry, f"not pinned (steady-py would have pinned {was})"))
+            continue
+        version = entry.version
+        if version is None and entry.url is None:
+            version = next((p.version for p in inferred if p.version), None) or version_of(entry.name)
+            if version is None:
+                warnings.append(DiagnosticEvent(type="declaration_unpinned", detail=(
+                    f"The install declaration for {entry.name} gives no version, and steady-py found none installed or "
+                    f"on PyPI, so Cell 2 can't pin it and won't install it. Add a 'version'.")))
+        package = _install_package(entry, version)
+        out.append(package)
+        if not package.installable:
+            events.append(_event(entry, "recorded, but Cell 2 can't install it without a version"))
+            continue
+        replaced = f", in place of {was}" if inferred and was != package.requirement() else ""
+        events.append(_event(entry, f"Cell 2 installs {package.requirement()}{replaced}"))
+    return out, events, warnings
+
+
+def _accepts(entries: Sequence[Declaration]) -> Dict[str, Declaration]:
+    return {canonicalize_name(e.name): e for e in entries if e.kind == ACCEPT}
+
+
+def accept_diagnostics(diagnostics: Sequence[DiagnosticEvent], entries: Sequence[Declaration], kinds: Sequence[str]) -> Tuple[List[DeclarationEvent], Set[str]]:
+    """Marks each diagnostic of `kinds` that an accept names as accepted. Returns an event per
+    accepted diagnostic and the accepts that matched."""
+    accepts = _accepts(entries)
+    events: List[DeclarationEvent] = []
+    used: Set[str] = set()
+    for diagnostic in diagnostics:
+        if diagnostic.type not in kinds:
+            continue
+        match = next((accepts[n] for n in map(canonicalize_name, diagnostic.names) if n in accepts), None)
+        if match is not None:
+            diagnostic.accepted = match.reason
+            used.add(canonicalize_name(match.name))
+            events.append(_event(match, f"{diagnostic.type} no longer counts toward exit 1"))
+    return events, used
+
+
+def accept_findings(findings: Sequence[DriftFinding], entries: Sequence[Declaration], counts: bool = True) -> Tuple[List[DeclarationEvent], Set[str]]:
+    """Marks each finding an accept names as accepted, except those no accept can cover. With
+    `counts` (check), each accepted finding is an event; at snapshot, findings don't set the exit
+    code, so they are marked without one."""
+    accepts = _accepts(entries)
+    events: List[DeclarationEvent] = []
+    used: Set[str] = set()
+    for finding in findings:
+        match = accepts.get(canonicalize_name(finding.package)) if finding.package else None
+        if match is None or finding.signal in UNACCEPTABLE_SIGNALS:
+            continue
+        finding.accepted = match.reason
+        used.add(canonicalize_name(match.name))
+        if counts:
+            events.append(_event(match, f"{finding.signal} no longer counts toward exit 1"))
+    return events, used
+
+
+def unused_accepts(entries: Sequence[Declaration], used: Set[str]) -> List[DeclarationEvent]:
+    """An event for each accept that matched nothing in this run."""
+    return [_event(e, "matched nothing in this run, so it may no longer be needed") for e in entries
+            if e.kind == ACCEPT and canonicalize_name(e.name) not in used]

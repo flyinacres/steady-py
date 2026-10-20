@@ -1,12 +1,19 @@
 """Creator declarations: read from the notebook's cell, a declarations file or the live session,
 validated, combined and recorded in the manifest (review_findings.md, install-lines spec, items 1, 2
-and 4.2). What declarations do to pins, Cell 2 and exit codes is tested where those behaviors are."""
+and 4), and what install, ignore and accept entries change, each with its event (item 4.5)."""
+from importlib.metadata import version
+
 import pytest
 
 from tests.support.kernel import run_live
+from tests.support.manifests import snapshotted
+from tests.support.markers import finding
 from tests.support.notebooks import Notebook, code
-from tests.support.outcomes import manifest
-from tests.support.runner import run
+from tests.support.outcomes import manifest, pinned, sources
+from tests.support.runner import run, run_in
+from tests.support.sites import SiteDir, pythonpath
+
+PACKAGING, RESOLVELIB = version("packaging"), version("resolvelib")
 
 pytestmark = pytest.mark.usefixtures("analysis_only")  # validation lookups aren't under test
 
@@ -104,3 +111,67 @@ def test_live_session_reads_the_last_executed_version(tmp_path, live_venv):
     tmp_path.joinpath("a").mkdir(), tmp_path.joinpath("b").mkdir()
     assert run_live(live_venv, tmp_path / "a", [bad]).exit_code == 2  # control: the session's declarations are read
     assert run_live(live_venv, tmp_path / "b", [bad, good]).exit_code == 0
+
+
+def _declared(*entries):
+    return "STEADY_PY_DECLARATIONS = [" + ", ".join(entries) + "]"
+
+
+def _events(outcome, kind, name):
+    return [e["effect"] for e in outcome.declarations_applied() if (e["kind"], e["name"]) == (kind, name)]
+
+
+def test_an_ignored_package_is_not_pinned(tmp_path):
+    outcome, _ = _recorded(tmp_path, _declared('{"ignore": "packaging", "reason": "the platform has it"}'), "import packaging")
+    assert "packaging" not in pinned(outcome.written[0])
+    assert _events(outcome, "ignore", "packaging")
+
+
+@pytest.mark.parametrize("entry, name, expected", [
+    ('{"install": "packaging", "version": "20.0", "reason": "x"}', "packaging", "20.0"),  # replaces the inferred pin
+    ('{"install": "resolvelib", "reason": "x"}', "resolvelib", RESOLVELIB),  # nothing imports it: the installed version
+])
+def test_an_install_entry_is_pinned(tmp_path, entry, name, expected):
+    outcome, _ = _recorded(tmp_path, _declared(entry), "import packaging")
+    package = pinned(outcome.written[0])[name]
+    assert (package["version"], package["provenance"]["version"]) == (expected, "declaration")
+    assert _events(outcome, "install", name)
+
+
+def test_an_install_entry_carries_its_index_and_source(tmp_path):
+    outcome, _ = _recorded(tmp_path, _declared(
+        '{"install": "resolvelib", "version": "1.0.1", "index_url": "https://pkgs.test/simple", "reason": "x"}',
+        '{"install": "demo", "url": "https://files.test/demo-1.0-py3-none-any.whl", "reason": "x"}'))
+    assert pinned(outcome.written[0])["resolvelib"]["options"] == [["--index-url", "https://pkgs.test/simple"]]
+    assert [p["url"] for p in sources(outcome.written[0])] == ["https://files.test/demo-1.0-py3-none-any.whl"]
+
+
+def test_an_accept_that_matches_nothing_is_reported(tmp_path):
+    outcome, _ = _recorded(tmp_path, _declared('{"accept": "numpy", "reason": "x"}'), "import packaging")
+    assert any("no longer be needed" in e for e in _events(outcome, "accept", "numpy"))
+
+
+@finding("DG9")
+@pytest.mark.parametrize("accepted", [False, True])
+def test_an_accept_overrides_a_confirmed_check_finding(tmp_path, pypi, accepted):
+    pypi.add("packaging", {PACKAGING: {}})
+    cells = (code(_declared('{"accept": "packaging", "reason": "we pin it anyway"}')),) if accepted else ()
+    nb = snapshotted(tmp_path, *cells, code("import packaging"))
+    pypi.add("packaging", {PACKAGING: {"yanked": True, "yanked_reason": "bad build"}})
+    outcome = run("check", nb)
+    assert outcome.exit_code == (0 if accepted else 1), outcome.log
+    assert [f.get("accepted") for f in outcome.findings(signal="yanked")] == (["we pin it anyway"] if accepted else [None])
+    assert bool(_events(outcome, "accept", "packaging")) is accepted
+
+
+@pytest.mark.venv
+@finding("DG9")
+@pytest.mark.parametrize("accepted", [False, True])
+def test_an_accept_overrides_an_attention_diagnostic(tmp_path, base_venv, accepted):
+    site = SiteDir(tmp_path / "site")
+    site.add("dupmod-x", "1.0", modules=["dupmod/__init__.py"])
+    site.add("dupmod-y", "2.0", modules=["dupmod/__init__.py"])
+    cells = [code(_declared('{"accept": "dupmod", "reason": "the runner has one"}'))] if accepted else []
+    outcome = run_in(base_venv, "snapshot", Notebook(*cells, code("import dupmod")).write(tmp_path), env=pythonpath(site))
+    assert outcome.exit_code == (0 if accepted else 1), outcome.log
+    assert [w.get("accepted") for w in outcome.warnings(type="ambiguous_import")] == (["the runner has one"] if accepted else [None])

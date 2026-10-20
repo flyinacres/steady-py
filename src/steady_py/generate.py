@@ -3,6 +3,7 @@ validation, the managed markdown and setup cells, the universal manifest for a d
 the locked notebook or reading its manifest back."""
 import ast
 import copy
+import importlib.metadata
 import json
 import logging
 import sys
@@ -15,13 +16,13 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Typ
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
-from steady_py import accelerator, analyze, delta, drift, installed, models, pypi, resolution, scanning
+from steady_py import accelerator, analyze, declarations, delta, drift, installed, models, pypi, resolution, scanning
 from steady_py.constants import (
     INSTALLABLE_STATUSES, UNRECORDED_STATUSES, DependencyStatus, FetchStatus, Provenance, ReportKind, SETUP_MARKDOWN_HEADING,
     TOOL_VERSION,
 )
 from steady_py.models import (
-    Cell, Declaration, DependencyEntry, GpuInfo, LocalModule, ManifestError, ManifestPackage, NotebookAnalysisReport, PinnedDependency,
+    Cell, Declaration, DeclarationEvent, DependencyEntry, DiagnosticEvent, GpuInfo, LocalModule, ManifestError, ManifestPackage, NotebookAnalysisReport, PinnedDependency,
     RawInstall, SteadyPyManifest,
 )
 
@@ -39,6 +40,8 @@ class BlueprintResult(TypedDict):
     step1_markdown: str
     step2_code: str
     drift_report: "drift.DriftCheckReport"
+    declaration_events: List[DeclarationEvent]    # what install and ignore declarations changed
+    declaration_warnings: List[DiagnosticEvent]
 
 
 # --- Manifest extraction ----------------------------------------------------
@@ -190,6 +193,16 @@ def _is_custom_sourced(package: ManifestPackage) -> bool:
             or pypi.fetch_pypi_package_metadata(package.display_name or package.name).status != FetchStatus.FOUND)
 
 
+def _declared_version(name: str) -> Optional[str]:
+    """The version an install declaration without one pins: the installed version, else PyPI's latest."""
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        pass
+    found = pypi.fetch_pypi_package_metadata(name)
+    return found.latest_version if found.status == FetchStatus.FOUND else None
+
+
 def generate_production_blueprint(
     manifest_items: Sequence[Union[DependencyEntry, PinnedDependency, str]],
     full_freeze_lines: Optional[List[str]] = None,
@@ -198,7 +211,7 @@ def generate_production_blueprint(
     install_timeout: int = 120,
     raw_installs: Optional[List[RawInstall]] = None,
     previous: Optional[SteadyPyManifest] = None,
-    declarations: Sequence[Declaration] = (),
+    declared: Sequence[Declaration] = (),
 ) -> BlueprintResult:
     """Assembles Cell 1 Markdown and Cell 2 Python code using structured DependencyEntry objects.
 
@@ -239,7 +252,9 @@ def generate_production_blueprint(
                 _add(packages, package)
     for raw in raw_installs or []:
         _direct_source(raw, packages)
-    package_list = [replace(p, custom_sourced=_is_custom_sourced(p)) for p in packages.values()]
+    declared_packages, declaration_events, declaration_warnings = declarations.apply_to_packages(
+        list(packages.values()), declared, _declared_version)
+    package_list = [replace(p, custom_sourced=_is_custom_sourced(p)) for p in declared_packages]
 
     gpu_markdown_section = ""
     if gpu_info and gpu_info.has_gpu:
@@ -292,7 +307,7 @@ def generate_production_blueprint(
         packages=package_list,
         gpu=gpu_info.to_dict() if gpu_info else None,
         local_modules=local_modules,
-        declarations=list(declarations),
+        declarations=list(declared),
     )
     generation_findings = drift.run_pin_checks(fresh.pins(), fresh.python_version)
     fresh.baseline = drift.build_baseline(generation_findings)
@@ -333,6 +348,8 @@ steady_py.install(STEADY_PY_MANIFEST, timeout={install_timeout})"""
         "step1_markdown": step1_markdown,
         "step2_code": step2_code,
         "drift_report": drift_report,
+        "declaration_events": declaration_events,
+        "declaration_warnings": declaration_warnings,
     }
 
 
@@ -479,7 +496,7 @@ def build_blueprint_for_notebook(
         install_timeout=install_timeout,
         raw_installs=scan_res.raw_installs,
         previous=previous,
-        declarations=declarations,
+        declared=declarations,
     )
 
 

@@ -57,6 +57,10 @@ class Outcome:
     def notices(self, type: Optional[str] = None, about: Optional[str] = None) -> list:
         return self._diagnostics("notices", type, about)
 
+    def declarations_applied(self) -> list:
+        """A snapshot or check report's "Declarations applied" events: kind, name, origin, effect."""
+        return self._single().get("declarations_applied", [])
+
     def install_lines(self) -> list:
         return self._single()["install_lines"]
 

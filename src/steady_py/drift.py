@@ -17,7 +17,7 @@ from resolvelib.resolvers import ResolutionImpossible
 
 from steady_py import installed, models, pypi, util
 from steady_py.constants import BaselineStatus, FetchStatus, ReportKind, Severity, Signal
-from steady_py.models import Baseline, DriftFinding, FindingKey, PinnedDependency, SteadyPyManifest
+from steady_py.models import Baseline, DeclarationEvent, DriftFinding, FindingKey, PinnedDependency, SteadyPyManifest
 
 logger = logging.getLogger("steady_py.drift")
 
@@ -516,16 +516,18 @@ class DriftCheckReport:
     errors: List[DriftFinding] = field(default_factory=list)
     notices: List[DriftFinding] = field(default_factory=list)  # known custom sources; never affect the outcome
     baseline_recorded: bool = False  # True only when findings were classified against a usable baseline
+    declarations_applied: List[DeclarationEvent] = field(default_factory=list)
 
     @property
     def has_confirmed(self) -> bool:
-        return len(self.confirmed) > 0
+        """A confirmed finding no accept declaration covers."""
+        return any(f.accepted is None for f in self.confirmed)
 
     @property
     def has_actionable_heuristic(self) -> bool:
         """A heuristic finding that should fail a check: anything not already known at generation.
         Without a baseline nothing is known, so every heuristic finding counts."""
-        return any(f.baseline_status != BaselineStatus.KNOWN for f in self.heuristic)
+        return any(f.baseline_status != BaselineStatus.KNOWN and f.accepted is None for f in self.heuristic)
 
     def baseline_counts(self) -> Dict[str, int]:
         counts = {BaselineStatus.NEW: 0, BaselineStatus.KNOWN: 0, BaselineStatus.NOT_CHECKED_AT_GENERATION: 0}
@@ -559,6 +561,8 @@ class DriftCheckReport:
         if self.kind == ReportKind.CHECK:
             out["notices"] = [f.to_dict() for f in self.notices]
             out["baseline"] = {"recorded": True, **self.baseline_counts()} if self.baseline_recorded else {"recorded": False}
+        if self.declarations_applied:
+            out["declarations_applied"] = [e.to_dict() for e in self.declarations_applied]
         return out
 
 

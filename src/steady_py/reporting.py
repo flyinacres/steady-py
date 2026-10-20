@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from steady_py import analyze, drift
 from steady_py.constants import BaselineStatus, ReportKind, SCHEMA_VERSION, TOOL_VERSION
-from steady_py.models import BatchAnalysisSummary, DiagnosticEvent, DriftFinding, GpuInfo, NotebookAnalysisReport
+from steady_py.models import BatchAnalysisSummary, DeclarationEvent, DiagnosticEvent, DriftFinding, GpuInfo, NotebookAnalysisReport
 
 
 def format_console_drift_report(report: drift.DriftCheckReport) -> str:
@@ -35,7 +35,8 @@ def format_console_drift_report(report: drift.DriftCheckReport) -> str:
             BaselineStatus.KNOWN: "[known] ",
             BaselineStatus.NOT_CHECKED_AT_GENERATION: "[not checked at generation] ",
         }.get(f.baseline_status or "", "")
-        return f"  • {tag}[{f.signal}] {f.message}"
+        accepted = f" [accepted: {f.accepted}]" if f.accepted is not None else ""
+        return f"  • {tag}[{f.signal}] {f.message}{accepted}"
 
     if report.confirmed:
         out.append(f"🔴 CONFIRMED ISSUES ({len(report.confirmed)}):")
@@ -66,7 +67,9 @@ def format_console_drift_report(report: drift.DriftCheckReport) -> str:
             noted = f" ({len(report.notices)} custom-source package(s) noted above)." if report.notices else ""
             out.append("STATUS: ✅ Clean. No drift detected against the pinned manifest." + noted)
     elif not (report.has_confirmed or report.has_errors or report.has_actionable_heuristic):
-        out.append(f"STATUS: ✅ No new issues since generation ({len(report.heuristic)} known item(s) still present).")
+        accepted = sum(1 for f in report.confirmed + report.heuristic if f.accepted is not None)
+        note = f", {accepted} accepted by a declaration" if accepted else ""
+        out.append(f"STATUS: ✅ Nothing needs attention ({len(report.heuristic)} known item(s) still present{note}).")
     else:
         parts = []
         if report.has_confirmed:
@@ -77,8 +80,18 @@ def format_console_drift_report(report: drift.DriftCheckReport) -> str:
             parts.append(f"{len(report.heuristic)} item(s) worth reviewing")
         out.append(f"STATUS: ⚠️ {'; '.join(parts)}")
     out.append("=" * 80)
+    applied = format_declarations_applied(report.declarations_applied)
+    if applied:
+        out.append(applied)
 
     return "\n".join(out)
+
+
+def format_declarations_applied(events: List[DeclarationEvent]) -> str:
+    """The "Declarations applied" section: every outcome a declaration changed. Empty when none did."""
+    if not events:
+        return ""
+    return "\n".join(["Declarations applied:", *(e.format_console() for e in events)])
 
 
 def format_json_drift_report(report: drift.DriftCheckReport) -> str:
