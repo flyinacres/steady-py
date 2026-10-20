@@ -9,12 +9,13 @@ function on that module takes effect here.
 from __future__ import annotations
 
 import importlib.metadata
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-from steady_py import accelerator, analyze, constants, declarations, delta, drift, generate, installed, localmodules, models, scanning, util
+from steady_py import accelerator, analyze, constants, declarations, delta, drift, generate, magics, reconcile, installed, localmodules, models, scanning, util
 from steady_py.results import (
     CheckOptions, CheckResult, Environment, NotebookCheck, NotebookSnapshot, SetupCells, SnapshotOptions, SnapshotResult,
     TargetKind, WriteMode,
@@ -159,7 +160,8 @@ def _snapshot_notebook(
         scan_result, report, hardware, install_timeout=options.install_timeout, full_freeze_lines=full_freeze_lines,
         previous=previous, declarations=declared.entries,
     )
-    _apply_accepts(report, blueprint, declared.entries)
+    _apply_accepts(report, blueprint, declared.entries,
+                   companion=options.write_mode in (WriteMode.COMPANION, WriteMode.DIRECTORY))
     notebook = NotebookSnapshot(
         path=str(scan_result.path),
         report=report,
@@ -186,14 +188,17 @@ def _snapshot_notebook(
 
 
 def _apply_accepts(report: models.NotebookAnalysisReport, blueprint: generate.BlueprintResult,
-                   entries: Sequence[models.Declaration]) -> None:
+                   entries: Sequence[models.Declaration], companion: bool) -> None:
     """Snapshot's declaration events, in report.declarations_applied: what install and ignore entries
     changed, the attention diagnostics accepts cover (they no longer set exit 1), and accepts that
     matched nothing. Generation findings an accept names are marked accepted too, without an event:
     they don't set snapshot's exit code, and the accept will cover them at check."""
-    for warning in blueprint["declaration_warnings"]:
-        warning.notebook = report.notebook_path
+    lines = reconcile.snapshot_diagnostics(blueprint["line_verdicts"], report.imported_packages, companion)
+    for event in (*blueprint["declaration_warnings"], *lines):
+        event.notebook = report.notebook_path
     report.warnings.extend(blueprint["declaration_warnings"])
+    report.warnings.extend(e for e in lines if e.level == "warning")
+    report.notices.extend(e for e in lines if e.level != "warning")
     accepted, used = declarations.accept_diagnostics(report.warnings, entries, sorted(constants.ATTENTION_DIAGNOSTICS))
     validation = blueprint["drift_report"]
     _, at_generation = declarations.accept_findings(
@@ -280,6 +285,17 @@ def _snapshot_directory(target: str, options: SnapshotOptions, environment: Opti
     return result
 
 
+def _install_line_findings(path: str, manifest: models.SteadyPyManifest) -> List[models.DriftFinding]:
+    """The notebook's install lines classified against its manifest (item 10.2). The setup cells
+    themselves are left out. The manifest was read already, so an unreadable file isn't possible here."""
+    with open(path, "r", encoding="utf-8") as f:
+        raw = json.load(f).get("cells", [])
+    managed = {i for i, cell in enumerate(raw) if generate.is_prior_setup_cell(cell)}
+    cells = [c for c in scanning.read_notebook_cells(raw) if c.position not in managed]
+    lines = magics.harvest_cell_magics_and_commands(cells).install_lines
+    return reconcile.check_findings(reconcile.classify(lines, manifest.packages))
+
+
 def check(target: str, options: Optional[CheckOptions] = None) -> CheckResult:
     """Compares the manifest in a notebook, a .py file or every notebook under a directory with
     live PyPI: yanked or removed pins, conflicts, an unsupported Python, a hand-edited manifest,
@@ -344,6 +360,8 @@ def _check_file(path: str, options: CheckOptions, root_fallback: Optional[str] =
     findings.extend(localmodules.check_local_modules(manifest, notebook_dir=notebook_dir, root_dir=root_dir))
     findings.extend(drift.run_pin_checks(manifest.pins(), manifest.python_version))
 
+    if path.endswith(".ipynb"):
+        findings.extend(_install_line_findings(path, manifest))
     accepted, used = declarations.accept_findings(findings, manifest.declarations)
     report = drift.build_drift_check_report(path, manifest, findings)
     report.declarations_applied = [*accepted, *declarations.unused_accepts(manifest.declarations, used)]

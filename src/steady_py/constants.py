@@ -71,6 +71,8 @@ class Signal:
     LOCAL_MODULE_MISSING = "local_module_missing"
     LOCAL_MODULE_UNVERIFIABLE = "local_module_unverifiable"
     UNREAD_FIELDS = "unread_fields"  # the manifest has fields this steady-py doesn't know, so it can't check them
+    CONFLICTING_LINE = "conflicting_line"  # an install line can change a package Cell 2 installed
+    REDUNDANT_LINE = "redundant_line"  # an install line repeats a package Cell 2 installed
 
 
 class Severity:
@@ -126,7 +128,8 @@ UNSHAREABLE_STATUSES = frozenset({DependencyStatus.SYSTEM_PATH, DependencyStatus
 
 # Warnings that leave a dependency the notebook needs unpinned: a run that raises one needs the
 # creator's attention (exit 1), as an unreadable notebook does.
-ATTENTION_DIAGNOSTICS = frozenset({"editable_import", "local_file_import", "custom_path_import", "ambiguous_import"})
+ATTENTION_DIAGNOSTICS = frozenset({"editable_import", "local_file_import", "custom_path_import", "ambiguous_import",
+                                   "conflicting_install_line"})
 
 
 class FetchStatus:

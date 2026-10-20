@@ -16,13 +16,13 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Typ
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
-from steady_py import accelerator, analyze, declarations, delta, drift, installed, models, pypi, resolution, scanning
+from steady_py import accelerator, analyze, declarations, delta, drift, reconcile, installed, models, pypi, resolution, scanning
 from steady_py.constants import (
     INSTALLABLE_STATUSES, UNRECORDED_STATUSES, DependencyStatus, FetchStatus, Provenance, ReportKind, SETUP_MARKDOWN_HEADING,
     TOOL_VERSION,
 )
 from steady_py.models import (
-    Cell, Declaration, DeclarationEvent, DependencyEntry, DiagnosticEvent, GpuInfo, LocalModule, ManifestError, ManifestPackage, NotebookAnalysisReport, PinnedDependency,
+    Cell, Declaration, DeclarationEvent, DependencyEntry, DiagnosticEvent, GpuInfo, InstallLine, LocalModule, ManifestError, ManifestPackage, NotebookAnalysisReport, PinnedDependency,
     RawInstall, SteadyPyManifest,
 )
 
@@ -42,6 +42,7 @@ class BlueprintResult(TypedDict):
     drift_report: "drift.DriftCheckReport"
     declaration_events: List[DeclarationEvent]    # what install and ignore declarations changed
     declaration_warnings: List[DiagnosticEvent]
+    line_verdicts: List["reconcile.LineVerdict"]  # install lines naming a package Cell 2 installs
 
 
 # --- Manifest extraction ----------------------------------------------------
@@ -212,6 +213,7 @@ def generate_production_blueprint(
     raw_installs: Optional[List[RawInstall]] = None,
     previous: Optional[SteadyPyManifest] = None,
     declared: Sequence[Declaration] = (),
+    install_lines: Sequence[InstallLine] = (),
 ) -> BlueprintResult:
     """Assembles Cell 1 Markdown and Cell 2 Python code using structured DependencyEntry objects.
 
@@ -254,6 +256,9 @@ def generate_production_blueprint(
         _direct_source(raw, packages)
     declared_packages, declaration_events, declaration_warnings = declarations.apply_to_packages(
         list(packages.values()), declared, _declared_version)
+    line_verdicts = reconcile.classify(install_lines, declared_packages)
+    conflicted = {v.package.name for v in line_verdicts if v.conflicting}
+    declared_packages = [replace(p, conflicting_line=p.name in conflicted) for p in declared_packages]
     package_list = [replace(p, custom_sourced=_is_custom_sourced(p)) for p in declared_packages]
 
     gpu_markdown_section = ""
@@ -350,6 +355,7 @@ steady_py.install(STEADY_PY_MANIFEST, timeout={install_timeout})"""
         "drift_report": drift_report,
         "declaration_events": declaration_events,
         "declaration_warnings": declaration_warnings,
+        "line_verdicts": line_verdicts,
     }
 
 
@@ -497,6 +503,7 @@ def build_blueprint_for_notebook(
         raw_installs=scan_res.raw_installs,
         previous=previous,
         declared=declarations,
+        install_lines=report.install_lines,
     )
 
 

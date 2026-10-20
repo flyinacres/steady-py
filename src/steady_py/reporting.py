@@ -6,7 +6,7 @@ import sys
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from steady_py import analyze, drift
-from steady_py.constants import BaselineStatus, ReportKind, SCHEMA_VERSION, TOOL_VERSION
+from steady_py.constants import BaselineStatus, ReportKind, SCHEMA_VERSION, Signal, TOOL_VERSION
 from steady_py.models import BatchAnalysisSummary, DeclarationEvent, DiagnosticEvent, DriftFinding, GpuInfo, NotebookAnalysisReport
 
 
@@ -48,9 +48,15 @@ def format_console_drift_report(report: drift.DriftCheckReport) -> str:
         out.extend(_line(f) for f in report.heuristic)
         out.append("")
 
-    if report.notices:
-        out.append(f"ℹ️ CUSTOM SOURCES -- already known at generation, not counted as drift ({len(report.notices)}):")
-        out.extend(_line(f) for f in report.notices)
+    sources = [f for f in report.notices if f.signal != Signal.REDUNDANT_LINE]
+    repeats = [f for f in report.notices if f.signal == Signal.REDUNDANT_LINE]
+    if sources:
+        out.append(f"ℹ️ CUSTOM SOURCES -- already known at generation, not counted as drift ({len(sources)}):")
+        out.extend(_line(f) for f in sources)
+        out.append("")
+    if repeats:
+        out.append(f"ℹ️ INSTALL LINES THAT REPEAT CELL 2 -- harmless, not counted as drift ({len(repeats)}):")
+        out.extend(f"  • {f.message}" for f in repeats)
         out.append("")
 
     if report.errors:
@@ -64,7 +70,8 @@ def format_console_drift_report(report: drift.DriftCheckReport) -> str:
         if report.kind == ReportKind.VALIDATION:
             out.append("STATUS: ✅ Clean. No issues found in these pins.")
         else:
-            noted = f" ({len(report.notices)} custom-source package(s) noted above)." if report.notices else ""
+            sources = [f for f in report.notices if f.signal != Signal.REDUNDANT_LINE]
+            noted = f" ({len(sources)} custom-source package(s) noted above)." if sources else ""
             out.append("STATUS: ✅ Clean. No drift detected against the pinned manifest." + noted)
     elif not (report.has_confirmed or report.has_errors or report.has_actionable_heuristic):
         accepted = sum(1 for f in report.confirmed + report.heuristic if f.accepted is not None)

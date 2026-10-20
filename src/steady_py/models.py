@@ -350,6 +350,7 @@ class TimelineResult:
     dependencies: List[DependencyEntry] = field(default_factory=list)
     promotion_notices: List[PromotionDetail] = field(default_factory=list)
     conflict_warnings: List[DiagnosticEvent] = field(default_factory=list)
+    imported: Set[str] = field(default_factory=set)  # canonical distributions the notebook's imports load
     warnings: List[DiagnosticEvent] = field(default_factory=list)
     notices: List[DiagnosticEvent] = field(default_factory=list)
 
@@ -530,7 +531,9 @@ class ManifestPackage:
     INSTALLABLE_STATUSES, and the rest are records for check and the creator (DG4). `extras` are as
     written; they compare normalized. `provenance` maps each sourced field (version, url, options) to
     a Provenance value. `guard` is reserved for the install-line guard (kind, group, branch), filled
-    once install lines are reconciled (fix_plan.md, step 4). `changed_at` is when this entry's content
+    once install lines are reconciled (fix_plan.md, step 4). `conflicting_line` is True when a
+    conflicting install line naming this package was left in place, so Cell 2 warns the runner
+    (review_findings.md, install-lines spec, item 10.3). `changed_at` is when this entry's content
     last changed.
     """
     name: str
@@ -542,11 +545,12 @@ class ManifestPackage:
     options: Tuple[Option, ...] = ()
     custom_sourced: bool = False
     guard: Optional[Dict[str, Any]] = None
+    conflicting_line: bool = False
     provenance: Dict[str, str] = field(default_factory=dict)
     changed_at: str = ""
 
     _FIELDS = ("name", "display_name", "status", "version", "extras", "url", "options", "custom_sourced",
-               "guard", "provenance", "changed_at")
+               "guard", "conflicting_line", "provenance", "changed_at")
 
     @property
     def key(self) -> Tuple[str, Tuple[str, ...]]:
@@ -580,7 +584,8 @@ class ManifestPackage:
         return {
             "name": self.name, "display_name": self.display_name, "status": self.status, "version": self.version,
             "extras": list(self.extras), "url": self.url, "options": [list(o) for o in self.options],
-            "custom_sourced": self.custom_sourced, "guard": self.guard, "provenance": dict(self.provenance),
+            "custom_sourced": self.custom_sourced, "guard": self.guard, "conflicting_line": self.conflicting_line,
+            "provenance": dict(self.provenance),
             "changed_at": self.changed_at,
         }
 
@@ -595,7 +600,7 @@ class ManifestPackage:
             display_name=_str_or_none(d.get("display_name"), "display_name") or d["name"],
             version=_str_or_none(d.get("version"), "version"), extras=_str_list(d.get("extras"), "extras"),
             url=_str_or_none(d.get("url"), "url"), options=_options(d.get("options"), "options"),
-            custom_sourced=bool(d.get("custom_sourced")), guard=guard,
+            custom_sourced=bool(d.get("custom_sourced")), guard=guard, conflicting_line=bool(d.get("conflicting_line")),
             provenance=_provenance(d.get("provenance"), "provenance"), changed_at=_str_or_none(d.get("changed_at"), "changed_at") or "",
         )
 
@@ -835,6 +840,7 @@ class NotebookAnalysisReport:
     local_tagged: List[Tuple[str, List[str]]] = field(default_factory=list)  # specific package builds; feeds the blueprint, not the JSON
     install_lines: List[InstallLine] = field(default_factory=list)
     declarations_applied: List[DeclarationEvent] = field(default_factory=list)
+    imported_packages: Set[str] = field(default_factory=set)  # canonical; feeds install-line advice, not the JSON
 
     def to_dict(self) -> Dict[str, Any]:
         out = {

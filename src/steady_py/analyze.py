@@ -280,6 +280,7 @@ def build_single_notebook_report(
         promotions=timeline_res.promotion_notices,
         local_tagged=local_tagged,
         install_lines=scan_res.install_lines,
+        imported_packages=timeline_res.imported,
     )
 
 

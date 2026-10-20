@@ -179,7 +179,7 @@ Reading test status:
 
 ## Design gaps (no tests yet)
 
-All N, blocked on feature design, except DG8, which is fixed, and DG9, settled by decision 12. DG5 is under Environment capture.
+All N, blocked on feature design, except DG8, which is fixed, DG7, settled by the install-lines spec, and DG9, settled by decision 12. DG5 is under Environment capture.
 
 | ID | Finding | Settled | Status | Step | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -188,7 +188,7 @@ All N, blocked on feature design, except DG8, which is fixed, and DG9, settled b
 | DG3 | Platform baseline | N | not planned | out | Needed only by DG1 |
 | DG4 | Guard status in the manifest | Y |  | fixed | U | F1 | Guard group and branch fill `packages.guard` in step 4 |
 | DG6 | Build-tag runtime policy | N | not planned | pf1 | Decision 4 |
-| DG7 | Creator install lines undoing Cell 2 | N | not planned | 4 | |
+| DG7 | Creator install lines undoing Cell 2 | Y |  | 4 | Install-lines spec items 5 and 10; tests at layer U |
 | DG9 | No creator override for an exit-1 condition | Y |  | 4 | Decision 12; tests at layers U (check) and V (snapshot) |
 | DG8 | Offline `/kaggle/input` wheel installs | Y |  | fixed | Decision 11 |
 | D7 | Live-session recipe is clunky | N | not planned | 4 | The round trip runs there |

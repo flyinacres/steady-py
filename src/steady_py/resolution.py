@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
 from steady_py import installed, join, magics, pypi, scanning, util
@@ -126,6 +127,7 @@ def build_unified_timeline(
             target = joins.get(module) or join.Join(module, join.JoinKind.NOT_FOUND)
             resolved = _for_import(module, target, key, submods.get(key, set()), ctx, guarded, occ_import, placed)
         result.add(resolved)
+    result.imported = {canonicalize_name(k) for k in first_import if not k.startswith("import:")}
     return result
 
 
