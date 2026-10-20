@@ -144,21 +144,32 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
 
 1. Declarations structure (working name `STEADY_PY_DECLARATIONS`; a better name is welcome):
    1. It is a tool-owned Python literal, parsed with `ast` and never executed. It is valid Python that does nothing when run. Parsing must handle any valid characters and comments.
-   2. Each entry is one of three kinds:
-      1. Install: package, optional pin, optional source (an index URL, find-links or VCS commit), and a reason.
-      2. Ignore, meaning "I handle this": package, optional pin, optional group name for guarded alternatives, and a reason.
-      3. Accept, meaning "this finding is wrong for my notebook": one finding or diagnostic, named by the facts that define it, and a reason. Every condition that makes snapshot or check exit 1 can be accepted (matrix decision 12).
-   3. A declarations literal that fails to parse stops snapshot with exit 2, naming the cell and the error. Continuing without it would pin every package the creator marked ignore.
+   2. The literal is a list assigned to `STEADY_PY_DECLARATIONS`. Each entry is a dict whose first key names its kind and whose value names its subject, and every entry has a non-empty `reason`:
+
+      ```python
+      STEADY_PY_DECLARATIONS = [
+          {"install": "acme-utils", "version": "2.1.0", "index_url": "https://pkgs.example.com/simple", "reason": "..."},
+          {"ignore": "torch", "group": "gpu", "reason": "..."},
+          {"accept": "numpy", "reason": "..."},
+      ]
+      ```
+
+   3. Install, meaning "install this package": the package name, and optionally `version` (an exact version, installed as `==`), `extras` (a list), `url` (a direct reference such as a VCS URL with a commit or a wheel URL, never combined with `version`), `index_url`, `extra_index_url` and `find_links`. The index options become the manifest entry's `options` pairs.
+   4. Ignore, meaning "I handle this": the package name, and optionally `version` (checked against what is installed, item 6.2) and `group` (a name tying guarded alternatives together).
+   5. Accept, meaning "this finding is wrong for my notebook": a package or import name, exactly as the finding's message shows it, and nothing else. It covers every exit-1 finding for that name, at snapshot and at check, until the creator removes it (matrix decision 12). Each such finding's message prints the entry ready to paste.
+   6. Package names compare in canonical form (PEP 503). An accept matches a finding's canonical package name or its import name.
+   7. Every entry is validated before anything else runs. A literal that fails to parse, or an entry that isn't a dict, has no kind key or more than one, lacks a reason, has a key its kind doesn't take, has a value of the wrong type, or combines `url` with `version`, stops snapshot with exit 2, naming the cell or file, the entry and the problem. Continuing without it would pin every package the creator marked ignore. The message for an unknown key adds that a newer steady-py may be needed, since a declaration written for a newer version reads that way.
 2. Where declarations come from:
    1. A declarations cell in the notebook, the default for online users. It persists in the notebook like any other cell. In a live kernel it is read from session history, where the last executed version counts; from the CLI it is read from the file. It must never match the prior-setup-cell rule, and snapshot warns if one cell holds both the declarations and the manifest.
    2. An optional declarations file with the same syntax, the natural route from the CLI and for collections. The API accepts it too. It is input only: nothing at run time needs it.
-   3. Conflicts are matched by canonical package name. Every conflict produces a warning, and the last one wins. The file is applied first and the notebook cell last, so the notebook wins, and within a single source the later entry wins. The winning entry replaces the other whole, with no field merging.
+   3. An install and an ignore for the same package conflict, and so do two entries of one kind for one name. An accept never conflicts with an install or an ignore. Every conflict produces a warning, and the last one wins. The file is applied first and the notebook cell last, so the notebook wins, and within a single source the later entry wins. The winning entry replaces the other whole, with no field merging.
 3. Round trip: snapshot reports proposals drawn from its diagnostics. Examples: guarded alternatives to confirm as ignore entries, values to list for a computed install, an optional extra to require. The creator edits the cell or file and runs snapshot again. Snapshot does not print the declarations back.
 4. Validation and record:
    1. Snapshot checks each install entry. The package and version must exist, the version must support the notebook's Python, and it must resolve with the rest of the pins.
    2. Entries go into the hashed manifest with provenance, including which source each came from. A declarations file is recorded by a relative name or label, never a local path, since the manifest is shared.
    3. Snapshot reports drift, such as a declared package now detected on its own or a conflict with the environment.
    4. Cell 2 reads only the manifest. Check reads the manifest and the notebook's install lines (item 10.2).
+   5. Every time a declaration changes an outcome, the run records an event naming the declaration (kind, name, origin) and what it changed: a finding that no longer counts toward exit 1, a package left unpinned, a pin or source taken from an install entry, or a conflict settled by last-wins. Snapshot and check print the events together as one "Declarations applied" section at the end of the report, and `--format json` carries them as structured events. An accept that matched nothing is listed there as no longer needed. Declarations take effect only through the one step that records the event, so no rule can act silently, and each rule's test asserts its event.
 5. Install-line reconciliation, reported by snapshot and never applied to the creator's code:
    1. Packages Cell 2 installs, whether inferred or declared: each line naming one is conflicting (fix these first) or redundant. A line conflicts when, run after Cell 2 has installed `P==v`, it could leave P at another version or replace its distribution:
       1. Its specifier excludes v (`SpecifierSet.contains(v, prereleases=True)` is false).
@@ -184,8 +195,9 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
 8. Ownership:
    1. Resolution decides what Cell 2 covers.
    2. One parser reads the declarations from every source.
-   3. One pure function classifies install lines, shared by snapshot and check.
-   4. The entry points differ only in how they gather input.
+   3. One step applies declarations and records each effect (item 4.5).
+   4. One pure function classifies install lines, shared by snapshot and check.
+   5. The entry points differ only in how they gather input.
 9. Prerequisites:
    1. "Single pip flags and raw-install index flags are dropped" and "Parse pip arguments the way pip does".
    2. "In a live kernel, no install line, conda command or `%%writefile` script is harvested".
