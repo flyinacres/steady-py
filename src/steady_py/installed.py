@@ -9,7 +9,7 @@ import re
 import sys
 import urllib.parse
 import urllib.request
-from typing import Dict, FrozenSet, Iterator, List, Optional, Sequence, Set, Tuple
+from typing import Dict, FrozenSet, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
@@ -254,3 +254,34 @@ def file_url_path(url: str) -> str:
     if parts.netloc and parts.netloc != "localhost":  # a UNC share
         path = f"//{parts.netloc}{path}"
     return str(pathlib.Path(path).resolve())
+
+
+def reaching(roots: Mapping[str, Sequence[str]], targets: Set[str]) -> Dict[str, str]:
+    """For each canonical name in `targets` that installing `roots` would pull in, the root whose
+    installed dependencies reach it. `roots` maps a canonical package to the extras it is pinned with.
+    Dependencies are read from what is installed here, with markers evaluated for this environment."""
+    found: Dict[str, str] = {}
+    for root, extras in roots.items():
+        seen: Set[str] = {root}
+        queue: List[Tuple[str, Sequence[str]]] = [(root, extras)]
+        while queue:
+            name, wanted = queue.pop()
+            try:
+                requires = importlib.metadata.requires(name) or []
+            except importlib.metadata.PackageNotFoundError:
+                continue
+            for line in requires:
+                try:
+                    req = Requirement(line)
+                except InvalidRequirement:
+                    continue
+                if req.marker is not None and not any(req.marker.evaluate({"extra": e}) for e in ("", *wanted)):
+                    continue
+                dep = util.canonicalize_pkg_name(req.name)
+                if dep in seen:
+                    continue
+                seen.add(dep)
+                if dep in targets and dep != root:
+                    found.setdefault(dep, root)
+                queue.append((dep, tuple(req.extras)))
+    return found

@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from packaging.utils import canonicalize_name
 
-from steady_py import scanning
+from steady_py import installed, scanning
 from steady_py.constants import DECLARATIONS_NAME, DeclarationKind, DependencyStatus, Provenance, Signal
 from steady_py.models import Cell, Declaration, DeclarationEvent, DiagnosticEvent, DriftFinding, ManifestPackage, Option
 
@@ -277,6 +277,19 @@ def apply_to_packages(
         replaced = f", in place of {was}" if inferred and was != package.requirement() else ""
         events.append(_event(entry, f"Cell 2 installs {package.requirement()}{replaced}"))
     return out, events, warnings
+
+
+def reachable_ignores(packages: Sequence[ManifestPackage], entries: Sequence[Declaration]) -> List[DiagnosticEvent]:
+    """A warning for each ignored package a pinned package depends on (item 6.4): pip can still
+    install or move it while Cell 2 runs, which an ignore can't prevent."""
+    ignored = {e.name for e in entries if e.kind == IGNORE}
+    if not ignored:
+        return []
+    roots = {p.name: p.extras for p in packages if p.installable and p.name}
+    return [DiagnosticEvent(type="ignored_reachable", detail=(
+        f"{name} is declared ignore, but the pinned {root} depends on it, so pip may install or change it while "
+        f"Cell 2 runs. If the notebook needs a particular {name}, keep its own install line after Cell 2."))
+        for name, root in sorted(installed.reaching(roots, ignored).items())]
 
 
 def _accepts(entries: Sequence[Declaration]) -> Dict[str, Declaration]:

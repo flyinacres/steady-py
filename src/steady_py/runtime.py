@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Tuple
 
 from packaging.requirements import InvalidRequirement, Requirement
 
-from steady_py.constants import HELP_URL, DependencyStatus
+from steady_py.constants import HELP_URL, DeclarationKind, DependencyStatus
 from steady_py import models
 from steady_py.models import ManifestError, SteadyPyManifest
 
@@ -47,6 +47,26 @@ def _installed_version(name: str) -> str:
         return current if not req.extras or _extras_installed(req) else ""
     except importlib.metadata.PackageNotFoundError:
         return ""
+
+
+def _report_ignored(record: SteadyPyManifest) -> None:
+    """Packages the notebook declared it handles itself (review_findings.md, install-lines spec, items
+    6.2 and 6.3): never installed here and not counted in N/N, but what is already installed is shown,
+    against the declared version when there is one."""
+    ignored = [d for d in record.declarations if d.kind == DeclarationKind.IGNORE]
+    if not ignored:
+        return
+    print("\nℹ️ Installed by the notebook itself, not by this cell:")
+    for entry in ignored:
+        try:
+            current = importlib.metadata.version(entry.name)
+        except importlib.metadata.PackageNotFoundError:
+            print(f"   • {entry.name}: not installed yet; a later cell installs it")
+            continue
+        if entry.version and entry.version != current:
+            print(f"   • {entry.name}: {current} is installed; the notebook was made with {entry.version}")
+        else:
+            print(f"   • {entry.name}: {current} is installed")
 
 
 def _distribution(name: str) -> str:
@@ -208,6 +228,8 @@ def install(manifest: Dict[str, Any], timeout: int = 120) -> InstallResult:
                 print("       ⚠️ This is a custom-specified source (git/URL/local file), not a standard PyPI package.")
                 print("          If it's unreachable, contact the notebook's author for its current location.")
 
+    _report_ignored(record)
+
     print("\n" + "=" * 60)
     if not failed_packages:
         print(f"✅ Setup complete! All {passed_count}/{total_deps} dependencies verified.")
@@ -218,6 +240,9 @@ def install(manifest: Dict[str, Any], timeout: int = 120) -> InstallResult:
         print("2. Unpinned Installs: Test installing failed libraries manually: '!pip install <pkg>'")
         print(f"3. Troubleshooting Steps: For a detailed guide on resolving setup errors, see: {HELP_URL}")
 
+    changeable = [p.label for p in installs if p.conflicting_line]
+    if changeable:  # item 6.5: the author kept an install line that can change these after this cell
+        print(f"⚠️ A later cell in this notebook can change: {', '.join(changeable)}.")
     if any_install_performed:
         print("\n⚠️ Note: You may need to restart the kernel to use updated packages.")
     print("=" * 60)

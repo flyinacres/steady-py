@@ -256,6 +256,7 @@ def generate_production_blueprint(
         _direct_source(raw, packages)
     declared_packages, declaration_events, declaration_warnings = declarations.apply_to_packages(
         list(packages.values()), declared, _declared_version)
+    declaration_warnings += declarations.reachable_ignores(declared_packages, declared)
     line_verdicts = reconcile.classify(install_lines, declared_packages)
     conflicted = {v.package.name for v in line_verdicts if v.conflicting}
     declared_packages = [replace(p, conflicting_line=p.name in conflicted) for p in declared_packages]
