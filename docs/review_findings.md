@@ -79,12 +79,12 @@ What is wrong and why, one entry per finding, by matrix ID. Each entry carries i
 ## Design gaps
 
 - DG1. Optional dependencies that are never imported (openpyxl, gcsfs, spaCy models) are seen only if the notebook has an install line. There is no candidate detection. Package metadata can supply candidates without a hardcoded list: pandas declares openpyxl and gcsfs in its extras, so an imported package plus an installed package named in one of its extras is a candidate. spaCy models are declared in no metadata and need a different signal.
-- DG2. There is no creator warning about guarded alternatives, and no runtime report of which alternatives are present. A clean run cannot verify the untaken branch. Partly addressed by Proposed features, "Install lines, creator declarations and manifest updating".
+- DG2. There is no creator warning about guarded alternatives, and no runtime report of which alternatives are present. A clean run cannot verify the untaken branch. Partly addressed by Proposed features, "Install lines, creator declarations and manifest regeneration".
 - DG3. It is unknown whether a platform baseline (Kaggle or Colab preinstalled packages) exists; candidate lists need one.
 - DG5. Pins come from the interpreter running the CLI. If a creator installs steady-py with pipx or `uv tool`, or runs it from conda base while the kernel uses another env, every pin describes the wrong environment, and nothing warns (unverified lead; the natural next review boundary).
 - DG6. No runtime policy for a pin whose public release matches the platform's but whose build tag differs (manifest `torch==2.8.0+cu121`, platform `2.8.0+cu126`). Accepting risks a CUDA mismatch; reinstalling means a multi-GB download over the platform build. The runtime counterpart of "pin what's installed"; needs an explicit decision.
 - DG8. Offline installs of local wheels (`!pip install --no-index --no-deps /kaggle/input/<dataset>/<pkg>.whl`, the competition pattern for internet-off notebooks) get only a `raw_install` notice. The path exists only on Kaggle with that dataset attached, so the manifest records something another environment can't reproduce, and the package's version isn't tied to the pin. About 10% of Kaggle install lines in both eras of the corpus. Decided as matrix decision 11.
-- DG7. The creator's own install lines run after Cell 2 and can undo its pins, and some lines Cell 2 cannot reproduce at all (guarded, computed, conda). Snapshot keeps every original cell (`generate.write_locked_notebook`, `generate.py` lines 406 to 407), so the runner executes Cell 2 and then the creator's install lines, after Cell 2 has printed "All N/N dependencies verified". Tested with pip 24.0 in a clean venv: `pip install -U tabulate` and a differing `==` moved a pinned tabulate, and installing `datasets` moved a pinned `requests` from 2.28.0 to 2.34.2 through the resolver. Addressed by Proposed features, "Install lines, creator declarations and manifest updating".
+- DG7. The creator's own install lines run after Cell 2 and can undo its pins, and some lines Cell 2 cannot reproduce at all (guarded, computed, conda). Snapshot keeps every original cell (`generate.write_locked_notebook`, `generate.py` lines 406 to 407), so the runner executes Cell 2 and then the creator's install lines, after Cell 2 has printed "All N/N dependencies verified". Tested with pip 24.0 in a clean venv: `pip install -U tabulate` and a differing `==` moved a pinned tabulate, and installing `datasets` moved a pinned `requests` from 2.28.0 to 2.34.2 through the resolver. Addressed by Proposed features, "Install lines, creator declarations and manifest regeneration".
 
 ## Corpus evidence
 
@@ -94,7 +94,7 @@ What is wrong and why, one entry per finding, by matrix ID. Each entry carries i
 
 ## Principles
 
-- Cell 2 is not edited as text; changes go through the tool, which records their provenance. The tool will never infer every dependency, so the creator must be able to correct and extend the manifest: creator declarations are inputs to the tool, stored in the manifest with provenance, and carried forward by every snapshot. (Revises "Cell 2 is never hand-edited", which left manifest errors unfixable.)
+- Cell 2 is not edited as text; changes go through the tool, which records their provenance. The tool will never infer every dependency, so the creator must be able to correct and extend the manifest: creator declarations are inputs to the tool, stored in the manifest with provenance, and read from their source by every snapshot. (Revises "Cell 2 is never hand-edited", which left manifest errors unfixable.)
 - Report to the creator is the default for candidates and unknown targets. Never auto-add. Each report should be actionable through a creator declaration.
 - Hard dependencies are out of scope. Optional dependencies are in scope. This holds only where pip installs the package and so resolves its dependencies; for a package the runner cannot install (an editable, the creator's own code), its `Requires-Dist` entries are in scope and are pinned from the installed environment.
 - Comments and other display text are never a source of truth. Anything the tool needs later is a structured, hashed manifest field; anything it needs within a run is carried as a typed field, not parsed back out of rendered text.
@@ -104,19 +104,21 @@ What is wrong and why, one entry per finding, by matrix ID. Each entry carries i
 
 ## Reviewed and rejected
 
+- Updating the manifest instead of rebuilding it: carrying forward values no current source states, with warnings on every snapshot and a `--rebuild` escape hatch. The losses it guarded against came from advising creators to delete redundant install lines, which took an index URL or an unimported package's pin with them. With that advice gone (install-lines spec, item 5.2), a value disappears only when the creator removes its source or the snapshot environment lacks it, and the delta reports either. Carrying would second-guess deliberate edits for little gain.
+
 - `_RUN_CACHES` as a memory leak or thread hazard: caches are created once at import (four decorated functions) and nothing in the tool runs concurrently.
 - `silence_fd2_stderr` swallowing other threads' output: intentional, and scoped to the brief CUDA probe window.
 - Optional-dependency detection as a rabbit hole requiring a hardcoded knowledge base: the objection targets auto-adding, which the principles already exclude, and extras metadata supplies candidates without a hardcoded list.
 - Unpinned packages evading drift checks: an install line without a version is pinned from the environment (`%pip install foo` became `foo==1.0`), and anything not installed becomes a comment, never a versionless dependency (confirmed). The underlying gap, statuses recorded only as comments, is already under Design gaps.
 - Replacing `error: Optional[str]` on per-notebook results with Success|Failure types: most `Optional` fields are unrelated to failure (`delta` only when a manifest exists, `written_path` None when nothing was written), directory runs need one uniform per-notebook list, and the in-notebook API audience would face `isinstance` checks. Revisit before the first release if the API shape changes anyway.
 - `is_prior_setup_cell` mixing read-phase analysis into the write phase: deciding which cells to replace requires reading them, and it parses only the cell under test with no scan state. Its real defects are K7 and K11.
-- Keeping alternative pins per guard branch in Cell 2: Cell 2 would have to decide at run time which branch applies, which is too complex. Guarded install lines stay in the creator's code, and their packages are declared ignore (Proposed features, "Install lines, creator declarations and manifest updating").
+- Keeping alternative pins per guard branch in Cell 2: Cell 2 would have to decide at run time which branch applies, which is too complex. Guarded install lines stay in the creator's code, and their packages are declared ignore (Proposed features, "Install lines, creator declarations and manifest regeneration").
 
 ## Proposed features
 
 These features may affect or solve some of the issues listed in this document.
 
-### Install lines, creator declarations and manifest updating
+### Install lines, creator declarations and manifest regeneration
 
 #### Problem
 
@@ -134,7 +136,7 @@ Snapshot puts Cell 2 at the top of the notebook and leaves the creator's own cel
 
 steady-py can't safely edit the creator's code, especially on Kaggle and Colab. What it can do:
 
-1. Tell the creator which install lines Cell 2 already handles and should be deleted or replaced.
+1. Tell the creator which install lines can undo Cell 2 and should be changed, and which ones Cell 2 already covers.
 2. Tell them which lines must stay.
 3. Give the creator a way to declare what they want: install this package (with a version or source), or ignore it because they handle it.
 4. Round-trip those declarations through snapshot until the notebook's setup is fully accounted for.
@@ -179,18 +181,19 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
       6. It is a conda-family line naming P: conda ignores pip's installed state.
 
       Every other line naming P is redundant: pip finds the requirement satisfied and changes nothing, whatever its index options. A guard doesn't change the classification, only the advice (item 5.4). Computed and unreadable lines and `-r` files aren't classified, since their targets aren't known. Movement through dependencies needs no rule of its own: pip's default only-if-needed strategy leaves a satisfied requirement's dependencies alone, and a conflict between two pins is a resolver finding.
-   2. For a package the notebook imports, the advice is to delete the line, or to remove the package from a line that installs others too; the import keeps the pin alive. For a package nothing imports, the advice is to replace the line with an install declaration. Deleting it would leave the pin backed only by the previous manifest, which warns on every snapshot (see Snapshot manifest updating).
+   2. For a conflicting line naming a package the notebook imports, the advice is to delete the line, or to remove the package from a line that installs others too; the import keeps the pin alive. For a package nothing imports, the advice is to replace the line with an install declaration, since the next snapshot would otherwise drop the pin. A redundant line gets no advice and is reported as information: Cell 2 already installs the package and the line changes nothing. Keeping it costs one satisfied pip call, and the next snapshot still harvests its options, such as an index URL.
    3. Packages declared ignore: the line is always kept, with no advice.
    4. Lines Cell 2 doesn't reproduce and the creator hasn't declared (guarded branches, computed installs, conda, `-r`, packages not installed at snapshot): the line is kept, and snapshot proposes a declaration for it.
    5. Lines that don't install into the kernel (`-t`/`--target`, installs into a remote sandbox such as `sandbox.commands.run("pip install ...")`) get no advice.
    6. Each line is located by quoting its text, with the cell position and nearest heading as hints. Advice and declaration proposals come out as one list.
+   7. The classification assumes Cell 2 runs before the creator's install lines. An unpinned line that runs first installs the latest release and its dependencies; Cell 2 then restores the pin but not the dependencies. When a notebook file holds Cell 2 below a cell with an install line (setup cells pasted lower down), snapshot and check warn that Cell 2 must be the first code cell. A live session has no cell positions, so there it rests on the paste instructions.
 6. Cell 2 behavior:
    1. It installs pins and install declarations, and never installs or pins ignored packages.
    2. An ignored package that is already installed is checked against its pin if it has one, and otherwise noted as present. A mismatch is reported as information, not failure: guarded alternatives differ by platform, and the creator's own line may replace the version after Cell 2 runs.
    3. An ignored package that isn't installed yet is reported as installed later by the notebook, and counts neither for nor against "N/N verified".
    4. pip can still install or move an ignored package as a dependency of a pinned one. Snapshot warns when an ignored package is reachable from the pins' dependency graph.
    5. For a pinned package whose conflicting line the creator left in place (`packages.conflicting_line`), the "N/N verified" line names it as one a later cell can change.
-7. Limitation: a creator may forget to remove the snapshot call before sharing the notebook, and snapshot then runs whenever someone else runs the notebook. It never writes to the notebook, so the author's setup cells are unaffected. Snapshot returns immediately in Kaggle "Save Version" runs, and skips its slow checks when nothing has changed. Otherwise it can't tell the creator from anyone else, so its output begins: "This output is for the notebook's author. If you are running someone else's notebook, ignore it and don't paste anything from it; you can delete this cell."
+7. Limitation: a creator may forget to remove the snapshot call before sharing the notebook, and snapshot then runs whenever someone else runs the notebook. It never writes to the notebook, so the author's setup cells are unaffected. Snapshot returns immediately in Kaggle "Save Version" runs, and skips its slow checks when nothing has changed (Snapshot manifest regeneration, item 4). Otherwise it can't tell the creator from anyone else, so its output begins: "This output is for the notebook's author. If you are running someone else's notebook, ignore it and don't paste anything from it; you can delete this cell."
 8. Ownership:
    1. Resolution decides what Cell 2 covers.
    2. One parser reads the declarations from every source.
@@ -204,32 +207,23 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
    4. Cell positions by notebook order: "Batch reports lose each notice's notebook, and cell numbers match nothing the user sees", plus execution-order scanning, which discards each cell's position (`scanning.get_ordered_code_cells`).
    5. Guard detection, so guarded lines never get delete advice: done (G3, G6, G9), apart from one-line shell conditionals (G5).
 10. Decisions:
-    1. A conflicting line makes snapshot exit 1, and a redundant line is advice only (exit 0). An accept or ignore declaration overrides the exit (matrix decision 12).
+    1. A conflicting line makes snapshot exit 1, and a redundant line is information only (exit 0). An accept or ignore declaration overrides the exit (matrix decision 12).
     2. Check also classifies the notebook's install lines against the manifest's packages, through the same function: conflicting lines exit 1, redundant ones are notices. Check gives no delete-or-replace advice, since that needs the import join and so the environment.
     3. Snapshot records each pinned package with a conflicting line left in place (`packages.conflicting_line`), and Cell 2 warns the runner (item 6.5). Cell 2 can't see later cells, so the manifest is the only mechanism.
     4. With `--output`, advice targets the source, as in every mode, and notes that once the lines are deleted the source installs nothing without the companion. The companion is regenerated from the source on every snapshot, so edits to it are lost.
 11. Open, optional: on Colab only, read the live notebook through `google.colab._message.blocking_request('get_ipynb')`. It would fix the unexecuted-cell, deleted-cell and cell-position problems of the live path. It is a private API (used by colab2pdf and wandb), and no Kaggle equivalent was found.
 
-#### Snapshot manifest updating
+#### Snapshot manifest regeneration
 
-Problem: snapshot throws away the existing manifest on every run and builds a fresh one from the notebook and the environment. Anything no current source still states is lost. Examples are a pin for a package nothing imports whose install line the creator deleted, and an index URL harvested from a line that's gone. The next manifest silently drops them, and the runner fails.
+Problem: snapshot compares its new manifest with the previous one only where it reads one, the source file. Under `--output` the source holds no manifest, and a live session reads none, so those runs report no delta and date every manifest as just changed.
 
-Proposed behavior:
+Behavior:
 
-1. Snapshot creates a manifest when none exists and updates the existing one otherwise. It never discards it silently.
-2. Four sources feed each value, and three rules choose among them:
-   1. Declarations, the creator's explicit intent, always win, even if they break something.
-   2. The notebook text (install lines, flags, imports) wins next, as long as the creator keeps it. An explicit `==` in the notebook beats the installed version, since that line runs after Cell 2 and installs its version anyway. This is the exception recorded in the Principles entry "Pin what's installed".
-   3. Between the environment and the previous manifest, the one that actually records the fact wins. When both do, the environment wins because it's current. The environment records installed versions and direct sources, but never index URLs.
-3. Warnings:
-   1. Every disagreement between sources produces a warning; nothing is chosen silently.
-   2. Every value backed only by the previous manifest produces a warning on every snapshot, naming the value and where it came from ("index X for accelerate comes only from the previous manifest"). The creator silences it by declaring the install.
-4. Validation: carried-forward pins are validated like any other. A pin with an index is looked up on that index rather than on PyPI, so a wrong carried index becomes a visible warning.
-5. `--rebuild` is the explicit escape hatch for stale pins. It discards carried-forward entries and keeps declarations. It leads with what it drops and prints an install declaration that restores each dropped entry. There is no drop declaration kind.
-6. Reporting: one report, the existing delta, extended to cover every manifest field and to give each change a reason: changed by the environment, carried forward, dropped by rebuild, or added by a declaration. Update, rebuild and first-time snapshot all render it the same way.
-7. Safety: a live session never writes to the notebook. Only an explicit author action replaces the manifest.
-
-Still open:
-
-1. How the baseline, GPU record, `custom_sourced` and `local_modules` behave under the rule. The baseline is probably always regenerated, since it records the latest validation.
-2. How update and rebuild interact with `--in-place`.
+1. Every snapshot builds the manifest from its current sources only: the declarations, the notebook text and the environment. Nothing is carried from the previous manifest except change dates (`delta.settle`). A value disappears when its source does, through the creator's edit or a snapshot environment that lacks it, and the delta reports it on that run.
+2. The previous manifest is read in every mode, as the comparison for the delta and the dates:
+   1. A file: from the source.
+   2. Under `--output`: from the file the write replaces, else the source.
+   3. A live session: from the most recently executed Cell 2 in session history, through the same literal reader and hash check. With none, the report says no setup cell has run in this session, and the run is a first snapshot.
+3. Reporting: the existing delta, covering every manifest field. A declaration removed from its cell, or from a declarations file that wasn't passed, is a removal like any other. A snapshot that changes nothing writes nothing (matrix decision 3).
+4. Slow checks: when the packages (`custom_sourced` aside), Python version and declarations match the previous manifest, snapshot reuses its baseline and `custom_sourced` values and skips the PyPI checks. Check still reports anything that changed on PyPI since.
+5. Safety: a live session never writes to the notebook. Only an explicit author action replaces the manifest.

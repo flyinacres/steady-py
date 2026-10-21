@@ -5,7 +5,7 @@ The work between the verified review findings and the first release: how each st
 ## 1. Approach
 
 1. Fix the findings, consolidate each duplicated decision into one owner, and rework the subsystems that are fundamentally flawed. There is no global redesign; anything broader than a finding needs a stated reason.
-2. The release gate is two features specified in review_findings.md, Proposed features: install-line reconciliation with creator declarations, and snapshot manifest updating. Their prerequisites set the order of the steps.
+2. The release gate is two features specified in review_findings.md, Proposed features: install-line reconciliation with creator declarations, and snapshot manifest regeneration. Their prerequisites set the order of the steps.
 3. There is no up-front inventory of every decision. Each step starts by finding every place in the code that makes the decisions it changes.
 
 ## 2. Scope
@@ -42,7 +42,7 @@ Standards for everything else are in working_rules.md, section 1. Two structures
    9. Options: canonical name and value pairs (`-i x` and `--index-url=x` give the same pair), unknown options kept as written. A pip command line's options apply to every requirement on it, so they are stored once per line and each target inherits its line's options.
 2. The manifest (step 3), the `STEADY_PY_MANIFEST` literal in Cell 2: a record of state and of how it came to be, which explains earlier changes, warns about problems and guides later updates. Cell 2, check and snapshot all read it through one reader (`SteadyPyManifest.from_literal`).
    1. Top level: `schema_version`, `tool_version`, `generated_at` (when the content last changed, decision 3), `dependency_hash` (sha256 over the sorted-key JSON of every other field, as persisted), `python_version`, `gpu`, `baseline`, `packages`, `local_modules`, `declarations`.
-   2. `packages`: one entry per package, matched across manifests by normalized name (the URL for a nameless direct source) and normalized extras. Fields: `name` (normalized), `display_name` (the installed metadata Name, carried forward while `name` is unchanged), `status`, `version`, `extras` (as written), `url` (a direct source as written, CH3), `options` (canonical name and value pairs, as in section 3.1.9), `custom_sourced`, `guard` (the install-line guard's kind, group and branch, filled from step 4), `conflicting_line` (a conflicting install line was left in place, filled from step 4), `provenance` (a map from `version`, `url` and `options` to declaration, notebook, environment or carried), `changed_at`.
+   2. `packages`: one entry per package, matched across manifests by normalized name (the URL for a nameless direct source) and normalized extras. Fields: `name` (normalized), `display_name` (the installed metadata Name, carried forward while `name` is unchanged), `status`, `version`, `extras` (as written), `url` (a direct source as written, CH3), `options` (canonical name and value pairs, as in section 3.1.9), `custom_sourced`, `guard` (the install-line guard's kind, group and branch, filled from step 4), `conflicting_line` (a conflicting install line was left in place, filled from step 4), `provenance` (a map from `version`, `url` and `options` to declaration, notebook or environment), `changed_at`.
    3. `status` is a DependencyStatus value. Cell 2 installs `pinned` and `direct_reference` only; the rest (`guarded`, `not_installed`, `auxiliary_tool`, `writefile_script`, `editable`, `system_path`, `custom_path`, `ambiguous`) are the protected record of what Cell 2 leaves alone (DG4). Build tools, platform modules and local modules are not packages.
    4. `local_modules`: `name`, `anchor` (`notebook_dir` or `root_dir`, never a path), `provenance`, `changed_at`.
    5. `declarations` (filled from step 4): `kind` (install, ignore or accept, decision 12), `name` (canonical for a package; an accept may name an import), `version`, `extras`, `url`, `options`, `group`, `reason`, `origin` ("cell" or the declarations file's label), `changed_at`.
@@ -72,7 +72,7 @@ Each step runs in its own context, ends with a handoff, and is reviewed before t
    2. One `root_dir` derivation for every entry point, and one import-to-distribution join (`join.py`) for every import (normal cell, `%%writefile`). The root is the nearest folder at or above the notebook's holding `.git`, `pyproject.toml`, `setup.py` or `setup.cfg` (`localmodules.project_root`), else the directory a run was given; snapshot and check derive it the same way. The join follows how the notebook's kernel resolves the import: a regular module beside the notebook first, unless the environment loads that same file (an in-tree editable); then `packages_distributions()`, with `RECORD` files deciding between several providers (P2); then `IMPORT_TO_PYPI_MAP`; then the `find_spec` origin matched against editable source folders; then a namespace-only folder beside the notebook (ED6), a module under the root, a custom path, and not found. Install lines and imports meet on the distribution, so guards and submodules carry across pip-name and import-name differences. Auxiliary tools are install-line names, looked up by name. check's missing-root-module message gains a `--root-dir` hint.
 3. Manifest model: the contract of section 3.2. The `scan` verb is removed; snapshot without a write flag is the read-only analysis, and the corpus before/after check runs it (working_rules.md §2.3).
 4. Declarations and install-line reconciliation, per review_findings.md, Proposed features. Fills the manifest's `declarations` and `packages.guard`.
-5. Snapshot manifest updating, per review_findings.md, Proposed features. It includes the install-lines spec's item 7 skip of the slow checks when nothing changed, since that reuses the previous baseline, whose handling under the update rule is open (section 7, item 1).
+5. Snapshot manifest regeneration, per review_findings.md, Proposed features: redundant install lines become information only and install lines above Cell 2 warn (install-lines spec, items 5.2 and 5.7), the previous manifest is read in every mode, and the slow checks are skipped when nothing changed (install-lines spec, item 7).
 
 ## 6. Point fixes
 
@@ -87,9 +87,8 @@ Not on the features' path; each is done when convenient, in any step.
 
 Numbers refer to the matrix's "Decisions that unblock rows", which owns each decision's content.
 
-1. Before step 5: the manifest-updating open items (baseline, GPU record, `custom_sourced` and `local_modules` under the update rule; update and rebuild with `--in-place`; under `--output`, reading the prior manifest from the companion, since the source holds none; a declaration recorded in the prior manifest but missing from its source, because it was deleted from the cell or the declarations file wasn't passed).
-2. With the runtime point fixes: decision 4.
-3. Any time: decision 1.
+1. With the runtime point fixes: decision 4.
+2. Any time: decision 1.
 
 ## 8. After the plan, before release
 
