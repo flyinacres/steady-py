@@ -39,6 +39,21 @@ def _read_manifest(path: object) -> generate.ManifestRead:
     return generate.read_manifest_file(str(path))
 
 
+def _previous_manifest(scan_result: analyze.NotebookScanResult, options: SnapshotOptions, root_dir: str,
+                       live: bool) -> generate.ManifestRead:
+    """The manifest the new one is compared with and dated from (manifest regeneration spec, item 2):
+    in a live session, the most recently executed Cell 2; under a companion or directory write, the
+    file the write replaces, else the source; otherwise the source."""
+    if live:
+        return generate.read_manifest_cells(list(reversed(scan_result.cells)), "this session")
+    if options.write_mode in (WriteMode.COMPANION, WriteMode.DIRECTORY):
+        replaced = generate.output_path(scan_result.path, options.suffix, root_dir=root_dir, output_dir=options.output_dir)
+        read = _read_manifest(replaced)
+        if read.manifest is not None or read.error is not None:
+            return read
+    return _read_manifest(scan_result.path)
+
+
 @dataclass
 class _Analysis:
     """The one analysis of a notebook that snapshot builds on."""
@@ -141,11 +156,15 @@ def _snapshot_notebook(
 ) -> NotebookSnapshot:
     """The cells and manifest for one analyzed notebook, written as the options say.
 
-    The manifest the notebook already carries dates the new one (delta.settle) and is what the delta
+    The previous manifest (_previous_manifest) dates the new one (delta.settle) and is what the delta
     compares against. One a newer steady-py wrote is never replaced: the notebook fails with the
     reason. One that can't be read otherwise is replaced, with a warning naming why.
     """
-    read = _read_manifest(scan_result.path)   # before any write: an in-place snapshot replaces it
+    read = _previous_manifest(scan_result, options, root_dir, live)   # before any write replaces it
+    if live and read.manifest is None and read.error is None:
+        report.notices.append(models.DiagnosticEvent(
+            type="no_previous_manifest", notebook=str(scan_result.path), level="notice",
+            detail="No setup cell has run in this session, so there is no previous manifest to compare with."))
     if read.newer:
         return NotebookSnapshot(path=str(scan_result.path), report=report, error=read.error)
     if read.error is not None:

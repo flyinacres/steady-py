@@ -7,6 +7,7 @@ from tests.support.envs import installed_version
 from tests.support.kernel import run_live
 from tests.support.markers import finding
 from tests.support.notebooks import Notebook, code
+from tests.support.outcomes import manifest
 from tests.support.runner import run_in
 
 pytestmark = [pytest.mark.kernel, pytest.mark.usefixtures("analysis_only")]  # these read the analysis report
@@ -72,3 +73,22 @@ def test_install_lines_carry_the_location_each_mode_has(tmp_path, live_venv, mod
         assert line["cell_idx"] == 0
     else:  # a session has no notebook positions; the user sees In [n]
         assert line["cell_idx"] is None and line["execution_count"] > 0
+
+
+# A live snapshot compares with the most recently executed Cell 2 (manifest regeneration spec, item 2.3).
+
+def test_a_live_snapshot_compares_with_the_last_cell_2_that_ran(tmp_path, live_venv):
+    written = run_in(live_venv, "snapshot", Notebook(code("import packaging")).write(tmp_path / "file"), "--output")
+    assert written.exit_code == 0, written.log
+    recorded = manifest(written.written[0])
+    stale = dict(recorded, packages=[])  # an earlier Cell 2, run before the current one
+    cells = [code(f"STEADY_PY_MANIFEST = {stale!r}"), code(f"STEADY_PY_MANIFEST = {recorded!r}"), code("import packaging")]
+    outcome = _run("live", live_venv, tmp_path / "nb", cells)
+    assert outcome.delta() is not None and outcome.delta()["has_changes"] is False, outcome.delta()
+    assert outcome.notices(type="no_previous_manifest") == []
+
+
+def test_a_live_snapshot_says_when_no_cell_2_has_run(tmp_path, live_venv):
+    outcome = _run("live", live_venv, tmp_path / "nb", [code("import packaging")])
+    assert outcome.delta() is None
+    assert len(outcome.notices(type="no_previous_manifest")) == 1

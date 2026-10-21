@@ -223,7 +223,7 @@ Behavior:
 2. The previous manifest is read in every mode, as the comparison for the delta and the dates:
    1. A file: from the source.
    2. Under `--output`: from the file the write replaces, else the source.
-   3. A live session: from the most recently executed Cell 2 in session history, through the same literal reader and hash check. With none, the report says no setup cell has run in this session, and the run is a first snapshot.
+   3. A live session: from the most recently executed Cell 2 in session history, through the same reader as a file. With none, the report says no setup cell has run in this session, and the run is a first snapshot.
 3. Reporting: the existing delta, covering every manifest field. A declaration removed from its cell, or from a declarations file that wasn't passed, is a removal like any other. A snapshot that changes nothing writes nothing (matrix decision 3).
 4. Slow checks: when the packages (`custom_sourced` aside), Python version and declarations match the previous manifest, snapshot reuses its baseline and `custom_sourced` values and skips the PyPI checks. Check still reports anything that changed on PyPI since.
 5. Safety: a live session never writes to the notebook. Only an explicit author action replaces the manifest.

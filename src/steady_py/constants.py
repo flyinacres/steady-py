@@ -120,7 +120,6 @@ class Provenance:
     DECLARATION = "declaration"
     NOTEBOOK = "notebook"
     ENVIRONMENT = "environment"
-    CARRIED = "carried"  # carried forward from the previous manifest
 
 
 # Statuses for dependencies that are installed here but can't be pinned for anyone else.

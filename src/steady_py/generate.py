@@ -90,29 +90,38 @@ def read_manifest_file(path: str) -> ManifestRead:
     except (OSError, json.JSONDecodeError) as e:
         return ManifestRead(error=f"Could not read {path}: {e}")
 
-    assignment: Optional[ast.Assign] = None
     if nb_data is not None:
         cells = sorted(scanning.read_notebook_cells(nb_data.get("cells", [])), key=lambda c: c.position or 0)
-        unparsed: Optional[str] = None
-        for cell in cells:
-            parsed = scanning.parse_cell(cell)
-            if parsed.kind != "PYTHON":
-                continue
-            if parsed.tree is None:
-                if unparsed is None and "STEADY_PY_MANIFEST" in cell.source:
-                    unparsed = cell.label
-                continue
-            assignment = _manifest_assignment(parsed.tree)
-            if assignment is not None:
-                break
-        if assignment is None and unparsed is not None:
-            return ManifestRead(error=f"Could not parse {unparsed} of {path}, which mentions STEADY_PY_MANIFEST, as Python source.")
-    else:
-        try:
-            assignment = _manifest_assignment(ast.parse(text))
-        except SyntaxError as e:
-            return ManifestRead(error=f"Could not parse {path} as Python source: {e}")
+        return read_manifest_cells(cells, path)
+    try:
+        assignment = _manifest_assignment(ast.parse(text))
+    except SyntaxError as e:
+        return ManifestRead(error=f"Could not parse {path} as Python source: {e}")
+    return _manifest_read(assignment, path)
 
+
+def read_manifest_cells(cells: Sequence[Cell], where: str) -> ManifestRead:
+    """The manifest from the first of `cells` that defines one, in the order given: a notebook file's
+    cells in notebook order, or a live session's newest first, so the last executed Cell 2 counts.
+    `where` names the source in errors."""
+    unparsed: Optional[str] = None
+    for cell in cells:
+        parsed = scanning.parse_cell(cell)
+        if parsed.kind != "PYTHON":
+            continue
+        if parsed.tree is None:
+            if unparsed is None and "STEADY_PY_MANIFEST" in cell.source:
+                unparsed = cell.label
+            continue
+        assignment = _manifest_assignment(parsed.tree)
+        if assignment is not None:
+            return _manifest_read(assignment, where)
+    if unparsed is not None:
+        return ManifestRead(error=f"Could not parse {unparsed} of {where}, which mentions STEADY_PY_MANIFEST, as Python source.")
+    return ManifestRead()
+
+
+def _manifest_read(assignment: Optional[ast.Assign], path: str) -> ManifestRead:
     manifest_dict = None
     if assignment is not None:
         try:
@@ -512,6 +521,23 @@ def build_blueprint_for_notebook(
     )
 
 
+def output_path(source: Path, suffix: Optional[str] = None, in_place: bool = False, root_dir: Optional[str] = None,
+                output_dir: Optional[str] = None) -> Path:
+    """The file write_locked_notebook writes for `source`: the source itself (in_place), its place
+    under output_dir (mirroring its folder below root_dir), or beside it with a suffix."""
+    if in_place:
+        return source
+    if output_dir:
+        dest_dir = Path(output_dir)
+        if root_dir and Path(root_dir).exists():
+            try:
+                dest_dir = dest_dir / source.parent.relative_to(Path(root_dir))
+            except ValueError:
+                pass
+        return dest_dir / f"{source.stem}{suffix if suffix is not None else ''}.ipynb"
+    return source.parent / f"{source.stem}{suffix if suffix is not None else '_merged'}.ipynb"
+
+
 def write_locked_notebook(
     scan_res: analyze.NotebookScanResult,
     blueprint: BlueprintResult,
@@ -538,30 +564,8 @@ def write_locked_notebook(
     if in_place and nb_data == original:
         return None
 
-    if in_place:
-        target_path = scan_res.path
-    elif output_dir:
-        out_base = Path(output_dir)
-        stem = scan_res.path.stem
-        active_suffix = suffix if suffix is not None else ""
-        file_name = f"{stem}{active_suffix}.ipynb"
-
-        if root_dir and Path(root_dir).exists():
-            try:
-                rel_parent = scan_res.path.parent.relative_to(Path(root_dir))
-                dest_dir = out_base / rel_parent
-            except ValueError:
-                dest_dir = out_base
-        else:
-            dest_dir = out_base
-
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        target_path = dest_dir / file_name
-    else:
-        stem = scan_res.path.stem
-        active_suffix = suffix if suffix is not None else "_merged"
-        target_path = scan_res.path.parent / f"{stem}{active_suffix}.ipynb"
-
+    target_path = output_path(scan_res.path, suffix, in_place, root_dir, output_dir)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
     with open(target_path, 'w', encoding='utf-8') as f:
         json.dump(nb_data, f, indent=1)
 

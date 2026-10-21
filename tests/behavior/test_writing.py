@@ -133,3 +133,34 @@ def test_packages_cell2_does_not_install_are_recorded_with_their_status(tmp_path
     assert outcome.exit_code in (0, 1), outcome.log
     statuses = {p["name"]: p["status"] for p in manifest(outcome.written[0])["packages"]}
     assert statuses == {"resolvelib": "guarded", "notinstalled-zz": "not_installed", "packaging": "pinned"}
+
+
+# The previous manifest is read in every mode (manifest regeneration spec, item 2).
+
+@pytest.mark.parametrize("flags", [("--output",), ("--output-dir", "out")], ids=["companion", "directory"])
+def test_a_write_compares_with_the_file_it_replaces(tmp_path, pypi, flags):
+    pypi.add("packaging", {PACKAGING: {}})
+    pypi.add("resolvelib", {version("resolvelib"): {}})
+    flags = tuple(str(tmp_path / f) if f == "out" else f for f in flags)
+    nb = Notebook(code("import packaging")).write(tmp_path)
+    assert run("snapshot", nb, *flags).exit_code == 0
+    Notebook(code("import packaging"), code("import resolvelib")).write(tmp_path)
+    outcome = run("snapshot", nb, *flags)
+    assert outcome.exit_code == 0, outcome.log
+    assert [p["name"] for p in outcome.delta()["added"]] == ["resolvelib"]
+
+
+def test_a_write_with_nothing_to_replace_compares_with_the_source(tmp_path, pypi):
+    pypi.add("packaging", {PACKAGING: {}})
+    outcome = run("snapshot", snapshotted(tmp_path, code("import packaging")), "--output")
+    assert outcome.exit_code == 0, outcome.log
+    assert outcome.delta()["has_changes"] is False
+
+
+def test_an_unchanged_companion_keeps_its_date(tmp_path, pypi):
+    pypi.add("packaging", {PACKAGING: {}})
+    nb = Notebook(code("import packaging")).write(tmp_path)
+    companion = run("snapshot", nb, "--output").written[0]
+    _age(companion, manifest(companion))
+    assert run("snapshot", nb, "--output").exit_code == 0
+    assert manifest(companion)["generated_at"] == "2001-01-01 00:00:00"
