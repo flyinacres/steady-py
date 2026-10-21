@@ -83,7 +83,7 @@ If you forget step 4, the cell runs for everyone who runs your notebook. It chan
 steady-py adds Cell 2 at the top and leaves your own cells as they are, so your own install lines (`!pip install ...`, `%pip install ...`, `conda install ...`) still run after Cell 2. snapshot lists each one under **INSTALL LINES**, in notebook order, with what to do about it:
 
 - **Conflicting** (⚠️, exit code 1): the line can undo Cell 2, for example `-U` upgrades a pinned package or a different `==` replaces it. Delete it, or remove the package from it. If the notebook doesn't import that package, replace the line with an `install` entry (below) so the version is still recorded.
-- **Redundant** (ℹ️): the line repeats what Cell 2 installs and changes nothing. Delete it the same way.
+- **Redundant** (ℹ️): the line repeats what Cell 2 installs and changes nothing. No change needed; keeping it is harmless.
 - **Lines Cell 2 can't reproduce**: a line inside an `if`, `try` or function, a package name held in a variable, a `conda` line, a `-r requirements.txt` file, or a package that isn't installed where you ran steady-py. These lines stay, and snapshot proposes an entry for each.
 
 steady-py never edits your code; you make each change yourself.

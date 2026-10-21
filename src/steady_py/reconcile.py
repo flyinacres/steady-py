@@ -136,9 +136,9 @@ def _ignore_entry(name: str, line: InstallLine, lines: Sequence[InstallLine]) ->
 
 def _advice(verdict: LineVerdict, imported: Set[str], companion: bool, lines: Sequence[InstallLine],
             declared: Set[str]) -> Tuple[str, Tuple[str, ...]]:
-    """What to do with the line (item 5.2), and the entries it offers: delete it when an import or an
-    install declaration keeps the pin alive, else replace it with an install declaration. A guarded
-    line runs only sometimes, so it is never just deleted."""
+    """What to do with a conflicting line (item 5.2), and the entries it offers: delete it when an
+    import or an install declaration keeps the pin alive, else replace it with an install declaration.
+    A guarded line runs only sometimes, so it is never just deleted."""
     package = verdict.package
     if verdict.line.guard is not None:
         ignore = _ignore_entry(package.name, verdict.line, lines)
@@ -154,26 +154,30 @@ def _advice(verdict: LineVerdict, imported: Set[str], companion: bool, lines: Se
     return f"{remove} and add {install} to {DECLARATIONS_NAME}, so the pin doesn't depend on this line.", (install,)
 
 
+def _redundant(verdict: LineVerdict) -> str:
+    return f"{_quoted(verdict.line)} repeats {verdict.package.requirement()}, which Cell 2 installs, and changes nothing. No change needed."
+
+
 def snapshot_diagnostics(verdicts: Sequence[LineVerdict], imported: Set[str], companion: bool,
                          lines: Sequence[InstallLine] = (), entries: Sequence[Declaration] = ()) -> List[DiagnosticEvent]:
     """Snapshot's advice, one diagnostic per line and package: a conflicting line is a warning that
     sets exit 1 unless accepted (item 10.1; the accept entry is offered with every attention
-    diagnostic, declarations.accept_diagnostics), a redundant one a notice."""
+    diagnostic, declarations.accept_diagnostics). A redundant line is information only, with no
+    advice: keeping it is harmless, and the next snapshot still harvests its options (item 5.2)."""
     declared = {e.name for e in entries if e.kind == DeclarationKind.INSTALL}
     out = []
     for v in verdicts:
         package = v.package
-        advice, offered = _advice(v, imported, companion, lines, declared)
         if v.conflicting:
+            advice, offered = _advice(v, imported, companion, lines, declared)
             event = DiagnosticEvent.at(v.line.cell, v.line.line_idx, "conflicting_install_line", (
                 f"{_quoted(v.line)} can change {package.label} after Cell 2 installs {package.requirement()}: it {v.reason}. "
                 f"{advice}"))
+            event.entries = offered
         else:
-            event = DiagnosticEvent.at(v.line.cell, v.line.line_idx, "redundant_install_line", (
-                f"{_quoted(v.line)} repeats {package.requirement()}, which Cell 2 installs, and changes nothing. {advice}"),
-                level="notice")
+            event = DiagnosticEvent.at(v.line.cell, v.line.line_idx, "redundant_install_line",
+                                       _redundant(v), level="notice")
         event.names = (package.name,)
-        event.entries = offered
         out.append(event)
     return out
 
@@ -305,6 +309,6 @@ def check_findings(verdicts: Sequence[LineVerdict]) -> List[DriftFinding]:
         signal=Signal.CONFLICTING_LINE if v.conflicting else Signal.REDUNDANT_LINE,
         severity=Severity.CONFIRMED if v.conflicting else Severity.NOTICE,
         message=(f"{_quoted(v.line)} can change {v.package.label} after Cell 2 installs {v.package.requirement()}: it {v.reason}."
-                 if v.conflicting else f"{_quoted(v.line)} repeats {v.package.requirement()}, which Cell 2 installs."),
+                 if v.conflicting else _redundant(v)),
         details={"line": v.line.text, "cell": v.line.cell.label},
     ) for v in verdicts]

@@ -48,9 +48,23 @@ def test_a_line_installing_elsewhere_is_not_classified(tmp_path):
 
 
 def test_advice_deletes_an_imported_package_and_declares_the_rest(tmp_path):
-    outcome = _snapshot(tmp_path, "!pip install -U packaging\n!pip install resolvelib\nimport packaging")
+    outcome = _snapshot(tmp_path, "!pip install -U packaging\n!pip install -U resolvelib\nimport packaging")
     assert "Delete the line" in _verdicts(outcome)[0][0]
-    assert '{"install": "resolvelib", "version": "' + version("resolvelib") + '"' in _verdicts(outcome, "resolvelib")[1][0]
+    assert '{"install": "resolvelib", "version": "' + version("resolvelib") + '"' in _verdicts(outcome, "resolvelib")[0][0]
+
+
+@pytest.mark.parametrize("cells, name", [
+    (("!pip install packaging\nimport packaging",), "packaging"),  # imported
+    (("!pip install resolvelib",), "resolvelib"),  # nothing imports it
+    (("if False:\n    !pip install packaging\nimport packaging",), "packaging"),  # guarded
+    (('STEADY_PY_DECLARATIONS = [{"install": "resolvelib", "reason": "x"}]', "!pip install resolvelib"), "resolvelib"),
+])
+def test_a_redundant_line_is_information_only(tmp_path, cells, name):
+    outcome = _snapshot(tmp_path, *cells)
+    assert outcome.exit_code == 0, outcome.log
+    notices = outcome.notices(type="redundant_install_line", about=name)
+    assert [n["detail"].endswith("No change needed.") for n in notices] == [True]
+    assert not notices[0].get("entries")
 
 
 def test_a_guarded_line_is_never_just_deleted(tmp_path):
@@ -83,5 +97,6 @@ def test_check_classifies_the_notebook_lines(tmp_path, declared, exit_code):
     assert outcome.exit_code == exit_code, outcome.log
     assert [f["severity"] for f in outcome.findings(signal="conflicting_line")] == ["confirmed"]
     assert [f["severity"] for f in outcome.findings(signal="redundant_line")] == ["notice"]
+    assert outcome.findings(signal="redundant_line")[0]["message"].endswith("No change needed.")
     offered = '{"accept": "packaging", "reason": "..."}' in outcome.findings(signal="conflicting_line")[0]["message"]
     assert offered is (exit_code == 1)  # the accept is offered until it is declared

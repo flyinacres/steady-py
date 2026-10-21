@@ -52,7 +52,7 @@ def test_pasting_the_proposals_settles_the_lines(tmp_path):
     recorded = manifest(second.written[0])
     assert {d["name"]: d.get("group") for d in recorded["declarations"] if d["kind"] == "ignore"}.keys() == {"colab-only-pkg", "local-only-pkg"}
     assert {p["name"]: p["version"] for p in recorded["packages"]}["not-here-pkg"] == "1.0"
-    assert "your install declaration keeps the pin" in second.notices(type="redundant_install_line")[0]["detail"]
+    assert second.notices(type="redundant_install_line")[0]["detail"].endswith("No change needed.")
 
 
 @pytest.mark.parametrize("line, entry", [
