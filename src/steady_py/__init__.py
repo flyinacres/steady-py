@@ -14,6 +14,7 @@ if not _logger.handlers:  # guarded: a reload in a live kernel re-runs this file
 
 from steady_py.runtime import install, InstallResult
 from steady_py.endpoints import check, snapshot
+from steady_py.live import show_snapshot
 from steady_py.results import (
     CheckOptions,
     CheckResult,
@@ -32,6 +33,6 @@ from steady_py.results import (
 
 __all__ = [
     "check", "CheckOptions", "CheckResult", "Delta", "Environment", "FieldChange", "install", "InstallResult",
-    "NotebookCheck", "NotebookSnapshot", "PackageChange", "SetupCells", "snapshot", "SnapshotOptions", "SnapshotResult",
+    "NotebookCheck", "NotebookSnapshot", "PackageChange", "SetupCells", "show_snapshot", "snapshot", "SnapshotOptions", "SnapshotResult",
     "TargetKind", "WriteMode",
 ]

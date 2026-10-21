@@ -66,17 +66,53 @@ On Kaggle and Colab there is no terminal to run a file through, so run steady-py
 
    ```python
    %pip install steady-py
-   import steady_py
-   result = steady_py.snapshot()
-   print(result.notebooks[0].cells.markdown)
-   print("=" * 80)
-   print(result.notebooks[0].cells.code)
+   import steady_py; steady_py.show_snapshot()
    ```
 
-3. Copy the first printed block into a new **Markdown** cell and the second into a new **Code** cell, both at the very top of the notebook.
+3. Read what it reports, then copy the block under **STEP 1** into a new **Markdown** cell and the block under **STEP 2** into a new **Code** cell, both at the very top of the notebook.
 4. Delete the cell you added in step 2 and save.
 
+If you forget step 4, the cell runs for everyone who runs your notebook. It changes nothing in the notebook, its output starts by telling readers it is meant for the author, and in a Kaggle "Save Version" run it does nothing at all.
+
 **A trap to know about:** in a running notebook, steady-py looks at *everything that has run in this session*, including cells you ran and later deleted. If you tried a package and abandoned it, it can still end up in the setup cell. Restarting and running the notebook from the top first avoids this. Running on a saved file doesn't have this problem, because it only reads what's in the file.
+
+---
+
+## Your own install lines, and telling steady-py what you know
+
+steady-py adds Cell 2 at the top and leaves your own cells as they are, so your own install lines (`!pip install ...`, `%pip install ...`, `conda install ...`) still run after Cell 2. snapshot lists each one under **INSTALL LINES**, in notebook order, with what to do about it:
+
+- **Conflicting** (⚠️, exit code 1): the line can undo Cell 2, for example `-U` upgrades a pinned package or a different `==` replaces it. Delete it, or remove the package from it. If the notebook doesn't import that package, replace the line with an `install` entry (below) so the version is still recorded.
+- **Redundant** (ℹ️): the line repeats what Cell 2 installs and changes nothing. Delete it the same way.
+- **Lines Cell 2 can't reproduce**: a line inside an `if`, `try` or function, a package name held in a variable, a `conda` line, a `-r requirements.txt` file, or a package that isn't installed where you ran steady-py. These lines stay, and snapshot proposes an entry for each.
+
+steady-py never edits your code; you make each change yourself.
+
+### Declarations
+
+Some things steady-py can't work out from your code. You tell it in a cell of its own, anywhere in the notebook:
+
+```python
+STEADY_PY_DECLARATIONS = [
+    {"install": "acme-utils", "version": "2.1.0", "reason": "our private helper"},
+    {"ignore": "torch", "group": "gpu", "reason": "installed by the platform check below"},
+    {"accept": "numpy", "reason": "the -U line is deliberate"},
+]
+```
+
+This cell is read, never run for its effect, so it does nothing when the notebook runs. Every entry needs a `reason`. There are three kinds:
+
+| Kind | Meaning | Other keys it takes |
+| --- | --- | --- |
+| `install` | Cell 2 installs this package. | `version` (exact, no `==`), `extras` (a list), `url` (a direct source such as a git URL, instead of `version`), `index_url`, `extra_index_url`, `find_links`. Without `version` or `url`, the installed version is used, else PyPI's latest. |
+| `ignore` | Your own cells install this package; Cell 2 leaves it alone. | `version` (what you made the notebook with, shown by Cell 2), `group` (a name tying alternatives together, such as one package for Colab and another elsewhere). |
+| `accept` | A finding about this package or module is fine for your notebook; it stays in the report, marked accepted, and stops counting toward exit code 1. | none |
+
+snapshot proposes entries ready to paste: copy them into the cell, replace the `...` with your reason, and run snapshot again. A proposal with `<package>` in it needs a real package name first. When an entry changes an outcome, snapshot and check list it under **Declarations applied**; an `accept` that no longer matches anything is listed there too, so you can remove it.
+
+An entry steady-py can't read (a missing reason, an unknown key, a misspelled kind) stops snapshot with exit code 2 and says which entry is wrong, since going on without it would pin packages you asked it to leave alone.
+
+From the command line, `--declarations FILE` reads the same `STEADY_PY_DECLARATIONS = [...]` from a file and applies it to every notebook, which suits a folder of course notebooks. A notebook's own cell wins where the two disagree, with a warning.
 
 ---
 
@@ -89,7 +125,7 @@ On Kaggle and Colab there is no terminal to run a file through, so run steady-py
 1. It holds the **manifest**: the list of packages and exact versions, the Python version, GPU details, when it was made, and a fingerprint (a *hash*) of all of that. The fingerprint lets `check` notice if anyone edits the list by hand, so don't edit it — regenerate instead.
 2. It installs steady-py itself, at the exact version that made the cell.
 3. It installs each recorded package, one at a time, so one package that fails never stops the others. Packages that are already installed at the right version are skipped.
-4. It prints a summary: everything installed, or which packages failed and what to try.
+4. It prints a summary: everything installed, or which packages failed and what to try. Packages you declared `ignore` are listed separately, with what is installed, and aren't counted. If you kept a conflicting install line, the summary names the package a later cell can change.
 
 Cell 2 never stops the notebook. If the Python version differs from yours, or a package won't install, it says so and carries on. The messages people can see while it runs are explained in [HELP.md](https://github.com/flyinacres/steady-py/blob/main/HELP.md).
 
@@ -120,6 +156,7 @@ Reports each notebook's packages, warnings and notices, and the GPU situation, p
 | `--universal [FILENAME]` | Folders only: also write one combined requirements file for every notebook (default name `requirements-all.txt`). |
 | `--timeout SECONDS` | How long Cell 2 lets each package install run before giving up (default 120). |
 | `--full-freeze` | Also store the complete list of everything installed in your environment in Cell 2, as a record. It isn't installed automatically. |
+| `--declarations FILE` | Read declarations from a file as well as from each notebook's own cell (see [Declarations](#declarations)). |
 
 Running snapshot on a notebook that already has setup cells shows what would change since the old ones, field by field, and with `--in-place` replaces them. If nothing changed, the notebook is left exactly as it was. The setup cell records when each package's entry last changed, and the date at the top of Cell 2 is when anything in it last changed, not when snapshot last ran. To fix a flagged package, change your own environment first (install the version you want), then run snapshot again with `--in-place`.
 
@@ -143,7 +180,7 @@ Reads the manifest stored in each notebook and compares it with what PyPI says t
 Useful when running steady-py from a script or a scheduled job:
 
 - **0** — everything was processed and nothing needs attention.
-- **1** — the job was done but something needs attention: `check` found a problem, some notebooks in a folder were skipped, or a notebook imports something only your machine has (your own package in editable mode, a package installed from a local file, a module on a custom path) or that more than one installed package provides.
+- **1** — the job was done but something needs attention: `check` found a problem, some notebooks in a folder were skipped, a notebook imports something only your machine has (your own package in editable mode, a package installed from a local file, a module on a custom path) or that more than one installed package provides, or one of its install lines can undo Cell 2. An `accept` declaration stops a finding counting here (see [Declarations](#declarations)).
 - **2** — the job couldn't be done: a bad option, a missing path, a notebook that couldn't be read, or `check` couldn't verify something.
 
 For `check`, a "worth reviewing" item that was already present when the notebook was set up doesn't count as a problem.
@@ -224,7 +261,7 @@ Each finding is marked **[new]** or **[known]** (already present when the notebo
 | **'...' is installed from a non-standard source (git/URL/local file), not PyPI** | Installed exactly as written, but steady-py can't check it, and recipients must be able to reach it. |
 | **ℹ️ Cell N uses a system install command** / **uses 'conda install'** | Commands like `apt-get` or `conda install` are outside Python's package system; readers must run them themselves. |
 | **Specific hardware build detected: ... with no download URL harvested** | A package version made for specific hardware (like `torch==2.3.1+cu121`) has no download index in the notebook; recipients may not be able to install it. |
-| **Packages not resolvable via pip-freeze or local file scan** | Imported, but not installed and not found as a file next to the notebook. It may be a real gap, or your own code found some other way (an IDE project root, `PYTHONPATH`, Databricks Repos). Run the notebook to confirm. |
+| **Packages neither installed nor found as local files** | Imported, but not installed and not found as a file next to the notebook. It may be a real gap, or your own code found some other way (an IDE project root, `PYTHONPATH`, Databricks Repos). Run the notebook to confirm. |
 
 ### Comment lines in Cell 2
 
@@ -233,7 +270,7 @@ Lines starting with `#` in Cell 2 are notes; nothing on them is installed.
 | Line | What it means |
 | --- | --- |
 | `# pkg (optional or conditional dependency inside try/except block)` | Only imported inside a fallback block (code that tries something and has a plan B), so it's treated as optional. |
-| `# x (imported as 'x'; not found via pip-freeze or local file scan -- verify ...)` | Imported, but not installed where you ran steady-py. |
+| `# x (imported as 'x'; not installed here or found as a local file -- verify ...)` | Imported, but not installed where you ran steady-py. |
 | `# x (local folder/file next to notebook; ensure sibling files were shared)` | Your own code, next to the notebook. Share it with the notebook. |
 | `# x (provided automatically by platform like Colab/Databricks; no install needed)` | Something the platform provides; nothing to install. |
 | `# x (core Python build/packaging tool; excluded from requirement lockfiles)` | Tools like `pip` or `setuptools`; deliberately left out. |
@@ -267,7 +304,7 @@ snap = steady_py.snapshot("course_materials", steady_py.SnapshotOptions(write_mo
 checked = steady_py.check("my_notebook_merged.ipynb")
 ```
 
-Called with no target, `snapshot()` analyzes the running notebook session. Options are small classes (`SnapshotOptions`, `CheckOptions`); results (`SnapshotResult`, `CheckResult`) hold one entry per notebook plus an overall section. `steady_py.install(manifest)` is what Cell 2 calls; it returns what installed and what failed.
+Called with no target, `snapshot()` analyzes the running notebook session; `show_snapshot()` does the same and prints its report and both cells. Options are small classes (`SnapshotOptions`, `CheckOptions`); results (`SnapshotResult`, `CheckResult`) hold one entry per notebook plus an overall section. `steady_py.install(manifest)` is what Cell 2 calls; it returns what installed and what failed.
 
 For other tools, `--format json` prints the same information as JSON, with a `schema_version` field that changes if the structure does. The structures are defined in `src/steady_py/results.py`.
 

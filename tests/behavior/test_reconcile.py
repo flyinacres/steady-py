@@ -83,3 +83,5 @@ def test_check_classifies_the_notebook_lines(tmp_path, declared, exit_code):
     assert outcome.exit_code == exit_code, outcome.log
     assert [f["severity"] for f in outcome.findings(signal="conflicting_line")] == ["confirmed"]
     assert [f["severity"] for f in outcome.findings(signal="redundant_line")] == ["notice"]
+    offered = '{"accept": "packaging", "reason": "..."}' in outcome.findings(signal="conflicting_line")[0]["message"]
+    assert offered is (exit_code == 1)  # the accept is offered until it is declared

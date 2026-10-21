@@ -131,6 +131,15 @@ UNSHAREABLE_STATUSES = frozenset({DependencyStatus.SYSTEM_PATH, DependencyStatus
 ATTENTION_DIAGNOSTICS = frozenset({"editable_import", "local_file_import", "custom_path_import", "ambiguous_import",
                                    "conflicting_install_line"})
 
+# Diagnostics about what to do with the creator's install lines: advice and proposed declarations
+# print together, as one list in notebook order (install-lines spec, item 5.6).
+INSTALL_LINE_ADVICE = frozenset({"conflicting_install_line", "redundant_install_line", "declaration_proposal"})
+
+# The first thing snapshot's text output says: a forgotten snapshot cell runs for everyone who runs
+# the notebook (install-lines spec, item 7).
+AUTHOR_BANNER = ("This output is for the notebook's author. If you are running someone else's notebook, ignore it and "
+                 "don't paste anything from it; you can delete this cell.")
+
 
 class FetchStatus:
     """Outcome of a PyPI metadata fetch."""

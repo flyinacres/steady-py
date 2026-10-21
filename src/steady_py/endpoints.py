@@ -103,6 +103,9 @@ def snapshot(
     they are also written, per `options.write_mode`. The cells are the same either way.
     """
     options = options or SnapshotOptions()
+    if target is None and util.in_kaggle_save_version_run():  # a snapshot cell the author forgot to delete
+        return SnapshotResult(target="session.ipynb", kind=TargetKind.SESSION, skipped=(
+            "Kaggle \"Save Version\" run: snapshot is for the notebook's author and does nothing here."))
     util.reset_run_caches()
     # Read once for every notebook; an unusable file raises DeclarationError before anything runs.
     file_entries = declarations.from_file(options.declarations_file) if options.declarations_file else []
@@ -193,7 +196,8 @@ def _apply_accepts(report: models.NotebookAnalysisReport, blueprint: generate.Bl
     changed, the attention diagnostics accepts cover (they no longer set exit 1), and accepts that
     matched nothing. Generation findings an accept names are marked accepted too, without an event:
     they don't set snapshot's exit code, and the accept will cover them at check."""
-    lines = reconcile.snapshot_diagnostics(blueprint["line_verdicts"], report.imported_packages, companion)
+    lines = reconcile.snapshot_diagnostics(blueprint["line_verdicts"], report.imported_packages, companion,
+                                           report.install_lines, entries) + blueprint["line_proposals"]
     for event in (*blueprint["declaration_warnings"], *lines):
         event.notebook = report.notebook_path
     report.warnings.extend(blueprint["declaration_warnings"])
@@ -364,5 +368,7 @@ def _check_file(path: str, options: CheckOptions, root_fallback: Optional[str] =
         findings.extend(_install_line_findings(path, manifest))
     accepted, used = declarations.accept_findings(findings, manifest.declarations)
     report = drift.build_drift_check_report(path, manifest, findings)
+    declarations.offer_accepts([*report.confirmed, *(f for f in report.heuristic
+                                                     if f.baseline_status != constants.BaselineStatus.KNOWN)])
     report.declarations_applied = [*accepted, *declarations.unused_accepts(manifest.declarations, used)]
     return NotebookCheck(path=path, manifest_found=True, report=report)

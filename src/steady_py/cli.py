@@ -252,33 +252,9 @@ def format_snapshot_result(result: SnapshotResult, output_format: str = "text") 
 
 
 def _log_diagnostics(report: models.NotebookAnalysisReport) -> None:
-    """The warnings, notices, accelerator status and promotions found while analyzing."""
-    gpu_info = report.gpu
-    if report.warnings:
-        logger.warning("⚠️ DIAGNOSTIC WARNINGS:")
-        for warn in report.warnings:
-            logger.warning(f"  • {warn.detail}")
-        logger.warning("")
-
-    if report.notices:
-        for notice in report.notices:
-            logger.info(notice.format_console())
-        logger.info("")
-
-    if gpu_info:
-        if gpu_info.has_gpu:
-            logger.info(f"⚡ Active accelerator detected: {gpu_info.device_name}\n")
-        elif gpu_info.probe_errors:
-            err_msg = "; ".join(gpu_info.probe_errors)
-            logger.warning(f"⚠️ Accelerator detection encountered errors: {err_msg}\n")
-        elif gpu_info.frameworks:
-            fw_list = ", ".join(gpu_info.frameworks)
-            logger.warning(f"⚠️ Acceleration Framework ({fw_list}) imported, but NO active accelerator detected in host runtime.\n")
-
-    if report.promotions:
-        for promo in report.promotions:
-            logger.info(promo.detail)
-        logger.info("")
+    """The warnings, notices, install-line advice, accelerator status and promotions found while analyzing."""
+    for is_warning, line in reporting.format_diagnostics(report):
+        (logger.warning if is_warning else logger.info)(line)
 
 
 def _write_mode(args: argparse.Namespace) -> Tuple[str, Optional[str]]:
@@ -322,6 +298,8 @@ def run_snapshot_file(args: argparse.Namespace, environment: Optional[Environmen
     """One notebook file: runs snapshot, prints the result and returns the exit code."""
     target = args.target
     is_json = args.format == "json"
+    if not is_json:
+        logger.info(constants.AUTHOR_BANNER + "\n")
     logger.info(f"🔍 Analyzing saved notebook file '{target}' via AST...")
     logger.info(f"📌 Active Python Interpreter: {sys.executable}\n")
 
@@ -373,6 +351,8 @@ def run_snapshot_directory(args: argparse.Namespace, environment: Optional[Envir
         return EXIT_FAILED
 
     is_json = args.format == "json"
+    if not is_json:
+        logger.info(constants.AUTHOR_BANNER + "\n")
     write_mode, output_dir = _write_mode(args)
     universal = args.universal or None
 

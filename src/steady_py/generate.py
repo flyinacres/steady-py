@@ -43,6 +43,7 @@ class BlueprintResult(TypedDict):
     declaration_events: List[DeclarationEvent]    # what install and ignore declarations changed
     declaration_warnings: List[DiagnosticEvent]
     line_verdicts: List["reconcile.LineVerdict"]  # install lines naming a package Cell 2 installs
+    line_proposals: List[DiagnosticEvent]         # declarations proposed for lines Cell 2 doesn't reproduce
 
 
 # --- Manifest extraction ----------------------------------------------------
@@ -259,7 +260,9 @@ def generate_production_blueprint(
     declaration_warnings += declarations.reachable_ignores(declared_packages, declared)
     line_verdicts = reconcile.classify(install_lines, declared_packages)
     conflicted = {v.package.name for v in line_verdicts if v.conflicting}
-    declared_packages = [replace(p, conflicting_line=p.name in conflicted) for p in declared_packages]
+    guarded = reconcile.guards(install_lines)
+    declared_packages = [replace(p, conflicting_line=p.name in conflicted, guard=guarded.get(p.name)) for p in declared_packages]
+    line_proposals = reconcile.proposals(install_lines, declared_packages, declared)
     package_list = [replace(p, custom_sourced=_is_custom_sourced(p)) for p in declared_packages]
 
     gpu_markdown_section = ""
@@ -357,6 +360,7 @@ steady_py.install(STEADY_PY_MANIFEST, timeout={install_timeout})"""
         "declaration_events": declaration_events,
         "declaration_warnings": declaration_warnings,
         "line_verdicts": line_verdicts,
+        "line_proposals": line_proposals,
     }
 
 

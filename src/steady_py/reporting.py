@@ -6,7 +6,7 @@ import sys
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from steady_py import analyze, drift
-from steady_py.constants import BaselineStatus, ReportKind, SCHEMA_VERSION, Signal, TOOL_VERSION
+from steady_py.constants import BaselineStatus, INSTALL_LINE_ADVICE, ReportKind, SCHEMA_VERSION, Signal, TOOL_VERSION
 from steady_py.models import BatchAnalysisSummary, DeclarationEvent, DiagnosticEvent, DriftFinding, GpuInfo, NotebookAnalysisReport
 
 
@@ -92,6 +92,41 @@ def format_console_drift_report(report: drift.DriftCheckReport) -> str:
         out.append(applied)
 
     return "\n".join(out)
+
+
+def format_diagnostics(report: NotebookAnalysisReport) -> List[Tuple[bool, str]]:
+    """What snapshot found while analyzing one notebook, as (is_warning, line) pairs: the warnings,
+    the notices, the install-line advice and proposed declarations as one list in notebook order
+    (install-lines spec, item 5.6), the accelerator status and the promotions."""
+    out: List[Tuple[bool, str]] = []
+    warnings = [w for w in report.warnings if w.type not in INSTALL_LINE_ADVICE]
+    if warnings:
+        out.append((True, "⚠️ DIAGNOSTIC WARNINGS:"))
+        out += [(True, f"  • {w.detail}" + (f" [accepted: {w.accepted}]" if w.accepted is not None else "")) for w in warnings]
+        out.append((True, ""))
+    notices = [n for n in report.notices if n.type not in INSTALL_LINE_ADVICE]
+    if notices:
+        out += [(False, n.format_console()) for n in notices]
+        out.append((False, ""))
+    advice = sorted((d for d in (*report.warnings, *report.notices) if d.type in INSTALL_LINE_ADVICE),
+                    key=lambda d: (d.cell_idx if d.cell_idx is not None else -1, d.line_idx or 0))
+    if advice:
+        out.append((any(d.level == "warning" for d in advice), "📋 INSTALL LINES: what to change, and declarations to add:"))
+        out += [(d.level == "warning", f"  {d.format_console()}") for d in advice]
+        out.append((False, ""))
+    gpu = report.gpu
+    if gpu:
+        if gpu.has_gpu:
+            out.append((False, f"⚡ Active accelerator detected: {gpu.device_name}\n"))
+        elif gpu.probe_errors:
+            out.append((True, f"⚠️ Accelerator detection encountered errors: {'; '.join(gpu.probe_errors)}\n"))
+        elif gpu.frameworks:
+            out.append((True, f"⚠️ Acceleration Framework ({', '.join(gpu.frameworks)}) imported, but NO active "
+                              f"accelerator detected in host runtime.\n"))
+    if report.promotions:
+        out += [(False, promo.detail) for promo in report.promotions]
+        out.append((False, ""))
+    return out
 
 
 def format_declarations_applied(events: List[DeclarationEvent]) -> str:

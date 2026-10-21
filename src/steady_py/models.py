@@ -51,6 +51,7 @@ class DiagnosticEvent:
     notebook: Optional[str] = None
     names: Tuple[str, ...] = ()       # the import and distribution names an accept declaration matches
     accepted: Optional[str] = None    # the reason, when an accept declaration covers this diagnostic
+    entries: Tuple[str, ...] = ()     # declaration entries it offers, ready to paste (declarations.entry_text)
 
     @classmethod
     def at(cls, cell: Optional[Cell], line_idx: Optional[int], type: str, detail: str, level: str = "warning") -> "DiagnosticEvent":
@@ -80,6 +81,8 @@ class DiagnosticEvent:
         }
         if self.accepted is not None:
             out["accepted"] = self.accepted
+        if self.entries:
+            out["entries"] = list(self.entries)
         return out
 
 

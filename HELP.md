@@ -109,6 +109,14 @@ The troubleshooting steps printed below it, expanded:
 2. **Trying without the exact version.** `!pip install package` (without `==version`) installs the newest version instead of the author's. That often gets you going, but the notebook may then behave differently than it did for the author. Treat it as a last resort, and try the exact version (`!pip install package==version`, copied from the ❌ line) first.
 3. **This page.**
 
+**"ℹ️ Installed by the notebook itself, not by this cell:"**
+
+The author's own cells install these packages, so Cell 2 only shows what is installed now and doesn't count them in N/N. "not installed yet; a later cell installs it" is expected before those cells run. "one of the alternatives in group '...'" means the notebook installs one of several packages depending on where it runs (Colab or elsewhere, say), so only one of them is expected to be installed.
+
+**"⚠️ A later cell in this notebook can change: ..."**
+
+The author kept an install line that can change these packages after Cell 2 installs them. If the notebook later fails with a version problem in one of them, that line is the first place to look.
+
 **"⚠️ Note: You may need to restart the kernel to use updated packages."**
 
 Cell 2 installed or changed something. If you've already run other cells in this session, Python may still be using the old versions it loaded then.
@@ -144,7 +152,7 @@ Anything starting with `#` is a note, not an instruction; nothing on those lines
 | What it looks like | What it means |
 | --- | --- |
 | `# pkg (optional or conditional dependency inside try/except block)` | The notebook only uses this as a backup option, so it isn't required. |
-| `# x (imported as 'x'; not found via pip-freeze or local file scan ...)` | The notebook uses this, but it wasn't installed when the author set it up. If the notebook later fails with "No module named 'x'", ask the author about it. |
+| `# x (imported as 'x'; not installed here or found as a local file ...)` | The notebook uses this, but it wasn't installed when the author set it up. If the notebook later fails with "No module named 'x'", ask the author about it. |
 | `# x (local folder/file next to notebook; ensure sibling files were shared)` | This is a file that should come with the notebook. If it's missing, ask for the notebook's other files too, not just the notebook. |
 | `# x (provided automatically by platform like Colab/Databricks; no install needed)` | Provided by the platform itself. Nothing to do. |
 | `# x (core Python build/packaging tool; excluded from requirement lockfiles)` | Tools such as `pip` itself. Deliberately left out. |

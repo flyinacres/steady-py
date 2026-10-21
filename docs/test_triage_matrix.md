@@ -177,21 +177,21 @@ Reading test status:
 | H1 | `Any` parameters, tuple-unpacking shims | S | not planned | touched |  | `mypy --strict` gate on touched modules |
 | H2 | Broad `except Exception` | S | not planned | touched |  | Ruff `BLE001` gate with an allowlist for third-party probes |
 
-## Design gaps (no tests yet)
+## Design gaps
 
-All N, blocked on feature design, except DG8, which is fixed, DG7, settled by the install-lines spec, and DG9, settled by decision 12. DG5 is under Environment capture.
+DG1, DG3 and DG6 are N, blocked on a decision; the rest are settled and have tests. DG5 is under Environment capture.
 
 | ID | Finding | Settled | Status | Step | Notes |
 | --- | --- | --- | --- | --- | --- |
 | DG1 | Optional-dependency candidates | N | not planned | out | See decision 7 |
-| DG2 | Guarded-alternative reporting | N | not planned | 4 | |
+| DG2 | Guarded-alternative reporting | Y |  | fixed | U | Ignore proposals sharing a group; Cell 2 reports a group's alternatives |
 | DG3 | Platform baseline | N | not planned | out | Needed only by DG1 |
 | DG4 | Guard status in the manifest | Y |  | fixed | U | F1 | Guard group and branch fill `packages.guard` in step 4 |
 | DG6 | Build-tag runtime policy | N | not planned | pf1 | Decision 4 |
 | DG7 | Creator install lines undoing Cell 2 | Y |  | 4 | Install-lines spec items 5 and 10; tests at layer U |
 | DG9 | No creator override for an exit-1 condition | Y |  | 4 | Decision 12; tests at layers U (check) and V (snapshot) |
 | DG8 | Offline `/kaggle/input` wheel installs | Y |  | fixed | Decision 11 |
-| D7 | Live-session recipe is clunky | N | not planned | 4 | The round trip runs there |
+| D7 | Live-session recipe is clunky | Y |  | fixed | L | `steady_py.show_snapshot()` |
 
 ## Deferred
 

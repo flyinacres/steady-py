@@ -58,10 +58,15 @@ def _report_ignored(record: SteadyPyManifest) -> None:
         return
     print("\nℹ️ Installed by the notebook itself, not by this cell:")
     for entry in ignored:
+        # Alternatives share a group (DG2): a later cell installs one of them, not each.
+        group = f" (one of the alternatives in group '{entry.group}')" if entry.group else ""
         try:
             current = importlib.metadata.version(entry.name)
         except importlib.metadata.PackageNotFoundError:
-            print(f"   • {entry.name}: not installed yet; a later cell installs it")
+            print(f"   • {entry.name}: not installed{group}" if group else f"   • {entry.name}: not installed yet; a later cell installs it")
+            continue
+        if group:
+            print(f"   • {entry.name}: {current} is installed{group}")
             continue
         if entry.version and entry.version != current:
             print(f"   • {entry.name}: {current} is installed; the notebook was made with {entry.version}")

@@ -218,6 +218,7 @@ class SnapshotResult:
     validation: Optional[drift.BatchValidation] = None         # aggregate validation across written notebooks
     universal_path: Optional[str] = None                      # the combined requirements file, if written
     error: Optional[str] = None                               # a failure of the run as a whole, not of one notebook
+    skipped: Optional[str] = None                             # why a live snapshot returned without running
 
     @property
     def failed(self) -> List[NotebookSnapshot]:

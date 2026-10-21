@@ -175,3 +175,5 @@ def test_an_accept_overrides_an_attention_diagnostic(tmp_path, base_venv, accept
     outcome = run_in(base_venv, "snapshot", Notebook(*cells, code("import dupmod")).write(tmp_path), env=pythonpath(site))
     assert outcome.exit_code == (0 if accepted else 1), outcome.log
     assert [w.get("accepted") for w in outcome.warnings(type="ambiguous_import")] == (["the runner has one"] if accepted else [None])
+    offered = '{"accept": "dupmod", "reason": "..."}'
+    assert [w.get("entries") for w in outcome.warnings(type="ambiguous_import")] == ([None] if accepted else [[offered]])

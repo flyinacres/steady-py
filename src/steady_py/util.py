@@ -23,6 +23,12 @@ def is_running_in_ipython() -> bool:
         return False
 
 
+def in_kaggle_save_version_run() -> bool:
+    """True in a Kaggle "Save Version" (commit) run, which Kaggle marks with KAGGLE_KERNEL_RUN_TYPE=Batch;
+    an interactive session has "Interactive"."""
+    return os.environ.get("KAGGLE_KERNEL_RUN_TYPE") == "Batch"
+
+
 @contextlib.contextmanager
 def silence_fd2_stderr():
     """

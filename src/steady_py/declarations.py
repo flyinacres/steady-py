@@ -2,6 +2,7 @@
 session or a declarations file, validated, and combined into the entries the manifest records
 (review_findings.md, Proposed features, install-lines spec, items 1 and 2)."""
 import ast
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +25,19 @@ _KEYS: Dict[str, Tuple[str, ...]] = {
 }
 _INDEX_OPTIONS = (("index_url", "--index-url"), ("extra_index_url", "--extra-index-url"), ("find_links", "--find-links"))
 _NAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+
+
+def entry_text(kind: str, name: str, **fields: Any) -> str:
+    """One declaration entry as the creator pastes it into STEADY_PY_DECLARATIONS: the kind key first,
+    then the fields given (None left out), then a reason to fill in. The one place entries are spelled."""
+    parts = [f"{json.dumps(kind)}: {json.dumps(name)}"]
+    parts += [f"{json.dumps(k)}: {json.dumps(v)}" for k, v in fields.items() if v is not None]
+    return "{" + ", ".join([*parts, '"reason": "..."']) + "}"
+
+
+def accept_hint(name: str) -> str:
+    """The sentence that offers an accept for a finding about `name`, entry included."""
+    return f"If that is intended, add {entry_text(ACCEPT, name)} to {DECLARATIONS_NAME}."
 
 
 class DeclarationError(ValueError):
@@ -310,7 +324,26 @@ def accept_diagnostics(diagnostics: Sequence[DiagnosticEvent], entries: Sequence
             diagnostic.accepted = match.reason
             used.add(canonicalize_name(match.name))
             events.append(_event(match, f"{diagnostic.type} no longer counts toward exit 1"))
+        elif diagnostic.names:
+            _offer(diagnostic, diagnostic.names[0])
     return events, used
+
+
+def _offer(diagnostic: DiagnosticEvent, name: str) -> None:
+    entry = entry_text(ACCEPT, name)
+    if entry not in diagnostic.entries:
+        diagnostic.detail = f"{diagnostic.detail} {accept_hint(name)}"
+        diagnostic.entries = (*diagnostic.entries, entry)
+
+
+def offer_accepts(findings: Sequence[DriftFinding]) -> None:
+    """Adds the ready-to-paste accept entry to each finding that counts toward check's exit 1 and that
+    an accept could cover (decision 12): the creator can dismiss it without reading the format."""
+    for finding in findings:
+        if finding.accepted is None and finding.package and finding.signal not in UNACCEPTABLE_SIGNALS:
+            hint = accept_hint(finding.package)
+            if hint not in finding.message:
+                finding.message = f"{finding.message} {hint}"
 
 
 def accept_findings(findings: Sequence[DriftFinding], entries: Sequence[Declaration], counts: bool = True) -> Tuple[List[DeclarationEvent], Set[str]]:
