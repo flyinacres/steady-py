@@ -404,6 +404,11 @@ def is_prior_setup_cell(cell: Dict[str, Any]) -> bool:
     return False
 
 
+def setup_cell_position(raw_cells: Sequence[Dict[str, Any]]) -> Optional[int]:
+    """The notebook position of the prior Cell 2 (the first setup code cell), or None without one."""
+    return next((i for i, c in enumerate(raw_cells) if c.get("cell_type") == "code" and is_prior_setup_cell(c)), None)
+
+
 def _managed_role(cell: Dict[str, Any]) -> Optional[str]:
     """The role a managed cell's metadata tags it with, if any."""
     meta = cell.get("metadata")

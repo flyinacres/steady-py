@@ -69,10 +69,11 @@ On Kaggle and Colab there is no terminal to run a file through, so run steady-py
    import steady_py; steady_py.show_snapshot()
    ```
 
-3. Read what it reports, then copy the block under **STEP 1** into a new **Markdown** cell and the block under **STEP 2** into a new **Code** cell, both at the very top of the notebook.
-4. Delete the cell you added in step 2 and save.
+3. Read what it reports. Its last line says what to do next. If warnings need attention, fix or accept them, then restart the session, run all, and run the cell again: snapshot reads every cell that ran in the session, so a fix only shows after a restart.
+4. Copy the block under **STEP 1** into a new **Markdown** cell and the block under **STEP 2** into a new **Code** cell, both at the very top of the notebook.
+5. Delete the cell you added in step 2 and save.
 
-If you forget step 4, the cell runs for everyone who runs your notebook. It changes nothing in the notebook, its output starts by telling readers it is meant for the author, and in a Kaggle "Save Version" run it does nothing at all.
+If you forget step 5, the cell runs for everyone who runs your notebook. It changes nothing in the notebook, its output starts by telling readers it is meant for the author, and in a Kaggle "Save Version" run it does nothing at all.
 
 **A trap to know about:** in a running notebook, steady-py looks at *everything that has run in this session*, including cells you ran and later deleted. If you tried a package and abandoned it, it can still end up in the setup cell. Restarting and running the notebook from the top first avoids this. Running on a saved file doesn't have this problem, because it only reads what's in the file.
 
@@ -84,6 +85,7 @@ steady-py adds Cell 2 at the top and leaves your own cells as they are, so your 
 
 - **Conflicting** (⚠️, exit code 1): the line can undo Cell 2, for example `-U` upgrades a pinned package or a different `==` replaces it. Delete it, or remove the package from it. If the notebook doesn't import that package, replace the line with an `install` entry (below) so the version is still recorded.
 - **Redundant** (ℹ️): the line repeats what Cell 2 installs and changes nothing. No change needed; keeping it is harmless.
+- **Above Cell 2** (ℹ️): the line runs before Cell 2's pins, so an unpinned line brings in the latest release and its dependencies, and Cell 2 restores the pins but not those dependencies. Move Cells 1 and 2 to the top; snapshot `--in-place` or `--output` puts them there.
 - **Lines Cell 2 can't reproduce**: a line inside an `if`, `try` or function, a package name held in a variable, a `conda` line, a `-r requirements.txt` file, or a package that isn't installed where you ran steady-py. These lines stay, and snapshot proposes an entry for each.
 
 steady-py never edits your code; you make each change yourself.

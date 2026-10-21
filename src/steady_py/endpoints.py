@@ -39,6 +39,23 @@ def _read_manifest(path: object) -> generate.ManifestRead:
     return generate.read_manifest_file(str(path))
 
 
+def _lines_above_setup(scan_result: analyze.NotebookScanResult,
+                       report: models.NotebookAnalysisReport) -> List[models.DiagnosticEvent]:
+    """Notices for install lines above the notebook's Cell 2 (install-lines spec, item 5.7)."""
+    if scan_result.path.suffix != ".ipynb":
+        return []
+    try:
+        with open(scan_result.path, "r", encoding="utf-8") as f:
+            raw = json.load(f).get("cells", [])
+    except (OSError, ValueError):
+        return []
+    lines = reconcile.lines_above(report.install_lines, generate.setup_cell_position(raw))
+    events = reconcile.above_setup_diagnostics(lines)
+    for event in events:
+        event.notebook = str(scan_result.path)
+    return events
+
+
 def _previous_manifest(scan_result: analyze.NotebookScanResult, options: SnapshotOptions, root_dir: str,
                        live: bool) -> generate.ManifestRead:
     """The manifest the new one is compared with and dated from (manifest regeneration spec, item 2):
@@ -178,6 +195,8 @@ def _snapshot_notebook(
     for warning in declared.warnings:
         warning.notebook = str(scan_result.path)
     report.warnings.extend(declared.warnings)
+    if not live and options.write_mode == WriteMode.NONE:
+        report.notices.extend(_lines_above_setup(scan_result, report))
     blueprint = generate.build_blueprint_for_notebook(
         scan_result, report, hardware, install_timeout=options.install_timeout, full_freeze_lines=full_freeze_lines,
         previous=previous, declarations=declared.entries,
@@ -316,7 +335,8 @@ def _install_line_findings(path: str, manifest: models.SteadyPyManifest) -> List
     managed = {i for i, cell in enumerate(raw) if generate.is_prior_setup_cell(cell)}
     cells = [c for c in scanning.read_notebook_cells(raw) if c.position not in managed]
     lines = magics.harvest_cell_magics_and_commands(cells).install_lines
-    return reconcile.check_findings(reconcile.classify(lines, manifest.packages))
+    above = reconcile.lines_above(lines, generate.setup_cell_position(raw))
+    return reconcile.check_findings(reconcile.classify(lines, manifest.packages)) + reconcile.above_setup_findings(above)
 
 
 def check(target: str, options: Optional[CheckOptions] = None) -> CheckResult:

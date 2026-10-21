@@ -104,6 +104,7 @@ What is wrong and why, one entry per finding, by matrix ID. Each entry carries i
 
 ## Reviewed and rejected
 
+- Skipping snapshot's PyPI validation when nothing changed, to make a forgotten snapshot cell cheap in an end user's session. The baseline keeps only finding keys, so a skipped run has no findings to show, and an unchanged re-run would read as clean while a yanked pin stays recorded. The live snapshot's closing step (install-lines spec, item 7) addresses the forgotten cell instead.
 - Updating the manifest instead of rebuilding it: carrying forward values no current source states, with warnings on every snapshot and a `--rebuild` escape hatch. The losses it guarded against came from advising creators to delete redundant install lines, which took an index URL or an unimported package's pin with them. With that advice gone (install-lines spec, item 5.2), a value disappears only when the creator removes its source or the snapshot environment lacks it, and the delta reports either. Carrying would second-guess deliberate edits for little gain.
 
 - `_RUN_CACHES` as a memory leak or thread hazard: caches are created once at import (four decorated functions) and nothing in the tool runs concurrently.
@@ -186,14 +187,14 @@ steady-py can't safely edit the creator's code, especially on Kaggle and Colab. 
    4. Lines Cell 2 doesn't reproduce and the creator hasn't declared (guarded branches, computed installs, conda, `-r`, packages not installed at snapshot): the line is kept, and snapshot proposes a declaration for it.
    5. Lines that don't install into the kernel (`-t`/`--target`, installs into a remote sandbox such as `sandbox.commands.run("pip install ...")`) get no advice.
    6. Each line is located by quoting its text, with the cell position and nearest heading as hints. Advice and declaration proposals come out as one list.
-   7. The classification assumes Cell 2 runs before the creator's install lines. An unpinned line that runs first installs the latest release and its dependencies; Cell 2 then restores the pin but not the dependencies. When a notebook file holds Cell 2 below a cell with an install line (setup cells pasted lower down), snapshot and check warn that Cell 2 must be the first code cell. A live session has no cell positions, so there it rests on the paste instructions.
+   7. The classification assumes Cell 2 runs before the creator's install lines. An unpinned line that runs first installs the latest release and its dependencies; Cell 2 then restores the pin but not the dependencies. When a notebook file holds Cell 2 below a cell with an install line (setup cells pasted lower down), check, and snapshot when it writes nothing, give a notice (exit 0) that Cell 2 belongs at the top; a write puts it there. A live session has no cell positions, so there it rests on the paste instructions.
 6. Cell 2 behavior:
    1. It installs pins and install declarations, and never installs or pins ignored packages.
    2. An ignored package that is already installed is checked against its pin if it has one, and otherwise noted as present. A mismatch is reported as information, not failure: guarded alternatives differ by platform, and the creator's own line may replace the version after Cell 2 runs.
    3. An ignored package that isn't installed yet is reported as installed later by the notebook, and counts neither for nor against "N/N verified".
    4. pip can still install or move an ignored package as a dependency of a pinned one. Snapshot warns when an ignored package is reachable from the pins' dependency graph.
    5. For a pinned package whose conflicting line the creator left in place (`packages.conflicting_line`), the "N/N verified" line names it as one a later cell can change.
-7. Limitation: a creator may forget to remove the snapshot call before sharing the notebook, and snapshot then runs whenever someone else runs the notebook. It never writes to the notebook, so the author's setup cells are unaffected. Snapshot returns immediately in Kaggle "Save Version" runs, and skips its slow checks when nothing has changed (Snapshot manifest regeneration, item 4). Otherwise it can't tell the creator from anyone else, so its output begins: "This output is for the notebook's author. If you are running someone else's notebook, ignore it and don't paste anything from it; you can delete this cell."
+7. Limitation: a creator may forget to remove the snapshot call before sharing the notebook, and snapshot then runs whenever someone else runs the notebook. It never writes to the notebook, so the author's setup cells are unaffected. Snapshot returns immediately in Kaggle "Save Version" runs, and a live snapshot ends with the author's next step: paste both cells and delete this cell, or, when warnings need attention, fix or accept them, then restart the session, run all and run the cell again (snapshot reads every cell that ran). Otherwise it can't tell the creator from anyone else, so its output begins: "This output is for the notebook's author. If you are running someone else's notebook, ignore it and don't paste anything from it; you can delete this cell."
 8. Ownership:
    1. Resolution decides what Cell 2 covers.
    2. One parser reads the declarations from every source.
@@ -225,5 +226,4 @@ Behavior:
    2. Under `--output`: from the file the write replaces, else the source.
    3. A live session: from the most recently executed Cell 2 in session history, through the same reader as a file. With none, the report says no setup cell has run in this session, and the run is a first snapshot.
 3. Reporting: the existing delta, covering every manifest field. A declaration removed from its cell, or from a declarations file that wasn't passed, is a removal like any other. A snapshot that changes nothing writes nothing (matrix decision 3).
-4. Slow checks: when the packages (`custom_sourced` aside), Python version and declarations match the previous manifest, snapshot reuses its baseline and `custom_sourced` values and skips the PyPI checks. Check still reports anything that changed on PyPI since.
-5. Safety: a live session never writes to the notebook. Only an explicit author action replaces the manifest.
+4. Safety: a live session never writes to the notebook. Only an explicit author action replaces the manifest.

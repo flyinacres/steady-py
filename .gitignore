@@ -10,6 +10,7 @@ htmlcov/
 .coverage
 
 # Python cache & build artifacts
+build/
 __pycache__/
 *.py[cod]
 *$py.class

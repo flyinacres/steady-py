@@ -116,3 +116,16 @@ def test_the_live_helper_shows_the_report_and_cells_except_in_kaggle_save_versio
     parts = [BANNER, "INSTALL LINES", "STEP 1: PASTE INTO CELL 1", "STEP 2: PASTE INTO CELL 2", "STEADY_PY_MANIFEST"]
     assert [p in out for p in parts] == [shown] * len(parts), out
     assert ("Save Version" in out) is not shown
+
+
+@pytest.mark.kernel
+@pytest.mark.parametrize("cell, step", [
+    ("import packaging", "paste both cells at the top, run the notebook once to confirm, then delete this cell."),
+    ("!pip install -U packaging\nimport packaging", "1 warning(s) above need attention"),  # a conflicting line
+], ids=["settled", "attention"])
+def test_the_live_helper_ends_with_the_authors_next_step(tmp_path, live_venv, cell, step):
+    with kernel(live_venv, tmp_path) as k:
+        k.execute(cell)
+        out, err = k.execute("import steady_py\nsteady_py.show_snapshot()")
+    last = out.rstrip().splitlines()[-1]
+    assert last.startswith("If this is your notebook:") and step in last, out

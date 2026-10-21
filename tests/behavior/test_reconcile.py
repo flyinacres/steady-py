@@ -1,11 +1,12 @@
 """Install-line reconciliation: which install lines can undo what Cell 2 installed (conflicting, exit 1)
 and which repeat it (redundant, a notice), at snapshot and at check (review_findings.md, install-lines
 spec, items 5 and 10). The host's packaging is imported and pinned; resolvelib is installed, not imported."""
+import json
 from importlib.metadata import version
 
 import pytest
 
-from tests.support.notebooks import Notebook, code
+from tests.support.notebooks import Notebook, code, write_json
 from tests.support.outcomes import manifest
 from tests.support.runner import run
 
@@ -100,3 +101,30 @@ def test_check_classifies_the_notebook_lines(tmp_path, declared, exit_code):
     assert outcome.findings(signal="redundant_line")[0]["message"].endswith("No change needed.")
     offered = '{"accept": "packaging", "reason": "..."}' in outcome.findings(signal="conflicting_line")[0]["message"]
     assert offered is (exit_code == 1)  # the accept is offered until it is declared
+
+
+# Install lines above Cell 2 run before its pins: a notice, exit 0 (install-lines spec, item 5.7).
+
+def _with_line(tmp_path, above):
+    nb = run("snapshot", Notebook(code("import packaging")).write(tmp_path), "--output").written[0]  # same PyPI view as the check
+    data = json.loads(nb.read_text(encoding="utf-8"))
+    cell = Notebook(code("!pip install packaging")).to_json()["cells"][0]
+    data["cells"].insert(0, cell) if above else data["cells"].append(cell)
+    return write_json(data, tmp_path, nb.name)
+
+
+@pytest.mark.parametrize("above", [True, False], ids=["above", "below"])
+def test_a_line_above_cell_2_gets_a_notice(tmp_path, above):
+    nb = _with_line(tmp_path, above)
+    snapshot, check = run("snapshot", nb), run("check", nb)
+    assert (snapshot.exit_code, check.exit_code) == (0, 0), snapshot.log + check.log
+    assert len(snapshot.notices(type="install_line_above_setup")) == (1 if above else 0)
+    assert [f["severity"] for f in check.findings(signal="line_above_setup")] == (["notice"] if above else [])
+
+
+def test_a_write_moves_cell_2_to_the_top(tmp_path):
+    nb = _with_line(tmp_path, above=True)
+    outcome = run("snapshot", nb, "--in-place")
+    assert outcome.exit_code == 0, outcome.log
+    assert outcome.notices(type="install_line_above_setup") == []
+    assert run("check", nb).findings(signal="line_above_setup") == []

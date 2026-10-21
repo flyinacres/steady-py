@@ -301,6 +301,36 @@ def proposals(lines: Sequence[InstallLine], packages: Sequence[ManifestPackage],
     return out
 
 
+def _above(line: InstallLine) -> str:
+    return (f"{_quoted(line)} runs before Cell 2: an unpinned line installs the latest release and its dependencies, "
+            f"and Cell 2 then restores its pins but not those dependencies. Cell 2 belongs at the top")
+
+
+def lines_above(lines: Sequence[InstallLine], setup_position: Optional[int]) -> List[InstallLine]:
+    """Kernel install lines in cells above Cell 2, which the classification assumes run after it (item 5.7)."""
+    if setup_position is None:
+        return []
+    return [l for l in lines if l.kernel_target and l.cell is not None and l.cell.position is not None
+            and l.cell.position < setup_position]
+
+
+def above_setup_diagnostics(lines: Sequence[InstallLine]) -> List[DiagnosticEvent]:
+    """Snapshot's notice for each line above Cell 2, when nothing is written (a write moves Cell 2 up)."""
+    return [DiagnosticEvent.at(l.cell, l.line_idx, "install_line_above_setup",
+                               f"{_above(l)}; snapshot --in-place or --output puts it there.", level="notice")
+            for l in lines]
+
+
+def above_setup_findings(lines: Sequence[InstallLine]) -> List[DriftFinding]:
+    """Check's notice for each line above Cell 2 (item 5.7)."""
+    return [DriftFinding(
+        package=_named(l.targets[0]) or "" if l.targets else "", version="",
+        signal=Signal.LINE_ABOVE_SETUP, severity=Severity.NOTICE,
+        message=f"{_above(l)}; move Cells 1 and 2 there.",
+        details={"line": l.text, "cell": l.cell.label if l.cell else ""},
+    ) for l in lines]
+
+
 def check_findings(verdicts: Sequence[LineVerdict]) -> List[DriftFinding]:
     """Check's view (item 10.2): a conflicting line is a confirmed finding, a redundant one a notice.
     Check gives no delete-or-replace advice, since that needs the import join and so the environment."""

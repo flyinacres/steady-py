@@ -73,6 +73,7 @@ class Signal:
     UNREAD_FIELDS = "unread_fields"  # the manifest has fields this steady-py doesn't know, so it can't check them
     CONFLICTING_LINE = "conflicting_line"  # an install line can change a package Cell 2 installed
     REDUNDANT_LINE = "redundant_line"  # an install line repeats a package Cell 2 installed
+    LINE_ABOVE_SETUP = "line_above_setup"  # an install line in a cell above Cell 2 runs before its pins
 
 
 class Severity:
@@ -132,7 +133,8 @@ ATTENTION_DIAGNOSTICS = frozenset({"editable_import", "local_file_import", "cust
 
 # Diagnostics about what to do with the creator's install lines: advice and proposed declarations
 # print together, as one list in notebook order (install-lines spec, item 5.6).
-INSTALL_LINE_ADVICE = frozenset({"conflicting_install_line", "redundant_install_line", "declaration_proposal"})
+INSTALL_LINE_ADVICE = frozenset({"conflicting_install_line", "redundant_install_line", "install_line_above_setup",
+                                 "declaration_proposal"})
 
 # The first thing snapshot's text output says: a forgotten snapshot cell runs for everyone who runs
 # the notebook (install-lines spec, item 7).
