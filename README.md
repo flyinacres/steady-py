@@ -35,6 +35,8 @@ In a notebook on Kaggle, Colab or Jupyter, run this in a cell:
 
 steady-py needs Python 3.11 or newer and an internet connection.
 
+Until steady-py is published on PyPI, install it from GitHub instead: `pip install git+https://github.com/flyinacres/steady-py` (in a notebook, `%pip install git+https://github.com/flyinacres/steady-py`). Cell 2 then installs that same commit for everyone who runs the notebook.
+
 ---
 
 ## Quick start: a notebook file on your computer

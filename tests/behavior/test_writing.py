@@ -1,4 +1,5 @@
 """What snapshot writes and reports: which notebooks, which cells, which changes."""
+import importlib.metadata
 import json
 from importlib.metadata import version
 
@@ -7,7 +8,7 @@ import pytest
 from tests.support.manifests import altered, snapshotted
 from tests.support.markers import finding, known_bug
 from tests.support.notebooks import Notebook, code, write_json
-from tests.support.outcomes import managed_cells, manifest
+from tests.support.outcomes import cell2_text, managed_cells, manifest
 from tests.support.runner import run
 
 PACKAGING = version("packaging")
@@ -164,3 +165,37 @@ def test_an_unchanged_companion_keeps_its_date(tmp_path, pypi):
     _age(companion, manifest(companion))
     assert run("snapshot", nb, "--output").exit_code == 0
     assert manifest(companion)["generated_at"] == "2001-01-01 00:00:00"
+
+
+# Cell 2 installs steady-py the way the snapshot's copy was installed, when others can reach that
+# source; a local or editable copy falls back to the release pin.
+
+STEADY = version("steady-py")
+SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+class _Steady:
+    """A stand-in for steady-py's installed distribution, with a given direct_url.json."""
+    def __init__(self, direct_url):
+        self.metadata, self.version, self._direct_url = {"Name": "steady-py"}, STEADY, direct_url
+
+    def read_text(self, name):
+        return json.dumps(self._direct_url) if name == "direct_url.json" and self._direct_url else None
+
+
+@pytest.mark.parametrize("direct_url, pin", [
+    ({"url": "https://github.com/flyinacres/steady-py", "vcs_info": {"vcs": "git", "commit_id": SHA}},
+     f"steady-py @ git+https://github.com/flyinacres/steady-py@{SHA}"),
+    ({"url": "https://example.com/steady_py-1-py3-none-any.whl", "archive_info": {"hashes": {"sha256": "ab"}}},
+     "steady-py @ https://example.com/steady_py-1-py3-none-any.whl#sha256=ab"),
+    ({"url": "file:///home/me/steady-py", "dir_info": {"editable": True}}, f"steady-py=={STEADY}"),
+    (None, f"steady-py=={STEADY}"),
+], ids=["git", "archive", "editable", "release"])
+def test_cell2_installs_steady_py_from_where_the_snapshot_got_it(tmp_path, pypi, monkeypatch, direct_url, pin):
+    pypi.add("packaging", {PACKAGING: {}})
+    real = importlib.metadata.distribution
+    monkeypatch.setattr(importlib.metadata, "distribution",
+                        lambda name: _Steady(direct_url) if name == "steady-py" else real(name))
+    outcome = run("snapshot", Notebook(code("import packaging")).write(tmp_path), "--output")
+    assert outcome.exit_code == 0, outcome.log
+    assert f'"{pin}"]' in cell2_text(outcome.written[0])

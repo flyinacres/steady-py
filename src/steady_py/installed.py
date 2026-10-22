@@ -153,6 +153,23 @@ def _direct_reference(info: object, name: str) -> Optional[str]:
     return f"{name} @ {url}" + ("#" + "&".join(fragments) if fragments else "")
 
 
+def self_pin(version: str) -> str:
+    """How Cell 2 installs steady-py: the way this copy was installed when anyone running the
+    notebook can reach that source (a remote VCS commit or archive), else `steady-py==version`,
+    the index release (a local or editable copy can't be shared)."""
+    try:
+        dist = importlib.metadata.distribution("steady-py")
+    except importlib.metadata.PackageNotFoundError:
+        return f"steady-py=={version}"
+    info = _direct_url_info(dist)
+    url = info.get("url") if info else None
+    if isinstance(url, str) and not is_local_direct_url(url):
+        reference = _direct_reference(info, "steady-py")
+        if reference:
+            return reference
+    return f"steady-py=={version}"
+
+
 def _egg_link_location(name: str) -> Optional[str]:
     """The source directory of a legacy `setup.py develop` install, from its .egg-link file."""
     stems = {name, re.sub(r"[-_.]+", "-", name), re.sub(r"[-_.]+", "_", name)}

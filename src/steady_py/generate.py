@@ -340,7 +340,7 @@ def generate_production_blueprint(
         freeze_lines_repr = repr(full_freeze_lines)
         freeze_block_code = f"\n# --- FULL FREEZE FALLBACK BLOCK ---\nFULL_FREEZE_FALLBACK = {freeze_lines_repr}\n"
 
-    pin = f"steady-py=={TOOL_VERSION}"
+    pin = installed.self_pin(TOOL_VERSION)
     step2_code = f"""# =====================================================================
 # VERIFIED ENVIRONMENT DEPENDENCIES ({timestamp})
 # =====================================================================
@@ -355,7 +355,7 @@ _result = subprocess.run(
     capture_output=True, text=True,
 )
 if _result.returncode != 0:
-    print(f"⚠️ Could not install the pinned {pin} helper (it may not be released yet).")
+    print(f"⚠️ Could not install the pinned {pin} helper (it may not be released yet, or its source may be unreachable).")
     print((_result.stdout + _result.stderr)[-2000:])
     print("Proceeding with whatever steady_py is already available, if any...")
 
