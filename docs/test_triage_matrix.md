@@ -154,6 +154,7 @@ Reading test status:
 | R4 | User-site install counts as verified | Y |  | pf1 | D | F8 | Non-root user, root-owned Python |
 | R5 | Helper bootstrap succeeds, import fails or is older | Y |  | pf1 | D | F8 | Cases (a) and (b) |
 | D2 | Cell 2 silently uses another steady-py version | Y |  | pf1 | D | F8 | Same scenario as R5 |
+| R6 | The author's own steady-py install line is reinstalled by Cell 2 | Y |  | pf1 | U | F1 | A bare git URL line and a `steady-py @` line |
 | D3 | Same advice for every failure | N | not planned | pf1 |  |  | Needs a design pass |
 
 ## Writing and output

@@ -126,6 +126,7 @@ The corpus (`test_notebooks/`, gitignored) has 147 notebooks: Kaggle notebooks w
 - The `--format json` payloads in `reporting` are built as literal dicts, not a typed structure.
 - A bare `except Exception` around `packages_distributions()` in `resolution.resolve_pypi_package_and_extras` should log at debug.
 - `generate.generate_production_blueprint`'s custom-sourced loop repeats a guard in `drift.run_pin_checks`.
+- `tests/runners/run_suite.py` has 5 `mypy --strict` errors in its older code (untyped `dict` arguments and a fixture loop variable reused across two types).
 - `generate_batch_analysis_report`, `process_package_requirements` and `harvest_scoped_cell_flags` are used only by tests; kept for their tests. `DependencyEntry.raw_token` is unused; `PypiVersionMetadata.project_urls` is reserved for the changelog link.
 
 ## Roadmap
@@ -148,3 +149,11 @@ Tasks 1–18 are done: the rename and `src` layout, typed results, the `snapshot
 24. DONE. README and HELP rewritten.
 25. TODO. Add a license file.
 26. TODO. First release.
+27. TODO. Tell authors how to copy the setup blocks. Mouse copy and paste doesn't work in Kaggle's editor, so show_snapshot's output and the README should say to select each block and use Ctrl+C and Ctrl+V (Cmd+C and Cmd+V on a Mac).
+28. TODO. Separate the blocks an author must copy. The live snapshot output is one wall of text, and the STEP 1 and STEP 2 blocks should be marked off clearly from the report around them.
+29. TODO. Wording in snapshot's output: guarded install lines that the author has declared `ignore` still show as ⚠️ warnings, and a line that names packages with a variable is reported twice, under the warnings and under install lines.
+30. TODO. Keep the Docker images current. `run_suite.py` starts containers with `--pull missing`, so a cached image never updates; on 2026-11-20 the cached Kaggle image ran Python 3.12 while live Kaggle and the registry ran 3.13.18. Each tier should pull its image first and print its Python, numpy and pandas versions at the start.
+31. TODO. Move the image-drift scenario's pins (`run_suite.DRIFT_PINS`) to releases with Python 3.13 wheels, such as numpy 2.1.0 and pandas 2.2.3, checked against what the current Kaggle and Colab images ship.
+32. TODO. Make `tests/fixtures/e2e/platform_pseudo_module.ipynb` check that `google.colab` is classified as platform-provided, so the fixture can't pass for the wrong reason.
+33. TODO. Browser checks still to run: `tools/browser_declarations_check.ipynb` pass 2 on Kaggle, passes 1 and 2 on Colab, and pass 3 (Save Version) on Kaggle. Also check on live Kaggle whether `import google.colab` succeeds, since notebooks that use it to detect Colab would then misfire on Kaggle.
+34. TODO. Docker tests still to write for the Kaggle and Colab images: the live snapshot sequence (before Cell 2, after it, with a conflicting line, after a restart), Save Version (`KAGGLE_KERNEL_RUN_TYPE=Batch`), install command forms (`%pip`, `!pip`, `uv pip`, conda), and running cells out of order. If the Kaggle tier's kernel keeps failing to bind its heartbeat port ("Address already in use"), look at how the tier starts its kernel.
