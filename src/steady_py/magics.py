@@ -8,12 +8,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
-from steady_py import installargs, scanning, util
+from steady_py import installargs, installed, scanning, util
 from steady_py.constants import (
     CARRIED_PIP_OPTIONS, PIP_OPTIONS, SHELL_CELL_MAGICS, TOOL_IMPORT_NAME, GuardKind, Invocation, Readability, TargetKind, Tool,
 )
 from steady_py.models import (
-    Cell, DiagnosticEvent, Guard, HarvestResult, InstallLine, PipInstallOccurrence, RawInstall,
+    Cell, DiagnosticEvent, Guard, HarvestResult, InstallLine, InstallTarget, PipInstallOccurrence, RawInstall,
 )
 
 # Line magics that install packages, and the command each runs (`%uv pip install x` is `uv pip install x`).
@@ -217,17 +217,28 @@ def carried_flags(line: InstallLine) -> List[str]:
     return [arg for option in line.options if option.name in CARRIED_PIP_OPTIONS for arg in option.as_args()]
 
 
+def _installs_steady_py(target: InstallTarget, source: Optional[str]) -> bool:
+    """True when the target installs steady-py itself, which Cell 2 already installs (self_pin), so
+    reproducing the line would undo that pin (R6). A named target is judged by its name. A bare URL
+    is judged by where the running copy came from (`source`): the same repository or archive at any
+    ref counts (decision 13), and with no remote source to compare, the URL stays a raw install."""
+    if target.kind in (TargetKind.REQUIREMENT, TargetKind.DIRECT_REFERENCE):
+        return target.canonical == _TOOL_DISTRIBUTION
+    return target.kind == TargetKind.URL and source is not None and installed.same_direct_source(target.text, source)
+
+
 def _derive(found: _Harvest) -> Tuple[List[PipInstallOccurrence], List[Tuple[RawInstall, InstallLine]]]:
     """Pins and raw installs from the lines the setup cell reproduces."""
     occurrences: List[PipInstallOccurrence] = []
     raw_installs: List[Tuple[RawInstall, InstallLine]] = []
+    source = installed.self_source()
     for cell_idx, line in found.lines:
         if not _installs_into_kernel(line):
             continue
         flags = carried_flags(line)
         for target in line.targets:
-            if target.kind == TargetKind.REQUIREMENT and target.canonical == _TOOL_DISTRIBUTION:
-                continue  # the setup cell installing steady-py itself, as its import is skipped
+            if _installs_steady_py(target, source):
+                continue  # Cell 2 installs steady-py itself, as its import is skipped
             if target.kind == TargetKind.REQUIREMENT:
                 occurrences.append(PipInstallOccurrence(
                     cell_idx=cell_idx, line_idx=line.line_idx, raw_token=target.text, name=target.name,

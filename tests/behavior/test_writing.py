@@ -8,7 +8,7 @@ import pytest
 from tests.support.manifests import altered, snapshotted
 from tests.support.markers import finding, known_bug
 from tests.support.notebooks import Notebook, code, write_json
-from tests.support.outcomes import cell2_text, managed_cells, manifest
+from tests.support.outcomes import cell2_text, managed_cells, manifest, sources
 from tests.support.runner import run
 
 PACKAGING = version("packaging")
@@ -199,3 +199,28 @@ def test_cell2_installs_steady_py_from_where_the_snapshot_got_it(tmp_path, pypi,
     outcome = run("snapshot", Notebook(code("import packaging")).write(tmp_path), "--output")
     assert outcome.exit_code == 0, outcome.log
     assert f'"{pin}"]' in cell2_text(outcome.written[0])
+
+
+# The author's own steady-py install line isn't reproduced: Cell 2 already installs steady-py, and
+# the line would reinstall whatever it points to that day over the pin (R6, decision 13).
+
+REPO = "git+https://github.com/flyinacres/steady-py"
+FROM_REPO = {"url": "https://github.com/flyinacres/steady-py", "vcs_info": {"vcs": "git", "commit_id": SHA}}
+
+
+@pytest.mark.parametrize("direct_url, line, kept", [
+    (FROM_REPO, f"%pip install {REPO}", []),
+    (FROM_REPO, f"%pip install {REPO}.git@main", []),
+    (None, f'%pip install "steady-py @ {REPO}"', []),
+    (FROM_REPO, "%pip install git+https://github.com/someone/other", ["git+https://github.com/someone/other"]),
+    (None, f"%pip install {REPO}", [REPO]),
+], ids=["bare-url", "bare-url-other-ref", "named-reference", "unrelated-url", "bare-url-no-source-to-compare"])
+@finding("R6")
+def test_cell2_does_not_reinstall_steady_py_from_the_authors_line(tmp_path, pypi, monkeypatch, direct_url, line, kept):
+    pypi.add("packaging", {PACKAGING: {}})
+    real = importlib.metadata.distribution
+    monkeypatch.setattr(importlib.metadata, "distribution",
+                        lambda name: _Steady(direct_url) if name == "steady-py" else real(name))
+    outcome = run("snapshot", Notebook(code(line), code("import packaging")).write(tmp_path), "--output")
+    assert outcome.exit_code == 0, outcome.log
+    assert [s["url"] for s in sources(outcome.written[0])] == kept

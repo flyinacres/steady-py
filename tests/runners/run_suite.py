@@ -35,6 +35,7 @@ def strip_ansi(text: str) -> str:
 class PositiveFixture:
     path: str
     verify_patterns: tuple[str, ...] = ()
+    setup_cell_patterns: tuple[str, ...] = ()  # in the setup cell snapshot wrote, not the outputs
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,13 @@ class TierConfig:
     positive_fixtures: tuple[PositiveFixture, ...] = ()
     negative_fixtures: tuple[NegativeFixture, ...] = ()
 
+
+# google.colab shares the top-level name `google` with packages the images install, so only its
+# full name gets it classified as platform-provided; the fixture alone would pass without that.
+PLATFORM_FIXTURE = PositiveFixture(
+    path="tests/fixtures/e2e/platform_pseudo_module.ipynb",
+    setup_cell_patterns=("# google.colab (provided automatically by platform",),
+)
 
 TIER_CONFIGS: dict[str, TierConfig] = {
     "python3.11": TierConfig(
@@ -82,7 +90,7 @@ TIER_CONFIGS: dict[str, TierConfig] = {
         positive_fixtures=(
             PositiveFixture(path="tests/fixtures/e2e/test_pip_satisfied.ipynb"),
             PositiveFixture(path="tests/fixtures/e2e/pinned_install.ipynb"),
-            PositiveFixture(path="tests/fixtures/e2e/platform_pseudo_module.ipynb"),
+            PLATFORM_FIXTURE,
         ),
     ),
     "colab": TierConfig(
@@ -90,7 +98,7 @@ TIER_CONFIGS: dict[str, TierConfig] = {
         positive_fixtures=(
             PositiveFixture(path="tests/fixtures/e2e/test_pip_satisfied.ipynb"),
             PositiveFixture(path="tests/fixtures/e2e/pinned_install.ipynb"),
-            PositiveFixture(path="tests/fixtures/e2e/platform_pseudo_module.ipynb"),
+            PLATFORM_FIXTURE,
         ),
     ),
     "local_pkg": TierConfig(
@@ -217,6 +225,32 @@ def run_docker(
     return process.returncode, "".join(lines)
 
 
+# What each image runs, printed at the start of every tier so a stale image shows (task 30).
+IMAGE_VERSIONS_CMD = (
+    "python3 -c 'import sys, importlib.metadata as m; "
+    "v = lambda n: next((d.version for d in m.distributions(name=n)), \"not installed\"); "
+    "print(\"Image runs Python\", sys.version.split()[0] + \", numpy\", v(\"numpy\") + \", pandas\", v(\"pandas\"))'"
+)
+_REFRESHED: set[str] = set()
+
+
+def refresh_image(image: str) -> None:
+    """Pull `image` and print its creation date and its Python, numpy and pandas versions, once per
+    run. run_docker's `--pull missing` never updates a cached image: on 2026-11-20 a cached Kaggle
+    image ran Python 3.12 while live Kaggle ran 3.13.18."""
+    if image in _REFRESHED:
+        return
+    print(f"Pulling {image}...")
+    if subprocess.run(["docker", "pull", "-q", image]).returncode != 0:
+        raise RuntimeError(f"Could not pull {image}")
+    created = subprocess.run(["docker", "image", "inspect", "-f", "{{.Created}}", image],
+                             capture_output=True, text=True, check=True).stdout.strip()
+    print(f"Image {image} was created {created}")
+    if run_docker(image, IMAGE_VERSIONS_CMD)[0] != 0:
+        raise RuntimeError(f"Could not read the versions in {image}")
+    _REFRESHED.add(image)
+
+
 def cleanup_artifacts(*paths: Path) -> None:
     for path in paths:
         if path.exists():
@@ -275,6 +309,22 @@ def verify_positive_notebook(notebook_path: Path, patterns: Sequence[str]) -> No
                 f"Missing expected pattern:\n  '{pattern}'\n"
                 f"Searched outputs:\n{all_output}"
             )
+
+def verify_setup_cell(notebook_path: Path, patterns: Sequence[str]) -> None:
+    """Each pattern appears in the setup cell (the code cell holding STEADY_PY_MANIFEST)."""
+    if not patterns:
+        return
+    with notebook_path.open("r", encoding="utf-8") as f:
+        cells = json.load(f).get("cells", [])
+    sources = ["".join(c["source"]) if isinstance(c["source"], list) else c["source"] for c in cells
+               if c.get("cell_type") == "code"]
+    setup = next((s for s in sources if "STEADY_PY_MANIFEST" in s), None)
+    if setup is None:
+        raise AssertionError(f"No setup cell in {notebook_path.name}")
+    for pattern in patterns:
+        if pattern not in setup:
+            raise AssertionError(f"Setup cell of {notebook_path.name} lacks:\n  '{pattern}'\nSetup cell:\n{setup}")
+
 
 def verify_negative_notebook(
     notebook_path: Path,
@@ -340,6 +390,7 @@ def run_common_tests() -> None:
     print("=" * 60)
     print(" Running tier-independent tests")
     print("=" * 60)
+    refresh_image("python:3.11-slim")
 
     print("\033[96mRunning Check-Drift E2E Test (generate + check-drift subprocesses)...\033[0m")
     exit_code, _ = run_docker(
@@ -486,12 +537,15 @@ def run_common_tests() -> None:
 
 
 # Image drift on the hosted images: the notebook is snapshotted in a venv whose numpy and pandas
-# are older than any current image's, then run in the image's own kernel, which has no steady-py,
+# differ from the image's (DRIFT_PINS), then run in the image's own kernel, which has no steady-py,
 # so the first run also shows whether Cell 2's freshly installed helper imports without a restart
 # (R5's question, on an image where pip installs as root). The second run starts a fresh kernel,
 # standing in for the restart Cell 2 asks for.
 DRIFT_NOTEBOOK = Path("tests/fixtures/e2e/image_drift.ipynb")
-DRIFT_PINS = {"numpy": "1.26.0", "pandas": "2.1.4"}  # wheels exist for Python 3.11 and 3.12
+# Both have Python 3.13 wheels and work together (checked 2026-11-20), and differ from both images:
+# Kaggle ships numpy 2.1.3 and pandas 2.3.3 (both pins are downgrades), Colab numpy 2.4.6 and
+# pandas 2.2.3 (numpy a downgrade, pandas an upgrade). Recheck when refresh_image's versions move.
+DRIFT_PINS = {"numpy": "2.1.0", "pandas": "2.3.0"}
 RESTART_NOTE = "restart the kernel"
 
 
@@ -502,7 +556,6 @@ def build_drift_cmd(merged_path: str, first_run: str, second_run: str) -> str:
         "--ExecutePreprocessor.timeout=600 --ExecutePreprocessor.kernel_name=python3"
     )
     return (
-        "python3 -c \"import numpy, pandas; print('Image has numpy', numpy.__version__, 'and pandas', pandas.__version__)\" && "
         "python3 -m venv --system-site-packages --without-pip --clear /tmp/snap_env && "
         f"/tmp/snap_env/bin/python -m pip install -q /workspace {pins} && "
         "/tmp/snap_env/bin/python -m pip wheel -q --no-deps /workspace -w /tmp/helper_wheels && "
@@ -565,6 +618,7 @@ def run_tier_tests(tier: str) -> None:
     print("=" * 60)
     print(f" Running E2E Suite: {tier.upper()} TIER ({config.image})")
     print("=" * 60)
+    refresh_image(config.image)
 
     for fixture in config.positive_fixtures:
         nb_path = Path(fixture.path)
@@ -581,6 +635,7 @@ def run_tier_tests(tier: str) -> None:
             if exit_code != 0:
                 raise RuntimeError(f"Tier execution failed on positive test {nb_path.as_posix()} (exit code {exit_code})")
             verify_positive_notebook(output_host_path, fixture.verify_patterns)
+            verify_setup_cell(output_host_path, fixture.setup_cell_patterns)
         finally:
             cleanup_artifacts(REPO_ROOT / merged_path, output_host_path)
 
