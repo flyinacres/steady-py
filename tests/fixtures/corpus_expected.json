@@ -20,6 +20,7 @@
   "dependencies": [
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google-genai\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google.colab\", \"source\": \"import\", \"status\": \"platform_pseudo_module\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipython\", \"source\": \"import\", \"status\": \"pinned\", \"version\": \"9.17.1\"}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"langchain\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"langchain-community\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
@@ -32,12 +33,16 @@
   ],
   "notices": [
    "[\"declaration_proposal\", \"`%pip install -U -q \\\"google-genai>=2.9.0\\\" langchain langchain-community langchain-google-genai` (under \\\"Gemini API: Chat with SQL using LangChain\\\") installs google-genai, langchain, langchain-community and langchain-google-genai, not installed here, so Cell 2 can't pin them. To have Cell 2 install them, add {\\\"install\\\": \\\"google-genai\\\", \\\"reason\\\": \\\"...\\\"}, {\\\"install\\\": \\\"langchain\\\", \\\"reason\\\": \\\"...\\\"}, {\\\"install\\\": \\\"langchain-community\\\", \\\"reason\\\": \\\"...\\\"}, {\\\"install\\\": \\\"langchain-google-genai\\\", \\\"reason\\\": \\\"...\\\"} to STEADY_PY_DECLARATIONS (without a version, Cell 2 pins PyPI's latest); to leave them to this line, add {\\\"ignore\\\": \\\"google-genai\\\", \\\"reason\\\": \\\"...\\\"}, {\\\"ignore\\\": \\\"langchain\\\", \\\"reason\\\": \\\"...\\\"}, {\\\"ignore\\\": \\\"langchain-community\\\", \\\"reason\\\": \\\"...\\\"}, {\\\"ignore\\\": \\\"langchain-google-genai\\\", \\\"reason\\\": \\\"...\\\"}.\", 5, 0]"
+  ],
+  "platform_pseudo_modules": [
+   "\"google.colab\""
   ]
  },
  "cookbook/quickstarts/Get_started_LyriaRealTime.ipynb": {
   "dependencies": [
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google-genai\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google.colab\", \"source\": \"import\", \"status\": \"platform_pseudo_module\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipython\", \"source\": \"import\", \"status\": \"pinned\", \"version\": \"9.17.1\"}"
   ],
   "install_lines": [
@@ -45,6 +50,9 @@
   ],
   "notices": [
    "[\"declaration_proposal\", \"`%pip install -U -q google-genai # 1.16 is needed for the Lyria RealTime support` (under \\\"Install the SDK\\\") installs google-genai, not installed here, so Cell 2 can't pin it. To have Cell 2 install it, add {\\\"install\\\": \\\"google-genai\\\", \\\"reason\\\": \\\"...\\\"} to STEADY_PY_DECLARATIONS (without a version, Cell 2 pins PyPI's latest); to leave it to this line, add {\\\"ignore\\\": \\\"google-genai\\\", \\\"reason\\\": \\\"...\\\"}.\", 9, 0]"
+  ],
+  "platform_pseudo_modules": [
+   "\"google.colab\""
   ]
  },
  "datashader/8_Polygons.ipynb": {
@@ -111,7 +119,7 @@
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"condacolab\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"datasets\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"diffusers\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
-   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google.colab\", \"source\": \"import\", \"status\": \"platform_pseudo_module\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipython\", \"source\": \"import\", \"status\": \"pinned\", \"version\": \"9.17.1\"}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"nglview\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
@@ -142,6 +150,9 @@
    "[\"declaration_proposal\", \"`!pip install nglview` (under \\\"Get viewer from nglview\\\") installs nglview, not installed here, so Cell 2 can't pin it. To have Cell 2 install it, add {\\\"install\\\": \\\"nglview\\\", \\\"reason\\\": \\\"...\\\"} to STEADY_PY_DECLARATIONS (without a version, Cell 2 pins PyPI's latest); to leave it to this line, add {\\\"ignore\\\": \\\"nglview\\\", \\\"reason\\\": \\\"...\\\"}.\", 22, 0]",
    "[\"declaration_proposal\", \"`!pip install rdkit` (under \\\"Install Chemistry-specific Dependencies\\\") installs rdkit, not installed here, so Cell 2 can't pin it. To have Cell 2 install it, add {\\\"install\\\": \\\"rdkit\\\", \\\"reason\\\": \\\"...\\\"} to STEADY_PY_DECLARATIONS (without a version, Cell 2 pins PyPI's latest); to leave it to this line, add {\\\"ignore\\\": \\\"rdkit\\\", \\\"reason\\\": \\\"...\\\"}.\", 20, 0]",
    "[\"raw_install\", \"'/content/diffusers' is installed from a non-standard source (git/URL/local file), not PyPI. It will still be installed exactly as specified, but can't be verified or checked for drift -- you're responsible for ensuring anyone running this notebook has access to the same resource.\", 16, 4]"
+  ],
+  "platform_pseudo_modules": [
+   "\"google.colab\""
   ]
  },
  "huggingface/diffusers/sd_textual_inversion_training.ipynb": {
@@ -151,7 +162,7 @@
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"accelerate\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"diffusers\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ftfy\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
-   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google.colab\", \"source\": \"import\", \"status\": \"platform_pseudo_module\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"huggingface_hub\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipython\", \"source\": \"import\", \"status\": \"pinned\", \"version\": \"9.17.1\"}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"numpy\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
@@ -175,6 +186,9 @@
    "[\"declaration_proposal\", \"`!pip install -U --pre triton` (under \\\"Initial setup\\\") installs triton, not installed here, so Cell 2 can't pin it. To have Cell 2 install it, add {\\\"install\\\": \\\"triton\\\", \\\"reason\\\": \\\"...\\\"} to STEADY_PY_DECLARATIONS (without a version, Cell 2 pins PyPI's latest); to leave it to this line, add {\\\"ignore\\\": \\\"triton\\\", \\\"reason\\\": \\\"...\\\"}.\", 3, 4]",
    "[\"declaration_proposal\", \"`!pip install -qq accelerate transformers ftfy` (under \\\"Initial setup\\\") installs accelerate, transformers and ftfy, not installed here, so Cell 2 can't pin them. To have Cell 2 install them, add {\\\"install\\\": \\\"accelerate\\\", \\\"reason\\\": \\\"...\\\"}, {\\\"install\\\": \\\"transformers\\\", \\\"reason\\\": \\\"...\\\"}, {\\\"install\\\": \\\"ftfy\\\", \\\"reason\\\": \\\"...\\\"} to STEADY_PY_DECLARATIONS (without a version, Cell 2 pins PyPI's latest); to leave them to this line, add {\\\"ignore\\\": \\\"accelerate\\\", \\\"reason\\\": \\\"...\\\"}, {\\\"ignore\\\": \\\"transformers\\\", \\\"reason\\\": \\\"...\\\"}, {\\\"ignore\\\": \\\"ftfy\\\", \\\"reason\\\": \\\"...\\\"}.\", 2, 2]",
    "[\"raw_install\", \"'git+https://github.com/huggingface/diffusers.git' is installed from a non-standard source (git/URL/local file), not PyPI. It will still be installed exactly as specified, but can't be verified or checked for drift -- you're responsible for ensuring anyone running this notebook has access to the same resource.\", 2, 1]"
+  ],
+  "platform_pseudo_modules": [
+   "\"google.colab\""
   ],
   "warnings": [
    "[\"guarded_install\", \"'%pip install -q https://github.com/TheLastBen/fast-stable-diffusion/raw/main/precompiled/A100/xformers-0.0.13.dev0-py3-none-any.whl' runs only inside `elif gpu == 'A100'`, so the setup cell doesn't install its packages. The line stays in your notebook and runs there as before.\", 3, 40]",
@@ -277,7 +291,7 @@
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"accelerate\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"bitsandbytes\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"datasets\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
-   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google.colab\", \"source\": \"import\", \"status\": \"platform_pseudo_module\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"peft\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"torch\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"transformers\", \"source\": \"pip_command\", \"status\": \"pinned\", \"version\": null}",
@@ -298,6 +312,9 @@
    "[\"declaration_proposal\", \"`!pip3 install -q -U peft==0.8.2` installs peft, not installed here, so Cell 2 can't pin it. To have Cell 2 install it, add {\\\"install\\\": \\\"peft\\\", \\\"version\\\": \\\"0.8.2\\\", \\\"reason\\\": \\\"...\\\"} to STEADY_PY_DECLARATIONS (without a version, Cell 2 pins PyPI's latest); to leave it to this line, add {\\\"ignore\\\": \\\"peft\\\", \\\"reason\\\": \\\"...\\\"}.\", 1, 1]",
    "[\"declaration_proposal\", \"`!pip3 install -q -U transformers==4.38.1` installs transformers, not installed here, so Cell 2 can't pin it. To have Cell 2 install it, add {\\\"install\\\": \\\"transformers\\\", \\\"version\\\": \\\"4.38.1\\\", \\\"reason\\\": \\\"...\\\"} to STEADY_PY_DECLARATIONS (without a version, Cell 2 pins PyPI's latest); to leave it to this line, add {\\\"ignore\\\": \\\"transformers\\\", \\\"reason\\\": \\\"...\\\"}.\", 1, 5]",
    "[\"declaration_proposal\", \"`!pip3 install -q -U trl==0.7.10` installs trl, not installed here, so Cell 2 can't pin it. To have Cell 2 install it, add {\\\"install\\\": \\\"trl\\\", \\\"version\\\": \\\"0.7.10\\\", \\\"reason\\\": \\\"...\\\"} to STEADY_PY_DECLARATIONS (without a version, Cell 2 pins PyPI's latest); to leave it to this line, add {\\\"ignore\\\": \\\"trl\\\", \\\"reason\\\": \\\"...\\\"}.\", 1, 2]"
+  ],
+  "platform_pseudo_modules": [
+   "\"google.colab\""
   ]
  },
  "huggingface/smolagents_doc/en/inspect_runs.ipynb": {
@@ -675,7 +692,7 @@
   "dependencies": [
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"beautifulsoup4\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"chromadb\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
-   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
+   "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"google.colab\", \"source\": \"import\", \"status\": \"platform_pseudo_module\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"ipykernel\", \"source\": \"import\", \"status\": \"guarded\", \"version\": \"7.4.0\"}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"langchain_text_splitters\", \"source\": \"import\", \"status\": \"guarded\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"matplotlib\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
@@ -687,6 +704,9 @@
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"python-dotenv\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"requests\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}",
    "{\"flags\": [], \"hardware_tagged\": false, \"name\": \"sentence_transformers\", \"source\": \"import\", \"status\": \"pinned\", \"version\": null}"
+  ],
+  "platform_pseudo_modules": [
+   "\"google.colab\""
   ]
  },
  "packt/Data-Strategy-for-LLMs/chapter_05/Jupyter_Notebooks/Chapter_5_Notebook.ipynb": {

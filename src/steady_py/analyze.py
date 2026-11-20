@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 from steady_py import accelerator, installed, join, localmodules, magics, resolution, scanning, util
-from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DEFAULT_IGNORED_DIRS, ENVIRONMENT_DIR_MARKERS, DependencyStatus, PLATFORM_PSEUDO_MODULES, StatusLabel, STD_LIB, UNSHAREABLE_STATUSES
+from steady_py.constants import BUILD_AND_PACKAGING_TOOLS, DEFAULT_IGNORED_DIRS, ENVIRONMENT_DIR_MARKERS, DependencyStatus, StatusLabel, STD_LIB, UNSHAREABLE_STATUSES
 from steady_py.models import BatchAnalysisSummary, Cell, DiagnosticEvent, ExtractionResult, GpuInfo, InstallLine, NotebookAnalysisReport, RawInstall
 
 logger = logging.getLogger("steady_py.analyze")
@@ -262,7 +262,7 @@ def build_single_notebook_report(
         line.notebook = str(scan_res.path)
 
     local_mods_detected = sorted({d.name for d in timeline_res.dependencies if d.status == DependencyStatus.LOCAL_MODULE})
-    pseudo_mods_detected = sorted(list(PLATFORM_PSEUDO_MODULES.intersection(set(scan_res.imports))))
+    pseudo_mods_detected = sorted({d.name for d in timeline_res.dependencies if d.status == DependencyStatus.PLATFORM_PSEUDO_MODULE})
     build_tools_detected = sorted(list(BUILD_AND_PACKAGING_TOOLS.intersection(set(scan_res.imports))))
 
     return NotebookAnalysisReport(

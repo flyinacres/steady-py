@@ -81,6 +81,26 @@ def test_local_file_the_notebook_installs_itself_raises_no_warning(tmp_path, bas
 
 
 @pytest.mark.venv
+@finding("E2a")
+@pytest.mark.parametrize("source, pins", [
+    pytest.param("try:\n    import google.colab\nexcept ImportError:\n    pass", {}, id="guarded"),
+    pytest.param("from google import colab", {}, id="from-import"),
+    pytest.param("from google.colab import drive\nimport google.genai", {"google-genai": "1.0"}, id="beside-genai"),
+])
+def test_platform_module_under_a_shared_name_is_not_looked_up(tmp_path, base_venv, source, pins):
+    # The Kaggle and Colab images both install google-colab from a local file, and it provides
+    # the top-level name `google` that google.genai shares.
+    site = SiteDir(tmp_path / "site")
+    site.add("google-colab", "1.0.0", modules=["google/colab/__init__.py"],
+             **file_url(tmp_path / "google_colab-1.0.0-py3-none-any.whl"))
+    site.add("google-genai", "1.0", modules=["google/genai/__init__.py"])
+    outcome = _run(base_venv, tmp_path, source, site)
+    assert not outcome.warnings(type="local_file_import"), outcome.log
+    assert outcome.pins() == pins
+    assert outcome.report["platform_pseudo_modules"] == ["google.colab"]
+
+
+@pytest.mark.venv
 @finding("E2b")
 def test_conda_built_package_is_pinned_with_a_notice(tmp_path, base_venv):
     site = SiteDir(tmp_path / "site")

@@ -29,6 +29,26 @@ def _skipped_import(module: str) -> bool:
     return module.lower() in STD_LIB
 
 
+def _platform_module(name: str) -> Optional[str]:
+    """The platform-provided module `name` is or lies under (`google.colab.drive` is under
+    `google.colab`), if any."""
+    return next((p for p in PLATFORM_PSEUDO_MODULES if name == p or name.startswith(p + ".")), None)
+
+
+def _platform_import(occ: ImportOccurrence) -> Optional[str]:
+    """The platform-provided module one import statement loads, if that is all it loads. Imports
+    are keyed by their top-level name, so a dotted platform module (`import google.colab`) must be
+    told apart from the package that provides the top-level name in this environment."""
+    whole = _platform_module(occ.full_name or occ.module)
+    if whole:
+        return whole
+    parts = [name for name in occ.dotted_names if name != occ.full_name]  # `from google import colab`
+    found = {_platform_module(name) for name in parts}
+    if parts and None not in found and len(found) == 1:
+        return found.pop()
+    return None
+
+
 def _join(module: str, dotted: Set[str], ctx: join.JoinContext) -> join.Join:
     """The import join for `module`, with OpenCV's variant rule applied for cv2 (K6, C1)."""
     variant = resolve_opencv_variant(dotted, dict(ctx.frozen_env)) if module == "cv2" else None
@@ -64,17 +84,20 @@ def build_unified_timeline(
     for cell_idx, cell in enumerate(scanning.as_cells(code_sources)):
         occurrences.extend(scanning.extract_import_occurrences_from_source(cell.source, cell_idx=cell_idx, cell=cell))
 
+    platforms = [_platform_import(occ) for occ in occurrences]
     dotted: Dict[str, Set[str]] = {}
-    for occ in occurrences:
-        if not _skipped_import(occ.module):
-            dotted.setdefault(occ.module, set()).update(occ.dotted_names)
+    for occ, platform in zip(occurrences, platforms):
+        if platform is None and not _skipped_import(occ.module):
+            names = {name for name in occ.dotted_names if _platform_module(name) is None}
+            dotted.setdefault(occ.module, set()).update(names)
     joins = {module: _join(module, names, ctx) for module, names in dotted.items()
-             if module not in PLATFORM_PSEUDO_MODULES and module not in BUILD_AND_PACKAGING_TOOLS}
+             if module not in BUILD_AND_PACKAGING_TOOLS}
 
     events: List[Tuple[Tuple[int, int], str, str]] = []  # (coord, kind, key)
     first_import: Dict[str, ImportOccurrence] = {}
     submods: Dict[str, Set[str]] = {}
     unguarded: Set[str] = set()
+    platform_of: Dict[str, str] = {}  # timeline key to the platform module it stands for
 
     for norm_key, pip_occ in resolved_pips.items():
         canon = util.canonicalize_pkg_name(pip_occ.name)
@@ -83,10 +106,14 @@ def build_unified_timeline(
             unguarded.add(canon)
 
     placed = {key for _, _, key in events}
-    for occ in occurrences:
-        if occ.module not in dotted:
+    for occ, platform in zip(occurrences, platforms):
+        if platform is not None:
+            keys = [f"import:{platform}"]
+            platform_of[keys[0]] = platform
+        elif occ.module not in dotted:
             continue
-        keys = [f"import:{occ.module}"] if occ.module not in joins else _join_key(joins[occ.module])
+        else:
+            keys = [f"import:{occ.module}"] if occ.module not in joins else _join_key(joins[occ.module])
         for key in keys:
             first_import.setdefault(key, occ)
             if key not in placed:
@@ -123,7 +150,7 @@ def build_unified_timeline(
             entry.flags = list(pip.flags)
         else:
             assert occ_import is not None
-            module = occ_import.module
+            module = platform_of.get(key, occ_import.module)
             target = joins.get(module) or join.Join(module, join.JoinKind.NOT_FOUND)
             resolved = _for_import(module, target, key, submods.get(key, set()), ctx, guarded, occ_import, placed)
         result.add(resolved)
