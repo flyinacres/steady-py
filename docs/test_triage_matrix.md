@@ -180,7 +180,7 @@ Reading test status:
 
 ## Design gaps
 
-DG1, DG3 and DG6 are N, blocked on a decision; the rest are settled and have tests. DG5 is under Environment capture.
+DG1, DG3, DG6 and DG10 are N, blocked on a decision; the rest are settled and have tests. DG5 is under Environment capture.
 
 | ID | Finding | Settled | Status | Step | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -193,6 +193,7 @@ DG1, DG3 and DG6 are N, blocked on a decision; the rest are settled and have tes
 | DG9 | No creator override for an exit-1 condition | Y |  | 4 | Decision 12; tests at layers U (check) and V (snapshot) |
 | DG8 | Offline `/kaggle/input` wheel installs | Y |  | fixed | Decision 11 |
 | D7 | Live-session recipe is clunky | Y |  | fixed | L | `steady_py.show_snapshot()` |
+| DG10 | Pins that conflict with installed packages' requirements | N | not planned |  | Which conflicts to report: only those involving a pinned package, since images carry their own |
 
 ## Deferred
 

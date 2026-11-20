@@ -93,6 +93,6 @@ Numbers refer to the matrix's "Decisions that unblock rows", which owns each dec
 ## 8. After the plan, before release
 
 1. development.md tasks 22 (review user messaging), 23 (hand-test every mode) and 25 (license).
-2. A FAQ: steady-py beside Kaggle's "Pin to original environment" and beside `pip freeze`, what steady-py pins and what it doesn't (transitive dependencies), and the workflow: snapshot where the notebook runs, check from anywhere.
+2. A FAQ: steady-py beside Kaggle's "Pin to original environment" and beside `pip freeze`, what steady-py pins and what it doesn't (transitive dependencies), and the workflow: snapshot where the notebook runs, check from anywhere. Also: on Kaggle, `import google.colab` succeeds (google-colab is installed there, confirmed live on 2026-11-20), so a notebook that detects Colab by importing it misfires on Kaggle; detect Kaggle with `KAGGLE_KERNEL_RUN_TYPE` or the `/kaggle` directory instead.
 3. Bring development.md's Testing section up to date, or point it to working_rules.md and test_foundations_design.md.
 4. Manifest format review, once step 5 has exercised every field: each field has a reader that uses it or is dropped, and `schema_version` is then frozen for the release.
