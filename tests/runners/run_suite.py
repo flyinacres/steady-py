@@ -485,6 +485,79 @@ def run_common_tests() -> None:
     print("\033[92mPASS: Local package pin-and-verify test\n\033[0m")
 
 
+# Image drift on the hosted images: the notebook is snapshotted in a venv whose numpy and pandas
+# are older than any current image's, then run in the image's own kernel, which has no steady-py,
+# so the first run also shows whether Cell 2's freshly installed helper imports without a restart
+# (R5's question, on an image where pip installs as root). The second run starts a fresh kernel,
+# standing in for the restart Cell 2 asks for.
+DRIFT_NOTEBOOK = Path("tests/fixtures/e2e/image_drift.ipynb")
+DRIFT_PINS = {"numpy": "1.26.0", "pandas": "2.1.4"}  # wheels exist for Python 3.11 and 3.12
+RESTART_NOTE = "restart the kernel"
+
+
+def build_drift_cmd(merged_path: str, first_run: str, second_run: str) -> str:
+    pins = " ".join(f"{name}=={version}" for name, version in DRIFT_PINS.items())
+    execute = (
+        "python3 -m jupyter nbconvert --to notebook --execute --allow-errors "
+        "--ExecutePreprocessor.timeout=600 --ExecutePreprocessor.kernel_name=python3"
+    )
+    return (
+        "python3 -c \"import numpy, pandas; print('Image has numpy', numpy.__version__, 'and pandas', pandas.__version__)\" && "
+        "python3 -m venv --system-site-packages --without-pip --clear /tmp/snap_env && "
+        f"/tmp/snap_env/bin/python -m pip install -q /workspace {pins} && "
+        "/tmp/snap_env/bin/python -m pip wheel -q --no-deps /workspace -w /tmp/helper_wheels && "
+        f'/tmp/snap_env/bin/python -m steady_py snapshot "{DRIFT_NOTEBOOK.as_posix()}" --output && '
+        # Cell 2 pins the release steady-py==<version>; until it is on PyPI, the wheel stands in for it
+        "export PIP_FIND_LINKS=/tmp/helper_wheels && "
+        f'{execute} "{merged_path}" --output "{first_run}" && '
+        f'{execute} "{first_run}" --output "{second_run}"'
+    )
+
+
+def verify_drift_runs(first_run: Path, second_run: Path) -> None:
+    first_text, first_errors = _collect_notebook_outputs(first_run)
+    first = strip_ansi("\n".join(first_text))
+    if f"Installing numpy=={DRIFT_PINS['numpy']}" not in first:
+        raise RuntimeError(f"Drift scenario not reproduced: Cell 2 did not install numpy=={DRIFT_PINS['numpy']}.\n{first}")
+    if "Could not install the pinned" in first:
+        raise AssertionError(f"Cell 2 could not install its helper:\n{first}")
+    helper_errors = [e for e in first_errors if "steady_py" in e["output"].get("evalue", "")]
+    if helper_errors:
+        raise AssertionError(f"Cell 2's freshly installed helper did not import (R5): {helper_errors[0]['output'].get('evalue')}")
+    if RESTART_NOTE not in first:
+        raise AssertionError(f"Cell 2 installed packages but did not say to restart the kernel:\n{first}")
+    in_use = [line for line in first.splitlines() if line.startswith("versions in use:")]
+    print(f"First run, before the restart: {in_use[0] if in_use else 'the check cell did not print'}"
+          + "".join(f"; cell {e['cell']} raised {e['output'].get('ename')}" for e in first_errors))
+
+    expected = [f"⚡ {name} ({version}) already satisfied" for name, version in DRIFT_PINS.items()]
+    expected += ["Setup complete!", "versions in use: numpy {numpy}, pandas {pandas}, sum 3".format(**DRIFT_PINS)]
+    verify_positive_notebook(second_run, expected)
+    second = strip_ansi("\n".join(_collect_notebook_outputs(second_run)[0]))
+    if RESTART_NOTE in second:
+        raise AssertionError(f"After the restart Cell 2 installed nothing but still said to restart:\n{second}")
+
+
+def run_drift_scenario(image: str) -> None:
+    merged_path = DRIFT_NOTEBOOK.with_name(DRIFT_NOTEBOOK.stem + "_merged.ipynb")
+    first_run = SCRATCH_DIR / "out_drift_first.ipynb"
+    second_run = SCRATCH_DIR / "out_drift_second.ipynb"
+    print(f"\n=== Image drift and helper install: {DRIFT_NOTEBOOK.as_posix()} ===")
+    cmd = build_drift_cmd(
+        merged_path.as_posix(),
+        f"/workspace/{first_run.relative_to(REPO_ROOT).as_posix()}",
+        f"/workspace/{second_run.relative_to(REPO_ROOT).as_posix()}",
+    )
+    try:
+        exit_code, _ = run_docker(image, cmd)
+        if exit_code != 0:
+            raise RuntimeError(f"Image drift scenario failed to run (exit code {exit_code})")
+        verify_drift_runs(first_run, second_run)
+    finally:
+        cleanup_artifacts(REPO_ROOT / merged_path, first_run, second_run)
+    print(">>> PASS: image drift and helper install")
+
+
 def run_tier_tests(tier: str) -> None:
     config = TIER_CONFIGS[tier]
     SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
@@ -539,6 +612,9 @@ def run_tier_tests(tier: str) -> None:
             cleanup_artifacts(REPO_ROOT / merged_path, output_host_path)
 
         print(f">>> PASS (Structural failure verified): {nb_path.as_posix()}")
+
+    if tier in ("kaggle", "colab"):
+        run_drift_scenario(config.image)
 
     print("\n" + "=" * 60)
     print(f" {tier.upper()} TIER: ALL TESTS PASSED")
