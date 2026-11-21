@@ -34,3 +34,6 @@ tests/fixtures/**/temp_*.ipynb
 tests/fixtures/mock_pkgs/
  # venv tier (planned)
 tests/.wheelhouse/
+
+# drift study (tools/drift_study.py): sample, results, review, report and scratch
+drift_runs/
