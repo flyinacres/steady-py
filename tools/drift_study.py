@@ -15,7 +15,9 @@ Subcommands, run in this order (all write under drift_runs/ at the repository ro
    release before the notebook's date and reruns, up to --rounds times; when that doesn't get past the
    error, one more run adds that release's own dependencies, also dated, as constraints.
 4. report: the tables, in report.txt, and review.csv, where kind_reviewed and dist_reviewed correct
-   the automatic classification; report reads them back and keeps them on every rewrite.
+   the automatic classification; report reads them back and keeps them on every rewrite. Only the
+   notebooks in the current sample.csv are reported, so a new sample starts a new report while
+   results.jsonl keeps every run for reuse.
 Every subcommand resumes: a run already in results.jsonl is not repeated.
 Host needs the standard library and packaging; the container side is tools/drift_exec.py.
 Progress: one line per run, plus the container's line per step and per code cell.
@@ -116,7 +118,7 @@ DATA_TEXT = re.compile(r"No such file or directory|/kaggle/input|does not exist|
                        re.IGNORECASE)
 API_TEXT = re.compile(r"has no attribute|unexpected keyword argument|got an unexpected|positional argument|"
                       r"cannot import name|deprecated|was removed|has been removed|no longer|renamed|is not supported"
-                      r"|not a valid value|must be one of|Expected .* got|invalid value")
+                      r"|not a valid|must be one of|Expected .* got|invalid value")
 # The kernel's own machinery shows in most tracebacks; a frame there says nothing about the notebook's packages.
 KERNEL_MODULES = {"IPython", "ipykernel", "jupyter_client", "traitlets", "tornado", "zmq", "comm", "debugpy", "google"}
 MODULE_ATTR = re.compile(r"module '([A-Za-z0-9_.]+)' has no attribute")
@@ -143,8 +145,7 @@ def classify(result: Any) -> Verdict:
         return Verdict(Kind.COMPLETED, "", "rule", "ran to the end")
     if outcome == "requirements_failed":
         names = result.requirements_failed_names
-        why = "no wheel or release for this Python" if "No matching distribution" in result.setup_tail else "pip failed"
-        return Verdict(Kind.INSTALL, names[0] if names else "", "rule", f"requirements: {why}")
+        return Verdict(Kind.INSTALL, names[0] if names else "", "rule", f"requirements: {requirements_failure(result.setup_tail)}")
     if outcome in ("pin_failed", "setup_failed"):
         return Verdict(Kind.HARNESS, "", "rule", outcome)
     if outcome in ("timeout", "notebook_timeout"):
@@ -188,6 +189,21 @@ def classify(result: Any) -> Verdict:
     return Verdict(Kind.CODE, "", "heuristic", "raised in the notebook's own code")
 
 
+NO_RELEASE = "no release or wheel for this Python"
+BUILD_FAILED = "no wheel for this Python, and the source build failed"
+
+
+def requirements_failure(setup_tail: str) -> str:
+    """Why pip couldn't install a requirements file. Both named causes are the Python-version ceiling:
+    the pinned release was never built for this Python, so pip either finds nothing or falls back to
+    building it from source, which for an old compiled package fails."""
+    if "No matching distribution" in setup_tail:
+        return NO_RELEASE
+    if drift_exec.BUILD_FAILED.search(setup_tail):
+        return BUILD_FAILED
+    return "pip failed"
+
+
 def _module_in(evalue: str) -> str:
     found = re.search(r"from '([A-Za-z0-9_.]+)'", evalue)
     return dist_for_module(found.group(1)) if found else ""
@@ -201,7 +217,7 @@ class SampleRow:
     group: str
     root: str  # the directory copied into the container (the notebook's repository), relative to the corpus; "" copies the notebook alone
     date: str  # ISO date of the notebook's last commit, or ""
-    date_source: str  # git, dates_file, python_proxy
+    date_source: str  # git, dates_file, kaggle_versions, python_proxy
     authored_python: str  # major.minor from the notebook's metadata, or ""
     requirements: str  # the nearest requirements.txt, relative to root, or ""
     requirements_pinned: str  # requirement lines pinned with ==, as "pinned/total"
@@ -273,6 +289,7 @@ def cmd_sample(args: argparse.Namespace) -> None:
     groups = parse_mapping(args.group, DEFAULT_GROUPS)
     by_subdir = {sub: name for name, subs in groups.items() for sub in subs}
     dates = read_dates(args.dates) if args.dates else {}
+    kaggle_dates = kaggle_version_dates(Path(args.kaggle_versions), corpus, by_subdir) if args.kaggle_versions else {}
     cutoff = dt.date.today() - dt.timedelta(days=round(365.25 * args.min_age_years))
     shallow: Dict[Path, bool] = {}
     candidates: Dict[str, List[SampleRow]] = {g: [] for g in groups}
@@ -297,6 +314,8 @@ def cmd_sample(args: argparse.Namespace) -> None:
         seen.add(info.code_hash)
         root, is_git = find_root(path, corpus)
         date, source = dates.get(rel.as_posix(), ""), "dates_file"
+        if not date and path.stem in kaggle_dates:
+            date, source = kaggle_dates[path.stem], "kaggle_versions"
         if not date and is_git and root is not None:
             if root not in shallow:
                 shallow[root] = git(root, "rev-parse", "--is-shallow-repository") == "true"
@@ -319,9 +338,11 @@ def cmd_sample(args: argparse.Namespace) -> None:
     rng = random.Random(args.seed)
     chosen: List[SampleRow] = []
     for group, rows in candidates.items():
-        picked = rng.sample(rows, min(args.per_group, len(rows)))
+        picked = capped_sample(rows, args.per_group, args.per_repo, rng)
         chosen += picked
-        print(f"{group}: {len(picked)} chosen of {len(rows)} candidates")
+        repos = len({repo_key(r) for r in rows})
+        print(f"{group}: {len(picked)} chosen from {len({repo_key(r) for r in picked})} repositories, "
+              f"of {len(rows)} candidates in {repos}")
     for key, value in sorted(counts.items()):
         print(f"  {key}: {value}")
     if any(not rows for rows in candidates.values()):
@@ -334,18 +355,88 @@ def cmd_sample(args: argparse.Namespace) -> None:
     print(f"Wrote {RUNS / 'sample.csv'}")
 
 
+def repo_key(row: SampleRow) -> str:
+    """The repository a sampled notebook belongs to; each notebook of a flat set counts as its own."""
+    return row.root or row.path
+
+
+def repo_of_path(path: str) -> str:
+    """A notebook's repository judged from its path alone (for runs sampled before sample.csv was
+    rewritten): the corpus subdirectory's child, as find_root falls back to."""
+    parts = path.split("/")
+    return "/".join(parts[:2]) if len(parts) >= 3 else path
+
+
+def capped_sample(rows: Sequence[SampleRow], count: int, per_repo: int, rng: random.Random) -> List[SampleRow]:
+    """A random sample of up to `count` rows, at most `per_repo` from any one repository (0: no cap)."""
+    taken: Counter[str] = Counter()
+    picked: List[SampleRow] = []
+    for row in rng.sample(list(rows), len(rows)):
+        if len(picked) == count:
+            break
+        if per_repo and taken[repo_key(row)] >= per_repo:
+            continue
+        taken[repo_key(row)] += 1
+        picked.append(row)
+    return picked
+
+
+KAGGLE_DATE_FORMATS = ("%m/%d/%Y %H:%M:%S", "%m/%d/%Y", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d")
+
+
+def kaggle_date(text: str) -> str:
+    """An ISO date from Meta Kaggle's CreationDate, which is written as MM/DD/YYYY HH:MM:SS."""
+    for fmt in KAGGLE_DATE_FORMATS:
+        try:
+            return dt.datetime.strptime(text.strip()[:19], fmt).date().isoformat()
+        except ValueError:
+            continue
+    return ""
+
+
+def kaggle_version_dates(csv_path: Path, corpus: Path, by_subdir: Dict[str, str]) -> Dict[str, str]:
+    """Creation dates, by kernel version ID, for the sampled groups' notebooks whose file names are a
+    kernel version ID (Meta Kaggle Code's naming), read in one pass over Meta Kaggle's KernelVersions.csv."""
+    wanted = {p.stem for sub in by_subdir for p in (corpus / sub).rglob("*.ipynb") if p.stem.isdigit()}
+    if not wanted:
+        print(f"--kaggle-versions: no notebook in {', '.join(by_subdir)} is named by a number; nothing to date")
+        return {}
+    found: Dict[str, str] = {}
+    print(f"Reading {csv_path} for {len(wanted)} numbered notebooks", end="", flush=True)
+    csv.field_size_limit(2**31 - 1)  # Meta Kaggle's text fields can pass csv's default limit
+    with csv_path.open(encoding="utf-8", errors="replace", newline="") as f:
+        reader = csv.reader(f)
+        header = [h.strip().lower() for h in next(reader)]
+        try:
+            id_col, date_col = header.index("id"), header.index("creationdate")
+        except ValueError:
+            raise SystemExit(f"\n{csv_path} has no Id and CreationDate columns; is it KernelVersions.csv?")
+        for n, record in enumerate(reader, start=1):
+            if n % 1_000_000 == 0:
+                print(".", end="", flush=True)
+            if len(record) > max(id_col, date_col) and record[id_col] in wanted:
+                found[record[id_col]] = kaggle_date(record[date_col])
+    print(f"\nDated {len(found)} of {len(wanted)} numbered notebooks ({100 * len(found) / len(wanted):.0f}%)"
+          " from their kernel version IDs")
+    return {k: v for k, v in found.items() if v}
+
+
 def read_dates(path: str) -> Dict[str, str]:
     with open(path, encoding="utf-8", newline="") as f:
         return {row["path"].replace("\\", "/"): row["date"][:10] for row in csv.DictReader(f)}
 
 
 def parse_mapping(values: Optional[Sequence[str]], default: Dict[str, List[str]]) -> Dict[str, List[str]]:
-    if not values:
-        return default
-    mapping: Dict[str, List[str]] = {}
-    for value in values:
+    """The defaults, with each NAME=A,B value replacing that one group; NAME= (nothing after the =)
+    removes the group."""
+    mapping = {name: list(items) for name, items in default.items()}
+    for value in values or []:
         name, _, items = value.partition("=")
-        mapping[name] = [i for i in items.split(",") if i]
+        listed = [i for i in items.split(",") if i]
+        if listed:
+            mapping[name] = listed
+        else:
+            mapping.pop(name, None)
     return mapping
 
 
@@ -438,6 +529,7 @@ def append_record(record: RunRecord) -> None:
 
 
 _IMAGE_DATES: Dict[str, str] = {}
+DEBUGGER_NOISE = re.compile(r"^\d+\.\d+s - ")  # debugpy's start-up lines, if the variable doesn't silence them
 
 
 def prepare_image(image: str, pull: bool) -> str:
@@ -477,6 +569,7 @@ def docker_command(job: Job, args: argparse.Namespace, out_dir: Path) -> Tuple[s
                   "--mount", f"type=bind,source={out_dir.resolve()},target=/out",
                   "--mount", f"type=bind,source={TOOLS},target=/tools,readonly",
                   "-e", "PYTHONUNBUFFERED=1", "-e", "PIP_ROOT_USER_ACTION=ignore", "-e", "PIP_DISABLE_PIP_VERSION_CHECK=1",
+                  "-e", "PYDEVD_DISABLE_FILE_VALIDATION=1",  # the Colab image's debugger warns at every kernel start
                   "--entrypoint", "/bin/bash", IMAGES[job.target], "-c", script]
 
 
@@ -498,7 +591,8 @@ def run_job(job: Job, args: argparse.Namespace) -> RunRecord:
     try:
         assert process.stdout is not None
         for line in process.stdout:
-            print(line, end="", flush=True)
+            if not DEBUGGER_NOISE.match(line):
+                print(line, end="", flush=True)
             last.append(line.rstrip())
         process.wait()
     finally:
@@ -518,7 +612,14 @@ def run_or_reuse(job: Job, args: argparse.Namespace, records: Dict[str, RunRecor
     append_record(record)
     records[job.run_id] = record
     v = verdict_of(record)
-    print(f"  -> {v.kind.value}{' (' + v.dist + ')' if v.dist else ''}: {v.reason} [{time.monotonic() - started:.0f}s]", flush=True)
+    took = f"[{time.monotonic() - started:.0f}s]"
+    base = records.get(job.baseline_id)
+    if base is not None and base.result is not None:
+        versus = progress(result_of(base), result_of(record) if record.result else None, record.note)
+        now = "" if versus == "completed" else f"; now {v.kind.value}{' (' + v.dist + ')' if v.dist else ''}"
+        print(f"  -> against the baseline: {versus}{now} {took}", flush=True)
+    else:
+        print(f"  -> {v.kind.value}{' (' + v.dist + ')' if v.dist else ''}: {v.reason} {took}", flush=True)
     return record
 
 
@@ -738,16 +839,22 @@ def pct(n: int, total: int) -> str:
 def cmd_report(args: argparse.Namespace) -> None:
     records = load_records()
     reviews = read_reviews()
-    baselines = [r for r in records.values() if r.stage == "baseline"]
+    roots = {row.path: repo_key(row) for row in read_sample()} if (RUNS / "sample.csv").exists() else {}
+    baselines = [r for r in records.values() if r.stage == "baseline" and (not roots or r.path in roots)]
+    left_out = sum(1 for r in records.values() if r.stage == "baseline") - len(baselines)
     write_reviews(baselines, reviews)
     lines: List[str] = []
+    if left_out:
+        lines.append(f"({left_out} baseline runs of notebooks not in the current sample.csv are left out)")
     images = sorted({(r.target, r.image, r.image_created) for r in baselines})
     lines += ["Images:"] + [f"  {t}: {i}, created {c}" for t, i, c in images]
     for group, target in sorted({(r.group, r.target) for r in baselines}):
         runs = [r for r in baselines if r.group == group and r.target == target]
         verdicts = {r.run_id: reviewed(r, reviews) for r in runs}
         pythons = sorted({result_of(r).python for r in runs if r.result})
-        lines += ["", f"== {group} on {target} (Python {', '.join(pythons)}): {len(runs)} notebooks", "First error:"]
+        repos = len({roots.get(r.path) or repo_of_path(r.path) for r in runs})
+        lines += ["", f"== {group} on {target} (Python {', '.join(pythons)}): {len(runs)} notebooks from {repos} repositories",
+                  "First error:"]
         kinds = Counter(v.kind for v in verdicts.values())
         for kind in Kind:
             if kinds[kind]:
@@ -758,10 +865,12 @@ def cmd_report(args: argparse.Namespace) -> None:
         lines.append(f"  pinning could address (install, missing, binary, API): {pct(pinnable, len(runs)).strip()}")
         unreviewed = sum(1 for v in verdicts.values() if v.confidence == "heuristic")
         lines.append(f"  heuristic classifications not yet reviewed in review.csv: {unreviewed}")
-        failed_reqs = [r for r in runs if r.result and r.result["outcome"] == "requirements_failed"]
+        failed_reqs = [result_of(r) for r in runs if r.result and r.result["outcome"] == "requirements_failed"]
         if failed_reqs:
-            no_wheel = sum(1 for r in failed_reqs if "No matching distribution" in result_of(r).setup_tail)
-            lines.append(f"  requirements.txt failed: {len(failed_reqs)} ({no_wheel} for want of a release or wheel for this Python)")
+            why = Counter(requirements_failure(r.setup_tail) for r in failed_reqs)
+            names = Counter((r.requirements_failed_names or ["(unnamed)"])[0] for r in failed_reqs)
+            lines.append(f"  requirements.txt failed: {len(failed_reqs)}: " + "; ".join(f"{k} {v}" for k, v in why.most_common()))
+            lines.append("    failing package: " + ", ".join(f"{k} {v}" for k, v in names.most_common()))
         api = Counter(v.dist or "(unknown)" for v in verdicts.values() if v.kind == Kind.API)
         if api:
             lines.append("  API changes by package: " + ", ".join(f"{d} {n}" for d, n in api.most_common(10)))
@@ -810,6 +919,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     sample.add_argument("--min-age-years", type=float, default=2.0)
     sample.add_argument("--undated-max-python", default="3.10")
     sample.add_argument("--dates", help="CSV with path (relative to the corpus) and date columns")
+    sample.add_argument("--kaggle-versions", help="Meta Kaggle's KernelVersions.csv, to date notebooks named by kernel version ID")
+    sample.add_argument("--per-repo", type=int, default=3, help="at most this many notebooks from one repository (0: no cap)")
     sample.add_argument("--seed", type=int, default=2026)
     for name, text in (("run", "baseline runs"), ("repin", "rerun pinnable failures with the failing package pinned")):
         p = sub.add_parser(name, help=text)

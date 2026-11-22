@@ -32,7 +32,9 @@ INSTALL_CELL = re.compile(r"\b(?:pip3?|conda|mamba|uv)\s+(?:pip\s+)?install\b")
 PIP_ERROR = re.compile(r"^(?:ERROR:|error:|\s*×|Could not find a version|No matching distribution)", re.MULTILINE)
 PIP_FAILED_NAME = re.compile(
     r"(?:No matching distribution found for|Could not find a version that satisfies the requirement"
-    r"|Failed to build|Failed building wheel for|Building wheel for)\s+([A-Za-z0-9_.\-]+)")
+    r"|Failed to build|Failed building wheel for)\s+([A-Za-z0-9_.\-]+)")
+COLLECTING = re.compile(r"^\s*Collecting (\S+)", re.MULTILINE)
+BUILD_FAILED = re.compile(r"metadata-generation-failed|subprocess-exited-with-error|Failed to build|failed-wheel-build")
 TAIL_LINES = 25
 
 
@@ -92,12 +94,18 @@ def pip(*args: str, timeout: int = 1800) -> Tuple[int, str]:
 
 
 def failed_names(pip_output: str) -> List[str]:
-    """The distributions pip's output names as the ones it could not install, in order."""
+    """The distributions pip's output names as the ones it could not install, in order. A failed source
+    build often names no package in its error, only in the "Collecting" line before it, so when pip
+    reports a build failure without a name, the last package it was collecting is the one."""
+    text = ANSI.sub("", pip_output)
     names: List[str] = []
-    for match in PIP_FAILED_NAME.finditer(ANSI.sub("", pip_output)):
+    for match in PIP_FAILED_NAME.finditer(text):
         name = re.split(r"[<>=!~\[;]", match.group(1))[0]
         if name and name not in names:
             names.append(name)
+    collecting = COLLECTING.findall(text)
+    if not names and collecting and BUILD_FAILED.search(text):
+        names.append(re.split(r"[<>=!~\[;(]", collecting[-1])[0])
     return names
 
 

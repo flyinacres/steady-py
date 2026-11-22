@@ -129,3 +129,71 @@ def test_sample_dates_full_clones_and_copies_flat_notebooks_alone(tmp_path, monk
         ("packt/book", "2021-03-01", "git", "requirements.txt", "1/2")
     flat = rows["kaggle/k.ipynb"]
     assert (flat.root, flat.date, flat.date_source) == ("", "", "python_proxy")
+
+
+def test_a_group_option_replaces_only_the_group_it_names():
+    defaults = {"education": ["packt"], "kaggle": ["kaggle"]}
+    assert study.parse_mapping(None, defaults) == defaults
+    assert study.parse_mapping(["kaggle=kaggle_corpus"], defaults) == {"education": ["packt"], "kaggle": ["kaggle_corpus"]}
+    assert study.parse_mapping(["kaggle="], defaults) == {"education": ["packt"]}
+
+
+def _row(path, root):
+    return study.SampleRow(path, "g", root, "", "git", "", "", "", 1)
+
+
+def test_the_sample_takes_at_most_per_repo_notebooks_from_one_repository():
+    rows = [_row(f"big/r/{i}.ipynb", "big/r") for i in range(10)] + [_row(f"flat/{i}.ipynb", "") for i in range(3)]
+    picked = study.capped_sample(rows, 6, 2, study.random.Random(1))
+    assert len(picked) == 5  # two from the repository, and each flat notebook counts as its own
+    assert sum(1 for r in picked if r.root == "big/r") == 2
+    assert len(study.capped_sample(rows, 6, 0, study.random.Random(1))) == 6
+
+
+def test_kaggle_notebooks_are_dated_from_their_kernel_version_ids(tmp_path, monkeypatch):
+    corpus = tmp_path / "corpus"
+    for stem in ("1001360", "100141104"):
+        path = corpus / "kaggle_corpus" / f"{stem}.ipynb"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"cells": [{"cell_type": "code", "source": f"x = {stem}", "metadata": {}, "outputs": []}],
+                                    "metadata": {}, "nbformat": 4, "nbformat_minor": 5}), encoding="utf-8")
+    versions = tmp_path / "KernelVersions.csv"
+    versions.write_text('Id,ScriptId,Title,CreationDate\n1001360,5,"a\nmultiline title",03/05/2017 21:32:30\n'
+                        '100141104,6,b,07/01/2022 10:00:00\n999,7,c,01/01/2020 00:00:00\n', encoding="utf-8")
+    monkeypatch.setattr(study, "RUNS", tmp_path / "runs")
+    study.main(["sample", "--corpus", str(corpus), "--group", "kaggle=kaggle_corpus", "--group", "education=",
+                "--kaggle-versions", str(versions)])
+    rows = {r.path: (r.date, r.date_source) for r in study.read_sample()}
+    assert rows == {"kaggle_corpus/1001360.ipynb": ("2017-03-05", "kaggle_versions"),
+                    "kaggle_corpus/100141104.ipynb": ("2022-07-01", "kaggle_versions")}
+
+
+BUILD_OUTPUT = """Collecting pandas==0.18.1 (from -r requirements.txt (line 2))
+  Using cached pandas-0.18.1.tar.gz
+Collecting numpy==1.11.0 (from -r requirements.txt (line 1))
+  Preparing metadata (pyproject.toml): finished with status 'error'
+  error: subprocess-exited-with-error
+      ModuleNotFoundError: No module named 'imp'
+error: metadata-generation-failed
+"""
+
+
+def test_a_failed_source_build_names_the_package_and_counts_as_the_python_ceiling():
+    assert ex.failed_names(BUILD_OUTPUT) == ["numpy"]
+    result = ex.Result(python="3.12.7", kernel_python="python3", outcome="requirements_failed",
+                       requirements_failed_names=ex.failed_names(BUILD_OUTPUT), setup_tail=BUILD_OUTPUT)
+    verdict = study.classify(result)
+    assert (verdict.kind, verdict.dist, verdict.reason) == (Kind.INSTALL, "numpy", f"requirements: {study.BUILD_FAILED}")
+
+
+def test_the_report_covers_only_the_current_sample(tmp_path, monkeypatch):
+    monkeypatch.setattr(study, "RUNS", tmp_path)
+    study.write_rows(tmp_path / "sample.csv", [_row("packt/r/a.ipynb", "packt/r")])
+    done = study.asdict(ex.Result(python="3.12.7", kernel_python="python3"))
+    for path in ("packt/r/a.ipynb", "packt/r/old.ipynb"):
+        study.append_record(study.RunRecord(f"baseline|python|{path}|", "baseline", "python", "img", "now", path, "g", "",
+                                            [], [], "", done))
+    study.main(["report"])
+    report = (tmp_path / "report.txt").read_text(encoding="utf-8")
+    assert "(1 baseline runs of notebooks not in the current sample.csv are left out)" in report
+    assert "1 notebooks from 1 repositories" in report
